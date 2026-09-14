@@ -1,0 +1,78 @@
+import json
+from pathlib import Path
+from datetime import datetime
+from .procedural_memory import ProceduralMemory
+
+
+class SkillSystem:
+    """Persistent skill registry over procedural memory; policy remains external."""
+    def __init__(self, path, procedures=None):
+        self.path = Path(path); self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.procedures = procedures or ProceduralMemory(self.path.with_name('procedures.json'))
+        self.skills = []; self._load()
+
+    def _load(self):
+        if self.path.exists():
+            try: self.skills = json.loads(self.path.read_text(encoding='utf-8'))[-5000:]
+            except Exception: self.skills = []
+
+    def _save(self):
+        tmp=self.path.with_suffix('.tmp'); tmp.write_text(json.dumps(self.skills,ensure_ascii=False,indent=2),encoding='utf-8'); tmp.replace(self.path)
+
+    def upsert(self, name, description, domain, goal_patterns, procedure, preconditions=None,
+               required_capabilities=None, risk='low', confidence=.6, skill_id=None):
+        now=datetime.now().isoformat(timespec='seconds'); sid=skill_id or self._stable_id(name,domain)
+        row=next((x for x in self.skills if x.get('skill_id')==sid),None)
+        payload={'skill_id':sid,'name':str(name),'description':str(description),'domain':str(domain),
+                 'goal_patterns':list(goal_patterns or []),'preconditions':list(preconditions or []),
+                 'procedure':procedure,'required_capabilities':list(required_capabilities or []),
+                 'risk':str(risk),'success_rate':0.,'confidence':round(float(confidence),4),
+                 'usage_count':row.get('usage_count',0) if row else 0,'failure_count':row.get('failure_count',0) if row else 0,
+                 'version':int(row.get('version',0))+1 if row else 1,'enabled':row.get('enabled',True) if row else True,
+                 'created_at':row.get('created_at',now) if row else now,'updated_at':now}
+        if row: row.update(payload)
+        else: self.skills.append(payload)
+        self._save(); return payload
+
+    @staticmethod
+    def _stable_id(name,domain):
+        import hashlib
+        return 'skill_'+hashlib.sha256((str(name)+'|'+str(domain)).encode()).hexdigest()[:16]
+
+    def discover(self, goal, domain=None, limit=5):
+        q=set(str(goal).lower().split()); ranked=[]
+        for s in self.skills:
+            if not s.get('enabled',True) or (domain and s.get('domain')!=domain): continue
+            text=' '.join([s.get('name',''),s.get('description',''),' '.join(s.get('goal_patterns',[]))]).lower()
+            overlap=len(q & set(text.split()))/max(1,len(q)); score=.65*overlap+.35*float(s.get('confidence',0))
+            if overlap: ranked.append((score,s))
+        ranked.sort(key=lambda x:x[0],reverse=True); return [x[1] for x in ranked[:int(limit)]]
+
+    def retrieve(self, goal, domain=None, limit=5): return self.discover(goal,domain,limit)
+
+    def check_preconditions(self, skill, context=None):
+        return self.procedures.check_preconditions({'preconditions':skill.get('preconditions',[])},context)
+
+    def apply(self, skill_id, context=None):
+        row=next((x for x in self.skills if x.get('skill_id')==skill_id),None)
+        if not row or not row.get('enabled',True): return {'applied':False,'reason':'skill_disabled_or_missing'}
+        check=self.check_preconditions(row,context); 
+        if not check['applicable']: return {'applied':False,'reason':'skill_not_applicable','missing':check['missing']}
+        row['usage_count']=int(row.get('usage_count',0))+1; row['updated_at']=datetime.now().isoformat(timespec='seconds'); self._save()
+        return {'applied':True,'skill_id':skill_id,'procedure':row.get('procedure')}
+
+    def update_outcome(self, skill_id, success):
+        row=next((x for x in self.skills if x.get('skill_id')==skill_id),None)
+        if not row:return None
+        if not success: row['failure_count']=int(row.get('failure_count',0))+1
+        total=int(row.get('usage_count',0)); old=float(row.get('success_rate',0)); sample=1.0 if success else 0.0
+        row['success_rate']=round(old*.8+sample*.2,4); row['confidence']=round(max(.05,min(.99,float(row.get('confidence',.5)) + (.03 if success else -.08))),4)
+        if not success and row['failure_count']>=3 and row['success_rate']<.35: row['enabled']=False
+        row['updated_at']=datetime.now().isoformat(timespec='seconds'); self._save(); return row
+
+    def disable(self, skill_id, reason='manual'): return self._set_enabled(skill_id,False,reason)
+    def enable(self, skill_id): return self._set_enabled(skill_id,True,'re-enabled')
+    def _set_enabled(self, skill_id, enabled, reason):
+        row=next((x for x in self.skills if x.get('skill_id')==skill_id),None)
+        if not row:return None
+        row['enabled']=bool(enabled); row['updated_at']=datetime.now().isoformat(timespec='seconds'); row['status_reason']=reason; self._save(); return row

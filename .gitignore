@@ -1,0 +1,44 @@
+# Python
+__pycache__/
+*.py[cod]
+*.log
+
+# Environments
+.venv/
+venv/
+env/
+ENV/
+
+# Secrets / local configuration
+.env
+.env.*
+!.env.example
+
+# IDE
+.vscode/
+.idea/
+
+# Python tooling
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Build
+build/
+dist/
+*.egg-info/
+
+# Iran runtime data
+data/
+logs/
+
+# Sandbox
+sandbox/
+
+# Temporary files
+*.tmp
+*.temp
+# OS
+Thumbs.db
+.DS_Store
+docs/*.docx

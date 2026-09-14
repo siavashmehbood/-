@@ -1,0 +1,31 @@
+{
+  "name": "ایران",
+  "version": "0.29.0",
+  "model": {
+    "provider": "iran",
+    "endpoint": "https://api.openai.com/v1/chat/completions",
+    "name": "gpt-5.6",
+    "timeout": 60
+  },
+  "memory": {
+    "db": "data/iran.db",
+    "max_history": 16,
+    "search_limit": 12
+  },
+  "security": {
+    "safe_mode": true,
+    "allow_shell": false,
+    "allow_network_tools": true
+  },
+  "self_improvement": {
+    "enabled": true,
+    "sandbox": "sandbox",
+    "auto_deploy": false,
+    "require_tests": true
+  },
+  "runtime": {
+    "event_log": "logs/events.jsonl",
+    "goals": "data/goals.json",
+    "service_interval": 10
+  }
+}

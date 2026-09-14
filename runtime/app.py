@@ -1,0 +1,658 @@
+from pathlib import Path
+import json
+from core.agent import Agent
+from core.brain import Brain
+from core.orchestrator import Orchestrator
+from core.cognition_engine import CognitiveEngine
+from core.world_model import WorldModel
+from core.prediction import PredictionEngine
+from core.anomaly import AnomalyDetector
+from core.kernel import CognitiveKernel
+from core.reflection import ReflectionEngine
+from memory.store import Memory
+from knowledge.knowledge_graph import KnowledgeGraph
+from learning.learning_engine import LearningEngine
+from providers.factory import create_provider
+from runtime.events import EventLog
+from runtime.goals import GoalStore
+from runtime.scheduler import Scheduler
+from runtime.conversation_router import ConversationRouter
+from runtime.runner import BackgroundRunner
+from security.policy import SecurityPolicy
+from tools.builtin import build_registry
+from self.evaluator import Evaluator
+from self.benchmark import CognitiveBenchmark
+from self.improvement_loop import SelfImprovementLoop
+
+class IranRuntime:
+    """Local autonomous runtime wiring perception, cognition, memory, action, learning and self-evaluation."""
+    def __init__(self,root):
+        self.root=Path(root);self.config=json.loads((self.root/'config.json').read_text(encoding='utf-8-sig'))
+        self.provider=create_provider(self.config);self.brain=Brain(self.provider);self.memory=Memory(self.root/self.config['memory']['db']);self.events=EventLog(self.root/self.config['runtime']['event_log'])
+        self.goals=GoalStore(self.root/self.config['runtime'].get('goals','data/goals.json'));self.policy=SecurityPolicy(self.config);self.registry=build_registry(self.root,self.memory);self.agent=Agent(self.brain,self.memory,self.config['memory']['max_history'])
+        self.evaluator=Evaluator(self.root);self.benchmark=CognitiveBenchmark();self.improvement=SelfImprovementLoop(self.root);self.cognition_engine=CognitiveEngine();self.world=WorldModel(self.root/'data/world.json')
+        self.knowledge=KnowledgeGraph(self.root/'data/knowledge.json');self.learning=LearningEngine(self.root/'data/experiences.json');self.prediction=PredictionEngine(self.root/'data/predictions.json');self.anomaly=AnomalyDetector();self.kernel=CognitiveKernel(self.memory,self.world,self.knowledge,self.prediction,self.anomaly,self.learning)
+        self.reflector=ReflectionEngine();self.orchestrator=Orchestrator(self.agent,self.memory,self.events,self.registry,self.policy,self.goals,self.evaluator);self.scheduler=Scheduler(self.root/'data/schedule.json');self.runner=BackgroundRunner(self.scheduler,self.events)
+        self.events.emit('runtime_ready',{'provider':self.provider.name,'version':self.config['version'],'cognitive':True,'offline':True,'network_model':False})
+    def handle(self,text):
+        language=self.brain.analyze(text);cycle=self.kernel.cycle(text)
+        self.events.emit('language_analysis',{'intent':language.intent,'confidence':language.confidence,'entities':language.entities,'constraints':language.constraints,'ambiguity':language.ambiguity})
+        self.events.emit('cognitive_cycle',{'intent':cycle.intent,'confidence':cycle.confidence,'elapsed_ms':cycle.elapsed_ms,'decision':cycle.decision,'causal':cycle.causal})
+        answer=self.orchestrator.handle(text);score=self.evaluator.score(text,answer)
+        reflection=self.reflector.reflect(text,answer,score,cycle.predictions);strategy=cycle.strategy.get('recommended_strategy','evidence-first') if cycle.strategy else 'evidence-first'
+        domain=language.entities[0] if language.entities else 'general';self.learning.record(text,'respond',answer,score,language.intent,strategy,domain)
+        for prediction in cycle.predictions:self.prediction.record(prediction['action'],score>=.55,language.intent)
+        self.world.record_observation('response_score',score,1.0);self.world.transition(language.intent,cycle.decision.get('chosen','respond'),answer[:300],score);self.events.emit('reflection',reflection.__dict__)
+        return answer
+    def health(self):return self.brain.health()
+    def metrics(self):return self.orchestrator.metrics.snapshot()
+    def cognitive_snapshot(self,text):
+        state=self.cognition_engine.analyze(text);cycle=self.kernel.cycle(text)
+        return {'state':state.__dict__,'cycle':cycle.__dict__,'world':self.world.snapshot(),'knowledge':self.knowledge.stats(),'learning':self.learning.stats(),'memory':self.memory.stats(),'prediction':self.prediction.calibration()}
+    def benchmark_run(self):return self.benchmark.run(self.brain.language,self.provider,self.brain,self.orchestrator.planner,self.kernel).__dict__
+    def evaluate(self):return {'compile':self.evaluator.compile_all(),'benchmark':self.benchmark_run(),'world':self.world.snapshot(),'learning':self.learning.stats(),'prediction':self.prediction.calibration()}
+    def decide(self,text):return self.orchestrator.explain_decision(text)
+    def reflect(self,text,answer,score):return self.reflector.reflect(text,answer,score).__dict__
+    def close(self):self.memory.close()
+
+
+# Wire the real cognitive cycle into the conversational response path.
+_old_handle = IranRuntime.handle
+
+def _handle_v2(self, text):
+    cycle = self.kernel.cycle(text)
+    self.orchestrator.agent._cognitive_context = cycle
+    try:
+        return _old_handle(self, text)
+    finally:
+        self.orchestrator.agent._cognitive_context = None
+
+IranRuntime.handle = _handle_v2
+
+# v0.21: execute exactly one cognitive cycle per user turn; the prior bridge ran it twice.
+def _handle_v3(self, text):
+    language = self.brain.analyze(text)
+    cycle = self.kernel.cycle(text)
+    self.events.emit('language_analysis', {'intent':language.intent,'confidence':language.confidence,
+        'entities':language.entities,'constraints':language.constraints,'ambiguity':language.ambiguity})
+    self.events.emit('cognitive_cycle', {'intent':cycle.intent,'confidence':cycle.confidence,
+        'elapsed_ms':cycle.elapsed_ms,'decision':cycle.decision,'causal':cycle.causal})
+    self.orchestrator.agent._cognitive_context = cycle
+    try:
+        answer = self.orchestrator.handle(text)
+    finally:
+        self.orchestrator.agent._cognitive_context = None
+    score = self.evaluator.score(text, answer)
+    reflection = self.reflector.reflect(text, answer, score, cycle.predictions)
+    strategy = cycle.strategy.get('recommended_strategy','evidence-first') if cycle.strategy else 'evidence-first'
+    domain = language.entities[0] if language.entities else 'general'
+    self.learning.record(text,'respond',answer,score,language.intent,strategy,domain)
+    for prediction in cycle.predictions:
+        self.prediction.record(prediction['action'],score >= .55,language.intent)
+    self.world.record_observation('response_score',score,1.0)
+    self.world.transition(language.intent,cycle.decision.get('chosen','respond'),answer[:300],score)
+    self.events.emit('reflection',reflection.__dict__)
+    return answer
+
+IranRuntime.handle = _handle_v3
+
+# v0.23: close the loop: semantic memory + post-action learning + grounded response context.
+from memory.semantic import SemanticMemory
+
+def _handle_v4(self,text):
+    language=self.brain.analyze(text)
+    cycle=self.kernel.cycle(text)
+    self.events.emit('language_analysis',{'intent':language.intent,'confidence':language.confidence,'entities':language.entities,'constraints':language.constraints,'ambiguity':language.ambiguity})
+    semantic=SemanticMemory(self.memory)
+    cycle_dict=cycle.__dict__ if hasattr(cycle,'__dict__') else dict(cycle)
+    cycle_dict['semantic_memory']=semantic.profile(text)
+    self.orchestrator.agent._cognitive_context=cycle_dict
+    try: answer=self.orchestrator.handle(text)
+    finally: self.orchestrator.agent._cognitive_context=None
+    score=self.evaluator.score(text,answer)
+    strategy=cycle.strategy.get('recommended_strategy','evidence-first') if cycle.strategy else 'evidence-first'
+    domain=language.entities[0] if language.entities else 'general'
+    self.learning.record(text,'respond',answer,score,language.intent,strategy,domain)
+    semantic.consolidate_experience(text,score,strategy); semantic.consolidate(10)
+    self.learning.auto_maintenance()
+    for prediction in cycle.predictions:self.prediction.record(prediction['action'],score>=.55,language.intent)
+    self.world.record_observation('response_score',score,1.0)
+    self.world.transition(language.intent,cycle.decision.get('chosen','respond'),answer[:300],score)
+    reflection=self.reflector.post_action(text,cycle.decision.get('chosen','respond'),answer,score)
+    self.events.emit('cognitive_cycle',{'intent':cycle.intent,'confidence':cycle.confidence,'elapsed_ms':cycle.elapsed_ms,'decision':cycle.decision,'causal':cycle.causal})
+    self.events.emit('reflection',reflection.__dict__)
+    self.events.emit('learning_update',{'score':score,'strategy':strategy,'semantic':self.memory.semantic_stats()})
+    return answer
+
+IranRuntime.handle=_handle_v4
+
+# v0.24: explicit time-aware episodic recall is injected into every cognitive turn.
+from memory.episodic import EpisodicMemory
+
+_old_handle_v4 = IranRuntime.handle
+
+def _handle_v5(self, text):
+    episodic = EpisodicMemory(self.memory)
+    self._last_episodic = episodic.summarize(text, 8)
+    answer = _old_handle_v4(self, text)
+    # Keep the retrieved episodes observable for diagnostics and future replanning.
+    self.events.emit('episodic_recall', {
+        'query': text,
+        'temporal': self._last_episodic.get('temporal'),
+        'count': self._last_episodic.get('count', 0),
+        'top': self._last_episodic.get('episodes', [])[:3],
+    })
+    return answer
+
+IranRuntime.handle = _handle_v5
+
+# v0.24b: make episodic evidence part of the cognitive context, not just telemetry.
+_old_cycle_app = IranRuntime.kernel if False else None
+if not hasattr(CognitiveKernel, '_iran_base_cycle'):
+    CognitiveKernel._iran_base_cycle = CognitiveKernel.cycle
+_old_kernel_cycle = CognitiveKernel._iran_base_cycle
+
+def _kernel_cycle_with_episodic(self, text):
+    result = _old_kernel_cycle(self, text)
+    try:
+        episodes = EpisodicMemory(self.memory).summarize(text, 8)
+        if not isinstance(result.understanding, dict):
+            result.understanding = {}
+        result.understanding['episodic'] = episodes
+    except Exception:
+        pass
+    return result
+
+CognitiveKernel.cycle = _kernel_cycle_with_episodic
+
+
+# v0.25: Phase-1 task/action/observation/verification integration.
+from runtime.task_runtime import TaskRuntime, TaskStatus
+from core.action_runtime import ActionExecutor
+from core.observation import ObservationEngine
+from core.verification import VerificationEngine
+from core.failure import FailureIntelligence
+from core.replanning import Replanner
+
+_old_init_phase1 = IranRuntime.__init__
+def _init_phase1(self, root):
+    _old_init_phase1(self, root)
+    task_path = self.root / 'data' / 'tasks.json'
+    self.tasks = TaskRuntime(task_path)
+    self.actions = ActionExecutor(self.registry, self.policy, self.events)
+    self.observer = ObservationEngine(self.events)
+    self.verifier = VerificationEngine(self.events)
+    self.failure = FailureIntelligence()
+    self.replanner = Replanner(self.events)
+    self.events.emit('phase1_runtime_ready', {'task_runtime': True, 'action_contracts': True,
+                                               'observation': True, 'verification': True,
+                                               'failure_intelligence': True, 'replanning': True})
+IranRuntime.__init__ = _init_phase1
+
+def _create_task(self, description, goal_id=None, **kwargs):
+    task = self.tasks.create(description, goal_id=goal_id, **kwargs)
+    self.tasks.transition(task.task_id, TaskStatus.READY.value, 'task created')
+    self.events.emit('task_created', {'task_id': task.task_id, 'description': description})
+    return self.tasks.get(task.task_id)
+
+
+def _execute_verified_action(self, task_id, tool_name, expected_effect, evidence, **kwargs):
+    self.tasks.transition(task_id, TaskStatus.RUNNING.value, 'action execution')
+    action = self.actions.execute(task_id, tool_name, expected_effect, **kwargs)
+    observation = self.observer.observe(action, evidence=evidence)
+    verification = self.verifier.verify(observation)
+    self.tasks.transition(task_id, TaskStatus.SUCCESS.value if verification.success else TaskStatus.FAILED.value,
+                          verification.reason)
+    if verification.success:
+        self.events.emit('task_success', {'task_id': task_id, 'action_id': action.action_id})
+    else:
+        self.events.emit('task_failure', {'task_id': task_id, 'action_id': action.action_id})
+    return action, observation, verification
+
+
+def _fail_and_replan(self, task_id, reason, category='verification', failed_assumption='', alternatives=None):
+    diagnosis = self.failure.diagnose(reason, category, failed_assumption)
+    self.events.emit('failure_diagnosed', {'task_id': task_id, **self.failure.as_event(diagnosis)})
+    self.tasks.transition(task_id, TaskStatus.REPLANNING.value, reason)
+    decision = self.replanner.replan(task_id, reason, failed_assumption, alternatives)
+    return diagnosis, decision
+
+IranRuntime.create_task = _create_task
+IranRuntime.execute_verified_action = _execute_verified_action
+IranRuntime.fail_and_replan = _fail_and_replan
+
+
+# v0.26: end-to-end verified recovery loop with planner/world/prediction integration.
+def _execute_recoverable_task(self, description, primary, alternative, expected_effect, **kwargs):
+    """Run primary action, verify independently, then replan and execute an alternative on failure."""
+    task = self.create_task(description)
+    plan = self.orchestrator.planner.build(description)
+    self.events.emit('task_plan_created', {'task_id': task['task_id'], 'version': plan.version,
+                                           'steps': [s.title for s in plan.steps]})
+    state0 = {'task_id': task['task_id'], 'status': task['status'], 'plan_version': plan.version}
+    self.world.record_observation('task_state', state0, 1.0, 'task_runtime')
+    self.tasks.transition(task['task_id'], TaskStatus.RUNNING.value, 'primary attempt')
+    action = self.actions.execute(task['task_id'], primary, expected_effect, **kwargs)
+    observation = self.observer.observe(action, evidence=[])
+    verification = self.verifier.verify(observation)
+    self.world.record_observation('action_verification', {
+        'task_id': task['task_id'], 'action_id': action.action_id,
+        'tool': primary, 'success': verification.success,
+        'reason': verification.reason}, 1.0, 'verification')
+    self.world.transition(state0, primary, {'verified': verification.success}, 1.0)
+    self.prediction.record(primary, verification.success, 'task_primary', expected_effect)
+    if verification.success:
+        self.tasks.transition(task['task_id'], TaskStatus.SUCCESS.value, verification.reason)
+        return {'task': self.tasks.get(task['task_id']), 'plan': plan, 'primary': verification.__dict__, 'replan': None}
+    diagnosis, decision = self.fail_and_replan(task['task_id'], verification.reason,
+                                                'verification', expected_effect, [alternative])
+    plan = self.orchestrator.planner.replan(plan, 1, verification.reason)
+    self.events.emit('plan_replanned', {'task_id': task['task_id'], 'version': plan.version,
+                                        'selected': decision.selected})
+    self.tasks.transition(task['task_id'], TaskStatus.READY.value, 'alternative selected')
+    self.tasks.transition(task['task_id'], TaskStatus.RUNNING.value, 'alternative attempt')
+    alt = self.actions.execute(task['task_id'], alternative, expected_effect, **kwargs)
+    alt_observation = self.observer.observe(alt, evidence=[{'source': 'independent-recheck', 'tool': alternative}])
+    alt_verification = self.verifier.verify(alt_observation)
+    self.world.record_observation('action_verification', {
+        'task_id': task['task_id'], 'action_id': alt.action_id,
+        'tool': alternative, 'success': alt_verification.success,
+        'reason': alt_verification.reason}, 1.0, 'verification')
+    self.world.transition({'task_id': task['task_id'], 'status': 'replanning', 'plan_version': plan.version},
+                          alternative, {'verified': alt_verification.success}, 1.0)
+    self.prediction.record(alternative, alt_verification.success, 'task_replanned', expected_effect)
+    self.tasks.transition(task['task_id'], TaskStatus.SUCCESS.value if alt_verification.success else TaskStatus.FAILED.value,
+                          alt_verification.reason)
+    self.events.emit('recovery_completed', {'task_id': task['task_id'], 'success': alt_verification.success,
+                                            'primary_failed': True, 'alternative': alternative})
+    return {'task': self.tasks.get(task['task_id']), 'plan': plan,
+            'primary': verification.__dict__, 'diagnosis': diagnosis.__dict__,
+            'replan': decision.__dict__, 'alternative': alt_verification.__dict__}
+
+IranRuntime.execute_recoverable_task = _execute_recoverable_task
+
+
+# v0.27: evidence-backed state transition recorder is part of runtime telemetry.
+from core.world.transition import TransitionRecorder
+_old_init_phase27 = IranRuntime.__init__
+def _init_phase27(self, root):
+    _old_init_phase27(self, root)
+    self.transition_recorder = TransitionRecorder(self.world)
+IranRuntime.__init__ = _init_phase27
+
+_old_execute_recoverable_task = IranRuntime.execute_recoverable_task
+def _execute_recoverable_task_v27(self, description, primary, alternative, expected_effect, **kwargs):
+    result = _old_execute_recoverable_task(self, description, primary, alternative, expected_effect, **kwargs)
+    task_id = result['task']['task_id']
+    self.events.emit('verified_state_transition_audit', {
+        'task_id': task_id,
+        'primary_success': result['primary']['success'],
+        'alternative_success': result.get('alternative', {}).get('success') if result.get('alternative') else None,
+        'world_transitions': len(self.world.recent_transitions(10)),
+    })
+    return result
+IranRuntime.execute_recoverable_task = _execute_recoverable_task_v27
+
+# v0.28: structured Persian Language Intelligence contract.
+from language_intelligence import PersianIntelligence
+_old_init_lang28 = IranRuntime.__init__
+def _init_lang28(self, root):
+    _old_init_lang28(self, root)
+    self.language_intelligence = PersianIntelligence(self.brain.language)
+    self.events.emit('language_intelligence_ready', {'structured': True, 'raw_text_preserved': True})
+IranRuntime.__init__ = _init_lang28
+
+_old_handle_lang28 = IranRuntime.handle
+def _handle_lang28(self, text):
+    semantic = self.language_intelligence.analyze(text, getattr(self.brain, 'frame', None))
+    self._last_language_semantic = semantic
+    self.events.emit('semantic_representation', {
+        'intent': semantic['intent'], 'multi_intent': semantic['multi_intent'],
+        'constraints': semantic['constraints'], 'references': semantic['references'],
+        'ambiguity': semantic['ambiguity'], 'confidence': semantic['confidence']})
+    return _old_handle_lang28(self, text)
+IranRuntime.handle = _handle_lang28
+
+# v0.28: structured Persian benchmark is part of the runtime benchmark contract.
+from self.persian_benchmark import PersianLanguageBenchmark
+_old_benchmark_run_28 = IranRuntime.benchmark_run
+def _benchmark_run_28(self):
+    result = _old_benchmark_run_28(self)
+    result['persian_structured'] = PersianLanguageBenchmark().run(self.language_intelligence)
+    return result
+IranRuntime.benchmark_run = _benchmark_run_28
+
+
+# v0.29 Task C: procedural memory, skills and typed memory-graph integration.
+from learning.procedural_memory import ProceduralMemory
+from learning.skill_system import SkillSystem
+
+if not hasattr(IranRuntime, '_taskc_base_init'):
+    IranRuntime._taskc_base_init = IranRuntime.__init__
+_old_init_taskc = IranRuntime._taskc_base_init
+
+def _init_taskc(self, root):
+    _old_init_taskc(self, root)
+    self.procedural_memory = ProceduralMemory(self.root/'data/procedures.json')
+    self.skills = SkillSystem(self.root/'data/skills.json', self.procedural_memory)
+    self.kernel.skill_system = self.skills
+    self.kernel.procedural_memory = self.procedural_memory
+    self.events.emit('taskc_ready', {'memory_graph': True, 'procedural_memory': True, 'skills': True, 'transfer': True})
+
+IranRuntime.__init__ = _init_taskc
+
+_old_benchmark_taskc = IranRuntime.benchmark_run
+
+def _benchmark_taskc(self):
+    result = _old_benchmark_taskc(self)
+    result['task_c'] = {
+        'memory_graph': self.knowledge.stats(),
+        'procedures': len(self.procedural_memory.procedures),
+        'skills': len(self.skills.skills),
+        'enabled_skills': sum(1 for s in self.skills.skills if s.get('enabled', True)),
+    }
+    return result
+IranRuntime.benchmark_run = _benchmark_taskc
+
+
+def _learn_procedure_skill(self, goal, strategy, source_experiences=None, domain='general'):
+    proc = self.procedural_memory.upsert(
+        name=strategy, goal=goal,
+        steps=['inspect evidence','apply strategy','observe outcome','verify outcome','update learning'],
+        preconditions=['evidence_available'], expected_outcome='verified successful outcome',
+        verification_conditions=['outcome_verified'], failure_conditions=['verification_failed'],
+        source_experiences=source_experiences or [], confidence=.65)
+    skill = self.skills.upsert(
+        name=strategy, description='learned reusable procedure', domain=domain,
+        goal_patterns=[goal], procedure=proc, preconditions=['evidence_available'],
+        required_capabilities=['observation','verification'], risk='low', confidence=proc['confidence'])
+    self.knowledge.add_node(proc['procedure_id'],'procedure',proc,proc['confidence'],'learning')
+    self.knowledge.add_node(skill['skill_id'],'skill',skill,skill['confidence'],'learning')
+    for source in source_experiences or []:
+        self.knowledge.add_edge(source,'learned_from',proc['procedure_id'],.8,'experience-to-procedure','learning')
+    self.knowledge.add_edge(proc['procedure_id'],'used_by',skill['skill_id'],.9,'procedure-to-skill','learning')
+    self.events.emit('procedure_skill_learned', {'procedure_id':proc['procedure_id'],'skill_id':skill['skill_id']})
+    return {'procedure':proc,'skill':skill}
+
+IranRuntime.learn_procedure_skill = _learn_procedure_skill
+
+
+def _retrieve_skill(self, goal, domain=None):
+    skills=self.skills.retrieve(goal,domain,5)
+    selected=skills[0] if skills else None
+    self.events.emit('skill_retrieval', {'goal':goal,'domain':domain,'count':len(skills),'selected':selected.get('skill_id') if selected else None})
+    return selected
+
+IranRuntime.retrieve_skill = _retrieve_skill
+
+
+# Task C cognitive integration: every cycle retrieves applicable procedural skill evidence.
+if not hasattr(CognitiveKernel, '_taskc_cycle_base'):
+    CognitiveKernel._taskc_cycle_base = CognitiveKernel.cycle
+_old_cycle_taskc = CognitiveKernel._taskc_cycle_base
+
+def _cycle_taskc(self, text):
+    result = _old_cycle_taskc(self, text)
+    try:
+        skills = self.skill_system.retrieve(result.goal, None, 5) if hasattr(self, 'skill_system') else []
+        selected = skills[0] if skills else None
+        if not isinstance(result.understanding, dict): result.understanding = {}
+        result.understanding['procedural_skills'] = skills
+        result.understanding['selected_skill'] = selected
+        if selected:
+            result.strategy['skill_retrieved'] = True
+            result.strategy['selected_skill'] = selected.get('skill_id')
+            result.reflection['next_steps'] = result.reflection.get('next_steps', []) + ['apply and verify retrieved skill']
+    except Exception as exc:
+        if not isinstance(result.understanding, dict): result.understanding = {}
+        result.understanding['skill_retrieval_error'] = type(exc).__name__
+    return result
+
+CognitiveKernel.cycle = _cycle_taskc
+
+
+# v0.29c: full Task C deterministic benchmark is part of runtime evaluation.
+from self.task_c_benchmark import TaskCBenchmark
+if not hasattr(IranRuntime, '_taskc_benchmark_base'):
+    IranRuntime._taskc_benchmark_base = IranRuntime.benchmark_run
+_old_benchmark_taskc_full = IranRuntime._taskc_benchmark_base
+
+def _benchmark_taskc_full(self):
+    result=_old_benchmark_taskc_full(self)
+    result['task_c_benchmark']=TaskCBenchmark().run()
+    return result
+IranRuntime.benchmark_run=_benchmark_taskc_full
+
+
+
+# v0.30: explicit persistent User Model integration.
+from core.user_model import UserModel
+from core.response_engine import LocalResponseEngine
+from core.agent import Agent
+
+if not hasattr(IranRuntime, '_usermodel_base_init'):
+    IranRuntime._usermodel_base_init = IranRuntime.__init__
+_base_um_init = IranRuntime._usermodel_base_init
+
+def _init_usermodel(self, root):
+    _base_um_init(self, root)
+    self.user_model = UserModel(self.memory, self.knowledge, 'IRAN')
+    self.orchestrator.agent._user_model = self.user_model
+    self.orchestrator._user_model = self.user_model
+    self.conversation_router = ConversationRouter(self)
+    self.events.emit('user_model_ready', {'persistent': True, 'fact_only': True, 'conversation_router': True})
+
+IranRuntime.__init__ = _init_usermodel
+
+# Expose explicit user facts to the real response path as structured context.
+if not hasattr(Agent, '_iran_base_build_messages'):
+    Agent._iran_base_build_messages = Agent.build_messages
+_base_agent_messages = Agent._iran_base_build_messages
+
+def _build_messages_usermodel(self, user_text):
+    messages = _base_agent_messages(self, user_text)
+    model = getattr(self, '_user_model', None)
+    if model:
+        profile = model.profile(user_text, 12)
+        facts = profile.get('facts', [])
+        if facts:
+            lines = [f"{f['predicate']}={f['object']} (confidence={float(f['confidence']):.2f}, source={f['source']})" for f in facts]
+            messages.insert(1, {'role':'system', 'content':'Persistent User Model facts (explicit facts only):\n' + '\n'.join(lines)})
+    return messages
+
+Agent.build_messages = _build_messages_usermodel
+
+# Extract explicit user facts before generating the answer and inject them into this turn's cognitive state.
+if not hasattr(IranRuntime, '_iran_base_handle_usermodel'):
+    IranRuntime._iran_base_handle_usermodel = IranRuntime.handle
+_base_um_handle = IranRuntime._iran_base_handle_usermodel
+
+def _handle_usermodel(self, text):
+    extracted = self.user_model.record(text)
+    self._last_user_facts = extracted
+    self.events.emit('user_model_update', {'extracted': extracted, 'count': len(extracted)})
+    return _base_um_handle(self, text)
+
+IranRuntime.handle = _handle_usermodel
+
+# Ground explicit user-model answers in persisted facts rather than generic lexical recall.
+if not hasattr(LocalResponseEngine, '_iran_base_memory_answer_um'):
+    LocalResponseEngine._iran_base_memory_answer_um = LocalResponseEngine.memory_answer
+_base_memory_um = LocalResponseEngine._iran_base_memory_answer_um
+
+def _memory_answer_usermodel(self, text, history, frame):
+    cycle = getattr(self, '_active_cycle', {}) or {}
+    um = cycle.get('user_model', {}) if isinstance(cycle, dict) else {}
+    facts = um.get('facts', []) if isinstance(um, dict) else []
+    q = str(text)
+    identity_markers = ('?? ?? ????', '??? ???????', '??? ????????', '?? ?? ????', '??? ??', '?????? ?? ??', '?????? ?? ??')
+    if facts and any(marker in q for marker in identity_markers):
+        lines = []
+        for f in facts[:6]:
+            lines.append(f"{f.get('predicate')}: {f.get('object')} (??????? {float(f.get('confidence',0)):.2f})")
+        return '?? ???? ??????? ????? ?? ???? ????? ??? ???????:\n' + '\n'.join(f'{i+1}. {x}' for i,x in enumerate(lines))
+    return _base_memory_um(self, text, history, frame)
+
+LocalResponseEngine.memory_answer = _memory_answer_usermodel
+
+# Make the User Model available to the cognitive cycle and response engine.
+if not hasattr(CognitiveKernel, '_iran_usermodel_cycle_base'):
+    CognitiveKernel._iran_usermodel_cycle_base = CognitiveKernel.cycle
+_base_um_cycle = CognitiveKernel._iran_usermodel_cycle_base
+
+def _cycle_usermodel(self, text):
+    result = _base_um_cycle(self, text)
+    runtime_owner = getattr(self, '_iran_runtime_owner', None)
+    if runtime_owner is not None and hasattr(runtime_owner, 'user_model'):
+        result.understanding = result.understanding if isinstance(result.understanding, dict) else {}
+        result.understanding['user_model'] = runtime_owner.user_model.profile(text, 12)
+    return result
+
+CognitiveKernel.cycle = _cycle_usermodel
+
+# Link kernel back to runtime instance after initialization.
+_base_link_init = IranRuntime.__init__
+def _init_usermodel_link(self, root):
+    _base_link_init(self, root)
+    self.kernel._iran_runtime_owner = self
+
+IranRuntime.__init__ = _init_usermodel_link
+
+
+
+# v0.30b: ensure explicit User Model identity queries are answered from persistent facts.
+if not hasattr(IranRuntime, '_iran_um_identity_handle_base'):
+    IranRuntime._iran_um_identity_handle_base = IranRuntime.handle
+_base_um_identity_handle = IranRuntime._iran_um_identity_handle_base
+
+def _handle_um_identity(self, text):
+    try:
+        if hasattr(self.provider, 'response_engine'):
+            self.provider.response_engine._user_model = self.user_model
+            self.provider._user_model = self.user_model
+    except Exception:
+        pass
+    return _base_um_identity_handle(self, text)
+
+IranRuntime.handle = _handle_um_identity
+
+if not hasattr(LocalResponseEngine, '_iran_um_identity_respond_base'):
+    LocalResponseEngine._iran_um_identity_respond_base = LocalResponseEngine.respond
+_base_um_identity_respond = LocalResponseEngine._iran_um_identity_respond_base
+
+def _respond_um_identity(self, text, parsed, cycle, history, frame):
+    um = getattr(self, '_user_model', None)
+    q = str(text)
+    markers = (
+        chr(1606)+chr(1602)+chr(1588),
+        chr(1605)+chr(1606)+chr(1608)+chr(32)+chr(1605)+chr(1740)+chr(1588)+chr(1606)+chr(1575)+chr(1587)+chr(1740),
+        chr(1605)+chr(1606)+chr(32)+chr(1705)+chr(1740)+chr(1587)+chr(1578)+chr(1605),
+        chr(1585)+chr(1608)+chr(1586)+chr(32)+chr(1605)+chr(1606),
+    )
+    if um and any(m in q for m in markers):
+        facts = um.facts(limit=8)
+        if facts:
+            lines=[f"{f['predicate']}: {f['object']} ({float(f['confidence']):.2f})" for f in facts]
+            return '?? ???? Fact??? ???? ? ?????? User Model:\n' + '\n'.join(f'{i+1}. {x}' for i,x in enumerate(lines))
+    return _base_um_identity_respond(self, text, parsed, cycle, history, frame)
+
+LocalResponseEngine.respond = _respond_um_identity
+
+
+
+# v0.30c: provider-level guard so generic system-info specials cannot override grounded User Model answers.
+from providers.iran import IranProvider
+if not hasattr(IranProvider, '_iran_user_model_generate_base'):
+    IranProvider._iran_user_model_generate_base = IranProvider.generate
+_base_provider_generate_um = IranProvider._iran_user_model_generate_base
+
+def _provider_generate_um(self, messages, **kwargs):
+    um = getattr(self, '_user_model', None)
+    if um:
+        text = self._last_user(messages)
+        if chr(1606)+chr(1602)+chr(1588) in text:
+            facts = um.facts(limit=8)
+            if facts:
+                lines=[f"{f['predicate']}: {f['object']} ({float(f['confidence']):.2f})" for f in facts]
+                return 'User Model facts:\n' + '\n'.join(f'{i+1}. {x}' for i,x in enumerate(lines))
+    return _base_provider_generate_um(self, messages, **kwargs)
+
+IranProvider.generate = _provider_generate_um
+
+
+
+# v0.30d: final integration point at the real orchestrator boundary.
+from core.orchestrator import Orchestrator
+if not hasattr(Orchestrator, '_iran_user_model_handle_base'):
+    Orchestrator._iran_user_model_handle_base = Orchestrator.handle
+_base_orch_handle_um = Orchestrator._iran_user_model_handle_base
+
+def _orch_handle_user_model(self, text):
+    um = getattr(self, '_user_model', None)
+    if um and chr(1606)+chr(1602)+chr(1588) in str(text):
+        facts = um.facts(limit=8)
+        if facts:
+            lines=[f"{f['predicate']}: {f['object']} ({float(f['confidence']):.2f})" for f in facts]
+            self.metrics.record('response', 0.0)
+            return 'User Model facts:\n' + '\n'.join(f'{i+1}. {x}' for i,x in enumerate(lines))
+    return _base_orch_handle_um(self, text)
+
+Orchestrator.handle = _orch_handle_user_model
+
+# Bind User Model to orchestrator after runtime initialization.
+_prev_um_link_init = IranRuntime.__init__
+def _init_um_orchestrator_link(self, root):
+    _prev_um_link_init(self, root)
+    self.orchestrator._user_model = self.user_model
+IranRuntime.__init__ = _init_um_orchestrator_link
+
+
+
+# v0.32c: final runtime boundary for User Model learning.
+# Record explicit user facts before any downstream special-case response path.
+if not hasattr(IranRuntime, '_iran_v32_user_record_base'):
+    IranRuntime._iran_v32_user_record_base = IranRuntime.handle
+_base_v32_user_record = IranRuntime._iran_v32_user_record_base
+
+def _handle_v32_user_record(self, text):
+    try:
+        extracted = self.user_model.record(text)
+        if any(x in str(text) for x in ('درباره خودم','در مورد خودم','راجع به خودم','چی درباره خودم','چه چیزی درباره خودم')):
+            facts = self.user_model.facts(limit=20)
+            if facts:
+                lines=[]
+                for f in facts:
+                    if f.get('predicate') == 'role' and f.get('object') == 'creator':
+                        lines.append('• شما سازنده پروژه IRAN هستید.')
+                    elif f.get('predicate') == 'goal':
+                        lines.append(f"• هدفی که خودتان صریحاً گفتید: {f.get('object')}")
+                    else:
+                        lines.append(f"• {f.get('predicate')}: {f.get('object')}")
+                answer='تا این لحظه این اطلاعات صریح را از خودتان دارم:\n'+'\n'.join(lines)
+                self.memory.add('user', text, .7); self.memory.add('assistant', answer, .6)
+                return answer
+        self._last_user_facts = extracted
+        if extracted and any(f.get('predicate') == 'name' for f in extracted):
+            name = next(f.get('object') for f in extracted if f.get('predicate') == 'name')
+            self.memory.add('user', text, .7)
+            answer = f'متوجه شدم. نام شما «{name}» است و آن را به‌عنوان یک واقعیت صریح در حافظه ثبت کردم.'
+            self.memory.add('assistant', answer, .6)
+            self.events.emit('response_generated', {'goal': text, 'route': 'user_model_identity'})
+            return answer
+        self.orchestrator._user_model = self.user_model
+        self.orchestrator.agent._user_model = self.user_model
+        self.provider._user_model = self.user_model
+        self.provider.response_engine._user_model = self.user_model
+        if extracted:
+            self.events.emit('user_model_update', {'extracted': extracted, 'count': len(extracted)})
+        routed = self.conversation_router.answer(text)
+        if routed is not None:
+            self.memory.add('user', text, .7)
+            self.memory.add('assistant', routed, .6)
+            self.events.emit('response_generated', {'goal': text, 'route': 'conversation_router'})
+            return routed
+    except Exception as exc:
+        self.events.emit('user_model_error', {'error': type(exc).__name__})
+    return _base_v32_user_record(self, text)
+
+IranRuntime.handle = _handle_v32_user_record
