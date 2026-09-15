@@ -32,6 +32,50 @@ class Orchestrator:
             k,v=item.split('=',1); kwargs[k]=int(v) if v.isdigit() else v
         return parts[1],kwargs
 
+    def _parse_verified_run(self, text):
+        """Parse an explicit, permission-gated verified task request.
+
+        Syntax: /run GOAL --tool NAME --expected VALUE [--alternative NAME]
+        [--arg key=value ...].  Plain /run keeps the legacy agent loop.
+        """
+        parts=shlex.split(text)
+        if len(parts)<2 or '--tool' not in parts:
+            return None
+        try:
+            tool=parts[parts.index('--tool')+1]
+            expected=parts[parts.index('--expected')+1]
+        except (ValueError, IndexError) as exc:
+            raise ValueError('usage: /run GOAL --tool NAME --expected VALUE [--alternative NAME] [--arg key=value]') from exc
+        alternative=None
+        if '--alternative' in parts:
+            index=parts.index('--alternative')
+            try: alternative=parts[index+1]
+            except IndexError as exc: raise ValueError('missing value for --alternative') from exc
+        tool_index=parts.index('--tool')
+        goal=' '.join(parts[1:tool_index]).strip()
+        kwargs={}
+        i=0
+        while i < len(parts):
+            if parts[i]=='--arg':
+                if i+1>=len(parts) or '=' not in parts[i+1]:
+                    raise ValueError('--arg requires key=value')
+                key,value=parts[i+1].split('=',1)
+                kwargs[key]=int(value) if value.isdigit() else value
+                i+=2
+                continue
+            i+=1
+        if not goal: raise ValueError('verified run requires a goal')
+        return {'goal':goal,'primary':tool,'alternative':alternative,
+                'expected_effect':expected,'kwargs':kwargs}
+
+    def _format_verified_result(self, result):
+        task=result.get('task') or {}
+        status=task.get('status','unknown') if isinstance(task,dict) else 'unknown'
+        verified=result.get('alternative') or result.get('primary') or {}
+        return (f"task={status}; verified={bool(verified.get('success'))}; "
+                f"reason={verified.get('reason','unknown')}; "
+                f"task_id={task.get('task_id','unknown') if isinstance(task,dict) else 'unknown'}")
+
     def _auto_tool(self,text):
         name,kwargs=self.router.choose(text)
         if not name:return None
@@ -50,7 +94,15 @@ class Orchestrator:
         cognitive=self.cognition.analyze(clean); self.memory.add('semantic_input',json.dumps({'intent':language.intent,'goal':language.goal,'entities':language.entities},ensure_ascii=False),.55)
         decision=self.intelligence.decide(clean)
         self.events.emit('goal_received',{'goal':clean,'intent':cognitive.intent,'language_intent':language.intent,'confidence':max(cognitive.confidence,language.confidence),'needs_model':cognitive.needs_model})
-        if clean.startswith('/run '): return self.loop.run(clean[5:].strip()).answer
+        if clean.startswith('/run '):
+            verified=self._parse_verified_run(clean)
+            if verified is not None:
+                executor=getattr(self,'verified_executor',None)
+                if executor is None:
+                    raise RuntimeError('verified task execution is not connected')
+                result=executor(**verified)
+                return self._format_verified_result(result)
+            return self.loop.run(clean[5:].strip()).answer
         if clean.startswith('/tool '):
             name,kwargs=self._parse_tool(clean); return str(self.run_tool(name,**kwargs))
         if clean.startswith('/goal '): return str(self.goals.add(clean[6:].strip()) if self.goals else 'Goal store unavailable.')

@@ -656,3 +656,112 @@ def _handle_v32_user_record(self, text):
     return _base_v32_user_record(self, text)
 
 IranRuntime.handle = _handle_v32_user_record
+
+
+# v0.33: expose one explicit verified task vertical slice through /run.
+def _matches_expected(actual, expected):
+    if actual == expected:
+        return True
+    return str(actual).strip() == str(expected).strip()
+
+
+def _execute_verified_goal(self, goal, primary, alternative=None, expected_effect='', kwargs=None):
+    """Execute a declared tool and accept success only after independent verification."""
+    kwargs = dict(kwargs or {})
+    task = self.create_task(goal)
+    plan = self.orchestrator.planner.build(goal)
+    self.events.emit('task_plan_created', {
+        'task_id': task['task_id'], 'version': plan.version,
+        'steps': [step.title for step in plan.steps], 'verified_execution': True})
+
+    def attempt(tool_name, phase, evidence_source):
+        self.tasks.transition(task['task_id'], TaskStatus.RUNNING.value, f'{phase} attempt')
+        action = self.actions.execute(task['task_id'], tool_name, expected_effect, **kwargs)
+        observation = self.observer.observe(
+            action,
+            actual=action.result,
+            evidence=[{'source': evidence_source, 'tool': tool_name,
+                       'actual': action.result}],
+        )
+        verification = self.verifier.verify(
+            observation,
+            predicate=lambda item: _matches_expected(item.actual, expected_effect),
+        )
+        self.world.record_observation('action_verification', {
+            'task_id': task['task_id'], 'action_id': action.action_id,
+            'tool': tool_name, 'phase': phase, 'success': verification.success,
+            'reason': verification.reason}, 1.0, 'verification')
+        self.world.transition(
+            {'task_id': task['task_id'], 'phase': phase}, tool_name,
+            {'verified': verification.success}, 1.0)
+        self.prediction.record(tool_name, verification.success, phase, expected_effect)
+        return action, observation, verification
+
+    _, _, primary_verification = attempt(primary, 'primary', 'primary-observation')
+    if primary_verification.success:
+        self.tasks.transition(task['task_id'], TaskStatus.SUCCESS.value,
+                              primary_verification.reason)
+        if plan.steps:
+            self.orchestrator.planner.complete(
+                plan, plan.steps[0].id, primary_verification.reason, success=True)
+        self.events.emit('verified_task_completed', {
+            'task_id': task['task_id'], 'phase': 'primary', 'success': True})
+        return {'task': self.tasks.get(task['task_id']), 'plan': plan,
+                'primary': primary_verification.__dict__, 'alternative': None}
+
+    if not alternative:
+        self.tasks.transition(task['task_id'], TaskStatus.FAILED.value,
+                              primary_verification.reason)
+        self.events.emit('verified_task_completed', {
+            'task_id': task['task_id'], 'phase': 'primary', 'success': False})
+        return {'task': self.tasks.get(task['task_id']), 'plan': plan,
+                'primary': primary_verification.__dict__, 'alternative': None}
+
+    diagnosis, decision = self.fail_and_replan(
+        task['task_id'], primary_verification.reason, 'verification',
+        expected_effect, [alternative])
+    plan = self.orchestrator.planner.replan(plan, 1, primary_verification.reason)
+    self.events.emit('plan_replanned', {
+        'task_id': task['task_id'], 'version': plan.version,
+        'selected': decision.selected, 'verified_execution': True})
+    self.tasks.transition(task['task_id'], TaskStatus.READY.value,
+                          'verified alternative selected')
+    _, _, alternative_verification = attempt(
+        alternative, 'alternative', 'independent-recheck')
+    final_status = (TaskStatus.SUCCESS.value if alternative_verification.success
+                    else TaskStatus.FAILED.value)
+    self.tasks.transition(task['task_id'], final_status,
+                          alternative_verification.reason)
+    self.events.emit('verified_task_completed', {
+        'task_id': task['task_id'], 'phase': 'alternative',
+        'success': alternative_verification.success})
+    return {'task': self.tasks.get(task['task_id']), 'plan': plan,
+            'primary': primary_verification.__dict__,
+            'diagnosis': diagnosis.__dict__, 'replan': decision.__dict__,
+            'alternative': alternative_verification.__dict__}
+
+
+IranRuntime.execute_verified_goal = _execute_verified_goal
+
+if not hasattr(IranRuntime, '_iran_verified_executor_init_base'):
+    IranRuntime._iran_verified_executor_init_base = IranRuntime.__init__
+_old_init_verified_executor = IranRuntime._iran_verified_executor_init_base
+
+
+def _init_verified_executor(self, root):
+    _old_init_verified_executor(self, root)
+    self.orchestrator.verified_executor = self.execute_verified_goal
+    self.events.emit('verified_execution_ready', {
+        'goal_to_task': True, 'action': True, 'observation': True,
+        'verification': True, 'replanning': True})
+
+
+IranRuntime.__init__ = _init_verified_executor
+
+
+def _close_verified_executor(self):
+    self.runner.stop()
+    return self.memory.close()
+
+
+IranRuntime.close = _close_verified_executor

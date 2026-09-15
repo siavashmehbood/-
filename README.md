@@ -45,6 +45,7 @@
 - `/goal-done ID` تکمیل هدف
 - `/plan` ساخت برنامه
 - `/reason TEXT` تحلیل هدف
+- `/run GOAL --tool NAME --expected VALUE [--alternative NAME] [--arg key=value]` اجرای task با مشاهده، verification و replanning واقعی
 - `/tools` ابزارها و permissionها
 - `/tool NAME key=value` اجرای ابزار
 - `/evaluate` بررسی کد
@@ -58,6 +59,15 @@ Provider فعلی عمداً محلی و سبک است تا پروژه بدون 
 
 ## امنیت
 Safe Mode فعال است. Shell، write و deploy خودکار بسته‌اند. دسترسی شبکه فقط از permission جداگانه `network` عبور می‌کند. هیچ قابلیت خودبهسازی حق ندارد مستقیماً production را تغییر دهد.
+
+## Verified Task Execution
+برای اجرای یک هدف به‌عنوان task قابل‌اعتبارسنجی، باید ابزار و اثر مورد انتظار صریحاً اعلام شوند. موفقیت فقط وقتی ثبت می‌شود که خروجی مشاهده‌شده با `expected` تطبیق داشته باشد؛ پاسخ متنی به‌تنهایی مدرک موفقیت نیست. در صورت شکست، با افزودن `--alternative`، runtime مسیر را به ابزار جایگزین replan می‌کند.
+
+نمونه:
+
+`/run verify demo --tool primary_tool --expected "correct result" --alternative fallback_tool`
+
+پارامترهای ابزار با `--arg key=value` ارسال می‌شوند. ابزار همچنان از permissionهای Safe Mode عبور می‌کند و رویدادهای plan، action، observation، verification و replanning در event log ثبت می‌شوند.
 
 ## مسیر بعدی
 1. اتصال مدل زبانی واقعی
