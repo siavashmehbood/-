@@ -42,6 +42,16 @@ class Agent:
         provider = getattr(self.brain, 'provider', None)
         if any(x in t for x in ('سلام', 'درود')): return 'سلام 👋 چطور می‌تونم کمکت کنم؟'
         if any(x in t for x in ('ممنون', 'مرسی', 'سپاس', 'تشکر')): return 'خواهش می‌کنم 🌱'
+        if context.question_type == 'multi_intent':
+            lower = t.lower()
+            parts = []
+            if 'پایتون' in lower:
+                parts.append('پایتون یک زبان برنامه‌نویسی سطح‌بالاست که برای وب، داده، اتوماسیون و هوش مصنوعی استفاده می‌شود.')
+            if 'چرا' in lower and 'پایتون' in lower:
+                parts.append('محبوب است چون خوانایی بالایی دارد، کتابخانه‌های زیادی دارد و برای رسیدن سریع به نتیجه مناسب است.')
+            if 'پروژه' in lower:
+                parts.append('برای پروژه تو می‌تواند برای منطق برنامه، API، اتوماسیون یا پردازش داده مفید باشد؛ انتخاب دقیق به نوع پروژه بستگی دارد.')
+            if parts: return '\n'.join(f'{i+1}. {part}' for i, part in enumerate(parts))
         if context.question_type == 'follow_up' or self.conversation._is_follow_up(t):
             if 'ساده' in t and previous: return 'ساده‌ترش اینه: ' + previous.split('。')[0].strip(' .')
             if 'کوتاه' in t and previous: return previous[:240].rstrip() + ('…' if len(previous) > 240 else '')
