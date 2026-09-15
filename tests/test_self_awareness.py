@@ -1,4 +1,6 @@
+import tempfile
 import unittest
+from pathlib import Path
 
 from core.self_awareness import SelfAwarenessEngine
 
@@ -22,6 +24,16 @@ class SelfAwarenessTests(unittest.TestCase):
         engine = SelfAwarenessEngine()
         engine.observe("goal", "action", .2, True, expected=.9)
         self.assertLess(engine.state.confidence, .5)
+
+    def test_self_model_survives_restart(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "self_model.json"
+            first = SelfAwarenessEngine(path)
+            first.observe("goal", "project_files", .9, True)
+            second = SelfAwarenessEngine(path)
+            self.assertEqual(second.state.active_goal, "goal")
+            self.assertIn("project_files", second.state.capability)
+            self.assertGreater(second.state.recent_successes, 0)
 
 
 if __name__ == "__main__":
