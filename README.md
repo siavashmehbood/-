@@ -60,6 +60,11 @@ Provider رسمی پروژه `iran` و حالت آن `offline-symbolic` است. 
 
 اگر دانش محلی برای یک پرسش وجود نداشته باشد، ایران حدس را واقعیت اعلام نمی‌کند و `UNKNOWN` برمی‌گرداند.
 
+## ارزیابی و benchmark محلی
+برای مشاهده کیفیت آخرین پاسخ در CLI از `/quality` و برای اجرای benchmark فارسی از `/benchmark` استفاده کنید. benchmark شامل پاسخ factual، `UNKNOWN`، clarification، reference resolution، why، how، comparison و feedback است. دستور `/trace` eventهای چرخه شناختی را به‌شکل خوانا نشان می‌دهد و `/knowledge QUERY` دانش محلی را جست‌وجو می‌کند.
+
+یادگیری procedural فقط strategy، confidence و ranking را تغییر می‌دهد و source code، permission یا سیاست امنیتی را به‌صورت خودکار تغییر نمی‌دهد.
+
 ## امنیت
 Safe Mode فعال است. Shell، write و deploy خودکار بسته‌اند. دسترسی شبکه فقط از permission جداگانه `network` عبور می‌کند. هیچ قابلیت خودبهسازی حق ندارد مستقیماً production را تغییر دهد.
 
