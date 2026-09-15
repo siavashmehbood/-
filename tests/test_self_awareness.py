@@ -204,9 +204,6 @@ class SelfAwarenessTests(unittest.TestCase):
             self.assertEqual(second.state.evaluation_weights["prediction"], expected)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
     def test_outcome_closes_learning_loop(self):
         engine = SelfAwarenessEngine()
         evaluation = engine.evaluate_action("goal", "project_files", .9, .9, .0, .9, 1.0, True)
@@ -217,3 +214,7 @@ if __name__ == "__main__":
         self.assertGreater(engine.state.calibration_error, before)
         self.assertGreaterEqual(engine.state.recent_failures, 1)
         self.assertIn("project_files", engine.state.capability)
+
+if __name__ == "__main__":
+    unittest.main()
+
