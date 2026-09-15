@@ -117,6 +117,18 @@ class LocalResponseEngine:
         base='برای اجرای این درخواست، اول پیش‌شرط‌ها را مشخص می‌کنم و بعد تغییر را مرحله‌ای انجام می‌دهم. '
         if c: base += 'محدودیت‌ها: ' + '؛ '.join(c) + '. '
         return base+'گام‌ها: '+' → '.join(actions)+'.'
+    def direct_fact(self, text, parsed=None):
+        """Answer a small, explicit local knowledge base without an AI model."""
+        q=self.clean(text).rstrip('؟?').strip().lower()
+        facts=(
+            (('پایتخت ایران','پایتخت کشور ایران','پایتخت ایران کجاست'), 'پایتخت ایران تهران است.', 'high'),
+            (('اسم پروژه','نام پروژه','پروژه چیه','پروژه چیست'), 'نام پروژه «ایران» است؛ یک معماری شناختی مستقل و نمادین.', 'high'),
+            (('نوع پروژه','ایران چیست','ایران چیه'), 'ایران یک معماری شناختی مستقل، نمادین و کاملاً آفلاین است؛ نه یک chatbot و نه متصل به مدل هوش مصنوعی آماده.', 'high'),
+        )
+        for markers, answer, _ in facts:
+            if any(marker in q for marker in markers):
+                return answer
+        return ''
     def general(self,text,parsed,history,frame):
         hits=self.context_hits(text,history,2)
         ref=self.resolve_reference(text,history,frame)
@@ -129,6 +141,9 @@ class LocalResponseEngine:
                     'اگر داده یا منبع مجاز مشخصی بدهی، دوباره بررسی و نتیجه را با سطح اطمینان اعلام می‌کنم.')
         return f'موضوع را به‌عنوان «{self.clean(text).rstrip("؟?")}» ثبت کردم. برای اینکه پاسخ فقط تکرار سؤال نباشد، هدف، شواهد موجود و نتیجه قابل‌آزمایش را از هم جدا می‌کنم.'
     def respond(self,text,parsed,cycle,history,frame):
+        fact=self.direct_fact(text,parsed)
+        if fact:
+            return fact
         kinds=self.split_intents(text)
         parts=[]
         seen=set()

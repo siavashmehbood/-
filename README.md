@@ -4,12 +4,13 @@
 
 ایران یک هسته شخصی برای ساخت یک سیستم هوشمند عمومی‌گراست؛ معماری آن از چت، حافظه، برنامه‌ریزی، ابزار، ارزیابی، امنیت و sandbox تشکیل شده است.
 
+**ایران کاملاً آفلاین و نمادین است.** این پروژه از OpenAI، ChatGPT، Ollama، Llama، Qwen، Mistral، مدل pretrained، embedding service یا API هوش مصنوعی خارجی استفاده نمی‌کند. درک زبان، حافظه، استدلال، برنامه‌ریزی و تولید پاسخ با قواعد محلی، دانش گرافی، شواهد، حافظه و پاسخ‌سازی ترکیبی خود پروژه انجام می‌شود.
+
 ## وضعیت فعلی
 - Agent + Brain + Provider مستقل
 - Provider محلی `iran-local` بدون وابستگی به Ollama
 - Structured Persian Language Intelligence با حفظ raw_text و normalized_text
 - تشخیص چند intent، constraint، negation، temporal، reference و ambiguity
-- Provider اختیاری OpenAI-compatible برای اتصال مدل زبانی واقعی
 - حافظه پایدار SQLite با جستجو و آمار
 - Planning تطبیقی و Goal Store
 - Tool Registry با permissionهای read/write/network
@@ -54,8 +55,10 @@
 - `/help` راهنما
 - `/exit` خروج
 
-## اتصال مدل زبانی واقعی
-Provider فعلی عمداً محلی و سبک است تا پروژه بدون مدل خارجی بالا بیاید. برای فعال‌کردن یک مدل واقعی، `model.provider` را روی `openai-compatible` بگذارید و متغیرهای محیطی `IRAN_MODEL_API_KEY`، `IRAN_MODEL_ENDPOINT` و در صورت نیاز `IRAN_MODEL_NAME` را تنظیم کنید.
+## پاسخ‌سازی نمادین و آفلاین
+Provider رسمی پروژه `iran` و حالت آن `offline-symbolic` است. پاسخ مستقیم factual، پاسخ ناشناخته با برچسب `UNKNOWN`، توضیح why/how، مقایسه، بازیابی حافظه و ارجاع مکالمه‌ای بدون مدل زبانی آماده تولید می‌شوند. تحلیل داخلی در state و event log باقی می‌ماند و نباید مستقیماً به‌عنوان پاسخ کاربر نمایش داده شود.
+
+اگر دانش محلی برای یک پرسش وجود نداشته باشد، ایران حدس را واقعیت اعلام نمی‌کند و `UNKNOWN` برمی‌گرداند.
 
 ## امنیت
 Safe Mode فعال است. Shell، write و deploy خودکار بسته‌اند. دسترسی شبکه فقط از permission جداگانه `network` عبور می‌کند. هیچ قابلیت خودبهسازی حق ندارد مستقیماً production را تغییر دهد.
