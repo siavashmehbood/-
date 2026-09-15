@@ -1493,3 +1493,21 @@ try:
     _install_chat_upgrade_v7()
 except Exception as _chat_upgrade_v7_error:
     IranRuntime._chat_upgrade_v7_error = type(_chat_upgrade_v7_error).__name__
+
+
+# v2.2: greetings belong to the conversational channel, not the analytical special-response channel.
+_chat_final_runtime_base = IranRuntime.handle
+
+def _chat_final_runtime_handle(self, text):
+    low = str(text or '').strip().replace('ي','ی').replace('ك','ک').rstrip('؟?!').strip().lower()
+    if low in {'سلام','درود','سلام ایران','هی','hello','hi'}:
+        return self.dialogue.handle(str(text).strip())
+    return _chat_final_runtime_base(self, text)
+
+IranRuntime.handle = _chat_final_runtime_handle
+
+try:
+    from core.chat_upgrade import install_v8 as _install_chat_upgrade_v8
+    _install_chat_upgrade_v8()
+except Exception as _chat_upgrade_v8_error:
+    IranRuntime._chat_upgrade_v8_error = type(_chat_upgrade_v8_error).__name__

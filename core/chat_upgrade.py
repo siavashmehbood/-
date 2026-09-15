@@ -270,3 +270,19 @@ def install_v7():
         return base(self, t)
     LocalDialogueEngine.handle = handle
     LocalDialogueEngine._chat_upgrade_v7 = True
+
+
+def install_v8():
+    from core.dialogue import LocalDialogueEngine
+    if getattr(LocalDialogueEngine, "_chat_upgrade_v8", False):
+        return
+    base = LocalDialogueEngine.handle
+    def handle(self, text):
+        low = _b(text)
+        if low in {"سلام", "درود", "سلام ایران", "هی", "hello", "hi"}:
+            answer = "سلام 👋 من ایران هستم؛ خوشحالم می‌بینمت. امروز درباره چی حرف بزنیم؟"
+            self.state.update(str(text).strip(), answer, "social", {}, .99)
+            return answer
+        return base(self, text)
+    LocalDialogueEngine.handle = handle
+    LocalDialogueEngine._chat_upgrade_v8 = True
