@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
@@ -26,7 +26,7 @@ class SelfState:
 
 
 class SelfAwarenessEngine:
-    """Persistent metacognition that can change the next decision, not just report it."""
+    """Persistent metacognition that can change future decisions and transfer experience."""
 
     DOMAIN_MAP = {
         "project_files": "perception",
@@ -157,6 +157,38 @@ class SelfAwarenessEngine:
             "confidence": self.state.confidence,
             "calibration_error": self.state.calibration_error,
         }
+
+    def transfer_score(self, goal: str, action: str) -> float:
+        """Estimate capability for a new goal from action/domain experience."""
+        key = str(action)
+        direct = self.state.capability.get(key, 0.5)
+        domain = self.DOMAIN_MAP.get(key, "execution")
+        domain_score = self.state.capability_domains.get(domain, direct)
+        related = [e for e in self.history if e.get("action") == key]
+        if related:
+            recent = sum(float(e.get("score", .5)) for e in related[-5:]) / min(5, len(related))
+        else:
+            recent = direct
+        calibration_penalty = min(.2, self.state.calibration_error * .5)
+        return round(max(0.0, min(1.0, direct * .45 + domain_score * .35 + recent * .20 - calibration_penalty)), 4)
+
+    def transfer_control(self, goal: str, candidates: list[str]) -> dict[str, Any]:
+        """Choose an action for a differently-worded/new goal using learned capability."""
+        ranked = sorted(
+            dict.fromkeys(str(x) for x in candidates),
+            key=lambda action: self.transfer_score(goal, action),
+            reverse=True,
+        )
+        chosen = ranked[0] if ranked else "project_summary"
+        self.state.active_goal = str(goal)
+        self.state.preferred_action = chosen
+        score = self.transfer_score(goal, chosen)
+        reason = "transferred capability from prior experience"
+        if self.state.calibration_error > .25:
+            reason = "transferred capability with verification required"
+        self._save()
+        return {"goal": str(goal), "preferred_action": chosen, "ranked_actions": ranked,
+                "transfer_confidence": score, "reason": reason}
 
     def introspect(self) -> dict[str, Any]:
         strongest = sorted(self.state.capability.items(), key=lambda x: x[1], reverse=True)
