@@ -7,15 +7,14 @@ Exit codes:
 
 KNOWN_BASELINE is the score the canonical runtime actually achieves today; it is
 the regression gate. TARGET is the score we want eventually. They are separate
-because gating on TARGET would make CI permanently red on a known gap, and
-lowering TARGET to whatever the runtime happens to score would turn the check
-into a rubber stamp.
+because gating on TARGET alone would make CI permanently red on a known gap, and
+lowering TARGET to whatever the runtime happens to score would turn the check into
+a rubber stamp.
 
-The current gap is the `unknown` category: an honest-uncertainty question such as
-"آیا فردا ساعت ۸ باران می‌بارد؟" contains the token "ساعت", so ToolRouter diverts
-the whole turn to the clock tool before the dialogue layer can return UNKNOWN.
-Fixing that requires changing canonical routing behaviour, which is out of scope
-for this branch; it is reported rather than hidden.
+Both are now 100 because the previously documented `unknown` gap was fixed. The
+gap mechanism (`KNOWN_GAP_CATEGORIES`) is retained as an explicit safety valve: a
+failure is only tolerated when its category is named there, so an unexpected
+regression can never be silently absorbed.
 """
 import json
 import sys
@@ -28,8 +27,11 @@ from benchmarks.persian_conversation_benchmark import PersianConversationBenchma
 from benchmarks.runtime_factory import isolated_runtime_factory
 
 TARGET = 100.0
-KNOWN_BASELINE = 90.0
-KNOWN_GAP_CATEGORIES = ('unknown',)
+KNOWN_BASELINE = 100.0
+# No category is currently exempt. The `unknown` routing gap that used to be listed
+# here is fixed: a yes/no question mentioning `ساعت` no longer diverts to the clock
+# tool, so the honest-UNKNOWN path is reachable. Any failure now is a regression.
+KNOWN_GAP_CATEGORIES = ()
 
 
 def main():
