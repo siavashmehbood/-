@@ -33,17 +33,10 @@ class Orchestrator:
         return parts[1],kwargs
 
     def _parse_verified_run(self, text):
-        """Parse an explicit, permission-gated verified task request.
-
-        Syntax: /run GOAL --tool NAME --expected VALUE [--alternative NAME]
-        [--arg key=value ...].  Plain /run keeps the legacy agent loop.
-        """
         parts=shlex.split(text)
-        if len(parts)<2 or '--tool' not in parts:
-            return None
+        if len(parts)<2 or '--tool' not in parts: return None
         try:
-            tool=parts[parts.index('--tool')+1]
-            expected=parts[parts.index('--expected')+1]
+            tool=parts[parts.index('--tool')+1]; expected=parts[parts.index('--expected')+1]
         except (ValueError, IndexError) as exc:
             raise ValueError('usage: /run GOAL --tool NAME --expected VALUE [--alternative NAME] [--arg key=value]') from exc
         alternative=None
@@ -51,29 +44,20 @@ class Orchestrator:
             index=parts.index('--alternative')
             try: alternative=parts[index+1]
             except IndexError as exc: raise ValueError('missing value for --alternative') from exc
-        tool_index=parts.index('--tool')
-        goal=' '.join(parts[1:tool_index]).strip()
-        kwargs={}
+        tool_index=parts.index('--tool'); goal=' '.join(parts[1:tool_index]).strip(); kwargs={}
         i=0
         while i < len(parts):
             if parts[i]=='--arg':
-                if i+1>=len(parts) or '=' not in parts[i+1]:
-                    raise ValueError('--arg requires key=value')
-                key,value=parts[i+1].split('=',1)
-                kwargs[key]=int(value) if value.isdigit() else value
-                i+=2
-                continue
+                if i+1>=len(parts) or '=' not in parts[i+1]: raise ValueError('--arg requires key=value')
+                key,value=parts[i+1].split('=',1); kwargs[key]=int(value) if value.isdigit() else value; i+=2; continue
             i+=1
         if not goal: raise ValueError('verified run requires a goal')
-        return {'goal':goal,'primary':tool,'alternative':alternative,
-                'expected_effect':expected,'kwargs':kwargs}
+        return {'goal':goal,'primary':tool,'alternative':alternative,'expected_effect':expected,'kwargs':kwargs}
 
     def _format_verified_result(self, result):
-        task=result.get('task') or {}
-        status=task.get('status','unknown') if isinstance(task,dict) else 'unknown'
+        task=result.get('task') or {}; status=task.get('status','unknown') if isinstance(task,dict) else 'unknown'
         verified=result.get('alternative') or result.get('primary') or {}
-        return (f"task={status}; verified={bool(verified.get('success'))}; "
-                f"reason={verified.get('reason','unknown')}; "
+        return (f"task={status}; verified={bool(verified.get('success'))}; reason={verified.get('reason','unknown')}; "
                 f"task_id={task.get('task_id','unknown') if isinstance(task,dict) else 'unknown'}")
 
     def _auto_tool(self,text):
@@ -98,16 +82,20 @@ class Orchestrator:
             verified=self._parse_verified_run(clean)
             if verified is not None:
                 executor=getattr(self,'verified_executor',None)
-                if executor is None:
-                    raise RuntimeError('verified task execution is not connected')
-                result=executor(**verified)
-                return self._format_verified_result(result)
+                if executor is None: raise RuntimeError('verified task execution is not connected')
+                return self._format_verified_result(executor(**verified))
             return self.loop.run(clean[5:].strip()).answer
         if clean.startswith('/tool '):
             name,kwargs=self._parse_tool(clean); return str(self.run_tool(name,**kwargs))
         if clean.startswith('/goal '): return str(self.goals.add(clean[6:].strip()) if self.goals else 'Goal store unavailable.')
         if clean.startswith('/complete '): return str(self.goals.complete(clean.split(maxsplit=1)[1]) if self.goals else 'Goal not found.')
         if clean.startswith('/reason '): return str(self.reasoner.analyze(clean[8:].strip(),self.memory.working_context(clean,6)))
+        # Canonical conversation path: answer ordinary questions before auto-tools.
+        if language.intent in {'question','compare','memory'}:
+            answer=self.agent.respond(clean)
+            self.events.emit('response_generated',{'goal':clean,'intent':cognitive.intent,'decision':decision.actions,'path':'conversation_intelligence'})
+            self.metrics.record('response',time.perf_counter()-started)
+            return answer
         auto=self._auto_tool(clean)
         if auto is not None:
             self.memory.add('tool_result',auto,.75); self.metrics.record('auto_tool',time.perf_counter()-started); return auto
@@ -120,69 +108,15 @@ class Orchestrator:
     def run_smart(self,goal): return self.loop.run(goal)
 
 
-# v0.31: make persistent User Model an executive input, not passive metadata.
 def _user_model_context(self, text):
-    model = getattr(self, '_user_model', None)
-    if model is None and getattr(self, 'agent', None) is not None:
-        model = getattr(self.agent, '_user_model', None)
-    if model is None:
-        return []
+    model = getattr(self, '_user_model', None) or getattr(getattr(self, 'agent', None), '_user_model', None)
+    if model is None: return []
     try:
-        facts = model.facts(limit=12)
-        return [
-            ('user_model', f"{f['predicate']}={f['object']} confidence={float(f['confidence']):.2f} source={f['source']}")
-            for f in facts
-        ]
-    except Exception:
-        return []
-
-if not hasattr(Orchestrator, '_iran_v31_handle_base'):
-    Orchestrator._iran_v31_handle_base = Orchestrator.handle
-_base_v31_handle = Orchestrator._iran_v31_handle_base
-
-def _handle_v31(self, text):
-    model = getattr(self.agent, '_user_model', None)
-    if model is not None:
-        self._user_model = model
-    clean = str(text).strip()
-    if any(marker in clean for marker in ('همونو', 'همون قبلی', 'ادامه بده', 'بیشتر توضیح بده')):
-        provider = getattr(getattr(self.agent, 'brain', None), 'provider', None)
-        topic = str(getattr(provider, 'frame', {}).get('topic', '')) if provider else ''
-        if not topic or any(marker in topic for marker in ('همونو', 'همون قبلی', 'ادامه بده', 'بیشتر توضیح بده')):
-            for _, content, _ in reversed(self.memory.recent(24)):
-                content = str(content)
-                if not any(marker in content for marker in ('همونو', 'همون قبلی', 'ادامه بده', 'بیشتر توضیح بده')):
-                    topic = content
-                    break
-        if topic:
-            answer = f'مرجع «{clean}» را به «{topic[:240]}» وصل کردم. حالا همین موضوع را مبنای پاسخ قرار می‌دهم.'
-            self.memory.add('user', clean, .7)
-            self.memory.add('assistant', answer, .6)
-            self.metrics.record('response')
-            return answer
-    return _base_v31_handle(self, text)
-
-Orchestrator.handle = _handle_v31
-
-if not hasattr(Orchestrator, '_iran_v31_explain_base'):
-    Orchestrator._iran_v31_explain_base = Orchestrator.explain_decision
-_base_v31_explain = Orchestrator._iran_v31_explain_base
-
-def _explain_v31(self, text):
-    context = self.memory.working_context(text, 6)
-    context = list(context) + self._user_model_context(text)
-    r = self.reasoner.analyze(text, context)
-    d = self.intelligence.decide(text)
-    c = self.cognition.analyze(text)
-    return {'intent':c.intent,'confidence':c.confidence,'needs_model':c.needs_model,
-            'goals':c.goals,'actions':d.actions,'reasons':c.reasons,
-            'user_model':self._user_model_context(text),
-            'reasoning':r.__dict__}
-
-Orchestrator.explain_decision = _explain_v31
+        return [('user_model', f"{f['predicate']}={f['object']} confidence={float(f['confidence']):.2f} source={f['source']}") for f in model.facts(limit=12)]
+    except Exception: return []
 
 
-# v0.31b: bind the persistent User Model into the Planner after runtime initialization.
+# Compatibility for the existing persistent User Model wiring.
 if not hasattr(Orchestrator, '_iran_v31_init_base'):
     Orchestrator._iran_v31_init_base = Orchestrator.__init__
 _base_v31_init_orch = Orchestrator._iran_v31_init_base
@@ -191,42 +125,29 @@ def _init_v31_orch(self, *args, **kwargs):
     _base_v31_init_orch(self, *args, **kwargs)
     model = getattr(self.agent, '_user_model', None)
     if model is not None:
-        self._user_model = model
-        self.planner.user_model = model
-
+        self._user_model = model; self.planner.user_model = model; self.reasoner.user_model = model
 Orchestrator.__init__ = _init_v31_orch
-
-
-# v0.31c: bind User Model to Reasoner for explicit evidence-aware analysis.
-if not hasattr(Orchestrator, '_iran_v31c_init_base'):
-    Orchestrator._iran_v31c_init_base = Orchestrator.__init__
-_base_v31c_init = Orchestrator._iran_v31c_init_base
-
-def _init_v31c(self, *args, **kwargs):
-    _base_v31c_init(self, *args, **kwargs)
-    model = getattr(self.agent, '_user_model', None)
-    if model is not None:
-        self._user_model = model
-        self.planner.user_model = model
-        self.reasoner.user_model = model
-
-Orchestrator.__init__ = _init_v31c
-
-
-# v0.31d: expose the context helper as an Orchestrator method.
 Orchestrator._user_model_context = _user_model_context
 
 
-# v0.31d: ensure User Model context is always available to decision explanation.
-# This compatibility binding is intentionally small and avoids another wrapper chain.
-if not hasattr(Orchestrator, '_user_model_context'):
-    def _compat_user_model_context(self, text):
-        model = getattr(self, '_user_model', None) or getattr(getattr(self, 'agent', None), '_user_model', None)
-        if model is None:
-            return []
-        try:
-            return [('user_model', f"{f['predicate']}={f['object']} confidence={float(f['confidence']):.2f} source={f['source']}")
-                    for f in model.facts(limit=12)]
-        except Exception:
-            return []
-    Orchestrator._user_model_context = _compat_user_model_context
+# Canonical follow-up handling replaces the older generic marker response.
+if not hasattr(Orchestrator, '_iran_conversation_base_handle'):
+    Orchestrator._iran_conversation_base_handle = Orchestrator.handle
+_base_conversation_handle = Orchestrator._iran_conversation_base_handle
+
+def _handle_conversation(self, text):
+    clean=str(text).strip()
+    if any(marker in clean for marker in ('همونو','همون قبلی','ادامه بده','بیشتر توضیح بده','این بخش','این جواب','این مشکل','قبلی')):
+        return self.agent.respond(clean)
+    return _base_conversation_handle(self, text)
+Orchestrator.handle = _handle_conversation
+
+if not hasattr(Orchestrator, '_iran_v31_explain_base'):
+    Orchestrator._iran_v31_explain_base = Orchestrator.explain_decision
+_base_v31_explain = Orchestrator._iran_v31_explain_base
+
+def _explain_v31(self, text):
+    context=list(self.memory.working_context(text,6))+self._user_model_context(text)
+    r=self.reasoner.analyze(text,context); d=self.intelligence.decide(text); c=self.cognition.analyze(text)
+    return {'intent':c.intent,'confidence':c.confidence,'needs_model':c.needs_model,'goals':c.goals,'actions':d.actions,'reasons':c.reasons,'user_model':self._user_model_context(text),'reasoning':r.__dict__}
+Orchestrator.explain_decision=_explain_v31
