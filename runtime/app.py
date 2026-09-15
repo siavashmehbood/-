@@ -842,6 +842,7 @@ def _unified_handle_v3(self, text):
     import time as _time
     started = _time.perf_counter(); clean = str(text).strip()
     if not clean: return 'چیزی برای پردازش دریافت نکردم.'
+    self.events.begin_turn()
     extracted = self.user_model.record(clean) if hasattr(self, 'user_model') else []
     self._last_user_facts = extracted
     if extracted: self.events.emit('user_model_update', {'extracted': extracted, 'count': len(extracted), 'source': 'unified_boundary'})

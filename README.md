@@ -65,6 +65,8 @@ Provider رسمی پروژه `iran` و حالت آن `offline-symbolic` است. 
 
 یادگیری procedural فقط strategy، confidence و ranking را تغییر می‌دهد و source code، permission یا سیاست امنیتی را به‌صورت خودکار تغییر نمی‌دهد.
 
+هر event شناختی اکنون `turn_id`، `stage`، `status` و `duration_ms` دارد تا چرخه هر درخواست از ادراک تا پاسخ، ارزیابی و یادگیری قابل ردیابی باشد. eventهای راه‌اندازی با شناسه `system` جدا می‌شوند و با trace یک turn کاربر مخلوط نمی‌شوند.
+
 ## امنیت
 Safe Mode فعال است. Shell، write و deploy خودکار بسته‌اند. دسترسی شبکه فقط از permission جداگانه `network` عبور می‌کند. هیچ قابلیت خودبهسازی حق ندارد مستقیماً production را تغییر دهد.
 
