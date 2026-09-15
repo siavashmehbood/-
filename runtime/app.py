@@ -1425,3 +1425,26 @@ def _canonical_dialogue_handle_v2(self, text):
         except Exception:pass
     return answer
 IranRuntime.handle=_canonical_dialogue_handle_v2
+
+# v0.41: Advanced Cognitive Core v2 -- typed pre-answer cognition + post-answer verification.
+from core.cognitive_core import AdvancedCognitiveCore
+
+_IranRuntime_v41_init_base = IranRuntime.__init__
+def _init_v41(self, root):
+    _IranRuntime_v41_init_base(self, root)
+    self.cognitive_core = AdvancedCognitiveCore(self)
+IranRuntime.__init__ = _init_v41
+
+_IranRuntime_v41_handle_base = IranRuntime.handle
+def _handle_v41(self, text):
+    state = self.cognitive_core.begin(str(text))
+    answer = _IranRuntime_v41_handle_base(self, text)
+    verification = self.cognitive_core.verify(state, answer)
+    self.events.emit('cognitive_verification', verification)
+    self.cognitive_core.learn(answer, verification.get('score', 0.0))
+    return answer
+IranRuntime.handle = _handle_v41
+
+IranRuntime.advanced_cognitive_snapshot = lambda self: (
+    self.cognitive_core.last_state.snapshot() if getattr(self, 'cognitive_core', None) and self.cognitive_core.last_state else None
+)
