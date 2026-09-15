@@ -830,6 +830,14 @@ def _unified_handle_v3(self, text):
         except Exception: pass
         self.events.emit('response_generated', {'goal': clean, 'route': route, 'elapsed_ms': round(elapsed*1000,2), 'verified': True})
         return answer
+    feedback_terms = ('درست بود', 'درسته', 'عالی بود', 'خوبه', 'اشتباه', 'غلط بود', 'بد بود', 'ضعیف بود')
+    if any(term in clean.lower() for term in feedback_terms) and hasattr(self, 'learning'):
+        target = getattr(self.provider, 'frame', {}).get('topic') or getattr(self.provider, 'frame', {}).get('goal') or 'آخرین پاسخ'
+        learned = self.learning.update_from_feedback(target, clean, 'feedback', 'conversation')
+        self.events.emit('learning_update', {'feedback': clean, 'target': target, 'learned': bool(learned.get('learned', True)), 'canonical': True})
+        answer = 'بازخورد شما ثبت شد و برای انتخاب راهبرد پاسخ‌های بعدی استفاده می‌شود.'
+        self.memory.add('user', clean, .75); self.memory.add('assistant', answer, .7)
+        return finish(answer, 'explicit_feedback')
     special = self.provider._special(clean) if hasattr(self.provider, '_special') else ''
     if special: return finish(special, 'grounded_special')
     facts = self.user_model.facts(limit=12) if hasattr(self, 'user_model') else []
