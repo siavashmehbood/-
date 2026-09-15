@@ -498,3 +498,49 @@ def _step_v7(self):
     return report
 AutonomousSupervisor.step = _step_v7
 AutonomousSupervisor.goal_progress_snapshot = lambda self: self.goal_runner.snapshot()
+
+
+# v0.47: explicit self-awareness loop; outcomes update a persistent self-model.
+from core.self_awareness import SelfAwarenessEngine
+
+_old_init_v6 = AutonomousSupervisor.__init__
+def _supervisor_init_v6(self, runtime):
+    _old_init_v6(self, runtime)
+    self.self_awareness = SelfAwarenessEngine(
+        Path(runtime.config.get('runtime', {}).get('self_awareness_state', 'data/self_awareness.json')),
+    )
+AutonomousSupervisor.__init__ = _supervisor_init_v6
+
+_old_step_v7 = AutonomousSupervisor.step
+def _step_v8(self):
+    report = _old_step_v7(self)
+    selected = report.get('selected') or {}
+    goal = selected.get('goal') or 'observe'
+    decision = report.get('decision') or {}
+    action = decision.get('action') or 'observe'
+    verified = bool(report.get('verified'))
+    expected = decision.get('prediction_confidence')
+    outcome_score = .9 if verified else .1
+    self.self_awareness.observe(
+        goal, action, outcome_score, verified,
+        expected=expected,
+        failure_reason='' if verified else 'action observation was not verified',
+    )
+    report['self_awareness'] = self.self_awareness.introspect()
+    self.runtime.events.emit('self_awareness_updated', report['self_awareness'])
+    self.last_report = report
+    return report
+AutonomousSupervisor.step = _step_v8
+AutonomousSupervisor.self_awareness_snapshot = lambda self: self.self_awareness.introspect()
+
+
+# v0.47b: self-model participates in action choice instead of only reporting introspection.
+_old_choose_action_v1 = AutonomousSupervisor._choose_action
+def _choose_action_v2(self, initiative):
+    base = _old_choose_action_v1(self, initiative)
+    candidates = [base, 'project_summary', 'project_files', 'memory_search']
+    try:
+        return self.self_awareness.reassess(candidates)[0]
+    except Exception:
+        return base
+AutonomousSupervisor._choose_action = _choose_action_v2
