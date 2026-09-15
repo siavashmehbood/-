@@ -15,6 +15,7 @@ class PersianConversationBenchmark:
     def _root(self):
         src=Path(__file__).resolve().parents[1]; tmp=Path(tempfile.mkdtemp(prefix="iran_pcb_"))
         shutil.copy(src/"config.json",tmp/"config.json"); shutil.copytree(src/"data",tmp/"data"); (tmp/"logs").mkdir()
+        state=tmp/"data"/"conversation_state.json"; state.unlink(missing_ok=True)
         cfg=json.loads((tmp/"config.json").read_text(encoding="utf-8-sig")); cfg["memory"]["db"]="data/benchmark.db"; cfg["runtime"]["event_log"]="logs/benchmark.jsonl"; cfg["runtime"]["goals"]="data/goals.json"
         (tmp/"config.json").write_text(json.dumps(cfg,ensure_ascii=False),encoding="utf-8"); return tmp
     def _cases(self):

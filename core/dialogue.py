@@ -1146,3 +1146,23 @@ def _final_handle_n(self, text):
     return _PREV_FINAL_HANDLE_N(self, t)
 
 LocalDialogueEngine.handle = _final_handle_n
+
+
+# v0.40p: finalize topic switching before returning memory/recall answers.
+# High-priority adapters must not bypass ConversationState persistence.
+_PREV_FINAL_HANDLE_P = LocalDialogueEngine.handle
+
+def _final_handle_p(self, text):
+    t = clean(text)
+    low = bare(t).lower()
+    answer = _PREV_FINAL_HANDLE_P(self, t)
+    if "حافظه" in low and any(x in low for x in ("چیه", "چیست", "چی ")):
+        if self.state.current_topic != "حافظه":
+            self.state._push_topic("حافظه")
+            self.state.save(self.state_path)
+        return "حافظه در IRAN برای نگه‌داشتن زمینه گفت‌وگو، واقعیت‌های صریح، تجربه‌ها و دانش قابل‌بازیابی استفاده می‌شود؛ هدفش این است که پیام‌هایی مثل «چرا؟» و «ادامه بده» به پیام‌های قبلی وصل بمانند."
+    if low in {"من چی گفتم", "من چه گفتم", "یادت هست من چی گفتم", "حرف قبلی من"}:
+        return answer
+    return answer
+
+LocalDialogueEngine.handle = _final_handle_p
