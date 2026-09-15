@@ -1,6 +1,7 @@
 import re
 from dataclasses import dataclass, field
 
+
 REF_WORDS = ('این', 'همین', 'اون', 'آن', 'قبلی', 'همون', 'همونو', 'این بخش', 'این جواب', 'این مشکل')
 CORRECTION_WORDS = ('نه', 'منظورم', 'اشتباهه', 'اشتباه است', 'من اینو نگفتم', 'نه منظورم')
 FOLLOW_UPS = ('چرا؟', 'چطور؟', 'چگونه؟', 'پس چی؟', 'حالا چی؟', 'ادامه بده', 'بیشتر توضیح بده', 'بهترش کن')
@@ -11,7 +12,8 @@ def clean(text):
 
 
 def substantive(text):
-    return len(re.findall(r'[آ-یA-Za-z0-9]+', clean(text))) >= 2
+    text = clean(text)
+    return len(re.sub(r'[^آ-یA-Za-z0-9]', '', text)) >= 2
 
 
 @dataclass
@@ -26,7 +28,8 @@ class ConversationState:
     turns: int = 0
 
     def update(self, user_text, assistant_text='', parsed=None):
-        user_text, assistant_text = clean(user_text), clean(assistant_text)
+        user_text = clean(user_text)
+        assistant_text = clean(assistant_text)
         parsed = parsed or {}
         self.turns += 1
         self.last_user = user_text
@@ -42,7 +45,7 @@ class ConversationState:
         elif self._is_follow_up(user_text):
             self.referent = self.referent or self.topic or self.last_user
             self.topic = self.referent
-        elif substantive(user_text):
+        elif substantive(user_text) and not self._is_follow_up(user_text):
             self.topic = user_text
         ref = self.resolve_reference(user_text)
         if ref:
@@ -50,17 +53,21 @@ class ConversationState:
             self.topic = ref
         if self._is_correction(user_text):
             self.correction = user_text
-            target = re.split(r'منظورم\s*', user_text, maxsplit=1)[-1].strip(' :،')
-            if substantive(target) and target != user_text:
-                self.topic = target
-                self.referent = target
             self.unresolved.append(user_text)
 
     def resolve_reference(self, text):
         text = clean(text)
+        if 'اینترنت' in text:
+            return ''
         if not any(w in text for w in REF_WORDS):
             return ''
-        return self.topic or self.goal or self.last_user
+        if self.topic and substantive(self.topic):
+            return self.topic
+        if self.goal and substantive(self.goal):
+            return self.goal
+        if substantive(self.last_user):
+            return self.last_user
+        return ''
 
     def _is_follow_up(self, text):
         text = clean(text).rstrip('؟?') + '؟'

@@ -1,5 +1,6 @@
 from datetime import datetime
-from core.conversation_state import ConversationState
+from core.conversation_state import ConversationState, clean
+
 SYSTEM_PROMPT='''You are IRAN — Iran Cognitive Architecture, a general-purpose cognitive runtime.
 
 Primary objective: understand, reason, act when authorized, verify outcomes, learn from evidence, and respond usefully. Do not optimize for producing text alone.
@@ -20,23 +21,15 @@ Rules:
 10. Respect the runtime security policy and safe-mode boundaries.
 
 Return a direct, useful answer. If certainty is low, make the uncertainty explicit without abandoning the user.'''
-
 class Agent:
     def __init__(self,brain,memory,max_history=16):
         self.brain=brain; self.memory=memory; self.max_history=max_history; self.goals=[]
         self.conversation=ConversationState()
-
     def build_messages(self,user_text):
         provider=getattr(self.brain,'provider',None)
         if provider is not None and hasattr(provider,'frame'):
-            provider.frame.update({
-                'conversation_topic':self.conversation.topic,
-                'conversation_goal':self.conversation.goal,
-                'conversation_referent':self.conversation.referent,
-                'conversation_correction':self.conversation.correction,
-            })
-        memories=self.memory.working_context(user_text,self.max_history)
-        context='\n'.join(f'[{k}] {c}' for k,c,_ in memories)
+            provider.frame.update({'conversation_topic':self.conversation.topic,'conversation_goal':self.conversation.goal,'conversation_referent':self.conversation.referent,'conversation_correction':self.conversation.correction})
+        memories=self.memory.working_context(user_text,self.max_history); context='\n'.join(f'[{k}] {c}' for k,c,_ in memories)
         messages=[{'role':'system','content':SYSTEM_PROMPT}]
         if context: messages.append({'role':'system','content':'Relevant memory:\n'+context})
         if self.goals: messages.append({'role':'system','content':'Active goals:\n'+'\n'.join(self.goals)})
@@ -44,15 +37,10 @@ class Agent:
         if state: messages.append({'role':'system','content':'Conversation state:\n'+state})
         for kind,content,_ in memories:
             if kind in {'user','assistant'} and content: messages.append({'role':kind,'content':content})
-        messages.append({'role':'user','content':user_text})
-        return messages
-
+        messages.append({'role':'user','content':user_text}); return messages
     def respond(self,user_text):
-        answer=self.brain.ask(self.build_messages(user_text))
-        self.conversation.update(user_text,answer)
-        self.memory.add('user',user_text,0.7); self.memory.add('assistant',answer,0.6)
-        self.memory.add('event','response generated at '+datetime.now().isoformat(timespec='seconds'),0.2)
-        return answer
+        answer=self.brain.ask(self.build_messages(user_text)); self.conversation.update(user_text,answer); self.memory.add('user',user_text,0.7); self.memory.add('assistant',answer,0.6); self.memory.add('event','response generated at '+datetime.now().isoformat(timespec='seconds'),0.2); return answer
+
 
 _old_respond = Agent.respond
 
