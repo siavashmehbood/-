@@ -65,8 +65,31 @@ class IranProvider:
         ents=parsed.get('entities',[])
         if ents: self.facts['current_topic']=ents[0].get('text','')
 
+    def _knowledge_answer(self, text, parsed, history):
+        t = self._clean(text).lower().rstrip("؟?")
+        # High-value local knowledge and project-aware answers.
+        rules = [
+            (("پایتون", "python"), "پایتون یک زبان برنامه‌نویسی سطح‌بالاست که برای وب، داده، اتوماسیون و هوش مصنوعی استفاده می‌شود."),
+            (("django",), "Django یک چارچوب وب پایتونی است که ابزارهایی مثل routing، ORM، مدیریت درخواست و پنل ادمین را در اختیار برنامه قرار می‌دهد."),
+            (("هوش مصنوعی", "هوش مصنوعی چیست"), "هوش مصنوعی به سامانه‌هایی گفته می‌شود که بتوانند کارهایی مثل درک الگو، استدلال، پیش‌بینی یا تصمیم‌گیری را انجام دهند. این با «خودآگاهی» یا «هوش انسانی» یکی نیست."),
+            (("حافظه", "حافظه بلندمدت"), "حافظه بلندمدت در IRAN باید اطلاعات پایدار، تجربه‌های قبلی، ترجیحات کاربر و دانش قابل بازیابی را نگه دارد؛ اما هر چیزی که بازیابی شد نباید بدون بررسی به‌عنوان حقیقت پذیرفته شود."),
+            (("پروژه ایران", "پروژه irан", "iran cognitive architecture"), "IRAN یک معماری شناختی آفلاین است که هدفش ترکیب درک، زمینه، حافظه، مدل جهان، استدلال، برنامه‌ریزی، اقدام، مشاهده، راستی‌آزمایی و یادگیری در یک حلقه پیوسته است."),
+        ]
+        for keys, answer in rules:
+            if any(k in t for k in keys):
+                return answer
+        return None
+
     def _answer_question(self,text,parsed,history):
         q=text.rstrip('؟?').strip()
+        known = self._knowledge_answer(text, parsed, history)
+        if known:
+            return known
+        # Follow-up questions inherit the previous topic instead of treating each turn independently.
+        refs = parsed.get('reference_candidates', {}) or parsed.get('references', {})
+        inherited = next((v.get('candidate') for v in refs.values() if isinstance(v, dict) and v.get('candidate')), '')
+        if inherited and len(q.split()) <= 8:
+            q = f"{inherited} — {q}"
         if 'چرا' in q:
             subject=re.sub(r'^.*?چرا\s*','',q).strip()
             return f'برای «{subject}» هنوز علت قطعی در داده محلی ندارم. سه مسیر را جدا می‌کنم: ۱) وضعیت/پیکربندی، ۲) منطق یا پیاده‌سازی، ۳) محیط و وابستگی‌ها. برای نتیجه قطعی باید شواهد مربوط به همین موضوع بررسی شود.'
