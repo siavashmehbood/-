@@ -64,6 +64,18 @@ class AutonomousGoalRunner:
         else:
             step.status = "failed"
             state["status"] = "reassess"
+            try:
+                from core.recovery_orchestrator import RecoveryOrchestrator
+                recovery = RecoveryOrchestrator(self.runtime).recover(goal, plan, state, step.id)
+                event["recovery"] = recovery
+                if recovery.get("recovered"):
+                    state["step"] = step_index + 1
+                    state["status"] = "completed" if state["step"] >= len(plan.steps) else "running"
+                    verified = True
+                    observation = recovery.get("observation")
+                    event["verified"] = True
+            except Exception as exc:
+                event["recovery_error"] = str(exc)
         state["last"] = event
         self._save({**data, key: state})
         return state, observation
