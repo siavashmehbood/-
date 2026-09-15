@@ -130,6 +130,9 @@ class IranGUI:
             text += f'\n\nحافظه: {runtime.memory.stats()}'
             text += f'\nاهداف فعال: {len(goals.list(status="active"))}'
             text += f'\nابزارها: {len(runtime.registry.list())}'
+            quality = [e for e in runtime.events.recent(100) if e.get('event') == 'evaluation_completed']
+            if quality:
+                text += f'\nآخرین ارزیابی پاسخ: {quality[-1].get("data", {}).get("quality", {})}'
             messagebox.showinfo('وضعیت ایران', text)
         except Exception as exc:
             messagebox.showerror('خطا', str(exc))
