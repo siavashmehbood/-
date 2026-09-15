@@ -847,17 +847,28 @@ def _unified_handle_v3(self, text):
     auto = self.orchestrator._auto_tool(clean)
     if auto is not None: return finish(auto, 'tool')
     language = self.brain.analyze(clean); cycle = self.kernel.cycle(clean)
+    plan = self.orchestrator.planner.build(clean, language)
     cycle_dict = cycle.__dict__ if hasattr(cycle, '__dict__') else dict(cycle)
+    cycle_dict['plan'] = {'goal': plan.goal, 'status': plan.status, 'version': plan.version,
+                          'strategy': plan.strategy, 'steps': [step.title for step in plan.steps]}
+    self.events.emit('plan_created', {'goal': plan.goal, 'version': plan.version,
+                                      'steps': [step.title for step in plan.steps], 'canonical': True})
     semantic = self.language_intelligence.analyze(clean, getattr(self.brain, 'frame', None)) if hasattr(self, 'language_intelligence') else {}
     cycle_dict['semantic_language'] = semantic; cycle_dict['user_model'] = self.user_model.profile(clean,12)
+    self.events.emit('language_analysis', {'intent': language.intent, 'confidence': language.confidence,
+                                           'entities': language.entities, 'constraints': language.constraints,
+                                           'ambiguity': language.ambiguity, 'canonical': True})
     self.events.emit('cognitive_cycle', {'intent':cycle.intent,'confidence':cycle.confidence,'elapsed_ms':cycle.elapsed_ms,'decision':cycle.decision,'unified':True})
     engine = getattr(self.provider,'response_engine',None) or LocalResponseEngine()
     raw = self.memory.recent(self.config['memory'].get('max_history',16))
     history = [(k,c,t) for k,c,t in raw if k in {'user','assistant','fact','goal','lesson'}]
     answer = engine.respond(clean, semantic or self.brain.language.parse(clean), cycle_dict, history, getattr(self.provider,'frame',{}))
     score=self.evaluator.score(clean,answer); strategy=cycle.strategy.get('recommended_strategy','evidence-first') if cycle.strategy else 'evidence-first'; domain=language.entities[0] if language.entities else 'general'
-    self.learning.record(clean,'respond',answer,score,language.intent,strategy,domain); self.learning.auto_maintenance()
+    experience = self.learning.record(clean,'respond',answer,score,language.intent,strategy,domain); self.learning.auto_maintenance()
     self.world.record_observation('response_score',score,1.0,'unified_response'); self.world.transition(language.intent,cycle.decision.get('chosen','respond'),answer[:300],score)
+    reflection = self.reflector.post_action(clean, cycle.decision.get('chosen','respond'), answer, score)
+    self.events.emit('reflection', {'score': score, 'strategy': strategy, 'canonical': True})
+    self.events.emit('learning_update', {'score': score, 'strategy': strategy, 'experience': experience, 'canonical': True})
     self.events.emit('response_generated',{'goal':clean,'route':'unified_cognitive_response','score':score,'elapsed_ms':round((_time.perf_counter()-started)*1000,2),'verified':score>=.55})
     try:self.orchestrator.metrics.record('response',_time.perf_counter()-started)
     except Exception:pass
