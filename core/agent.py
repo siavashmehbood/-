@@ -1,4 +1,5 @@
 from datetime import datetime
+from pathlib import Path
 from core.conversation_state import ConversationState
 from core.conversation_intelligence import ConversationIntelligence
 
@@ -12,7 +13,13 @@ Use context, memory, reasoning and user constraints before answering. If a follo
 class Agent:
     def __init__(self, brain, memory, max_history=16, conversation_path=None):
         self.brain = brain; self.memory = memory; self.max_history = max_history; self.goals = []
-        self.conversation = ConversationState(state_path=str(conversation_path or ''))
+        if conversation_path is None:
+            try:
+                db_path = self.memory.conn.execute('PRAGMA database_list').fetchone()[2]
+                conversation_path = str(Path(db_path).with_name('conversation_state.json')) if db_path else None
+            except Exception:
+                conversation_path = None
+        self.conversation = ConversationState(state_path=str(conversation_path or 'data/conversation_state.json'))
         self.conversation_intelligence = ConversationIntelligence(self.conversation)
 
     def build_messages(self, user_text):
@@ -43,14 +50,10 @@ class Agent:
         if any(x in t for x in ('سلام', 'درود')): return 'سلام 👋 چطور می‌تونم کمکت کنم؟'
         if any(x in t for x in ('ممنون', 'مرسی', 'سپاس', 'تشکر')): return 'خواهش می‌کنم 🌱'
         if context.question_type == 'multi_intent':
-            lower = t.lower()
-            parts = []
-            if 'پایتون' in lower:
-                parts.append('پایتون یک زبان برنامه‌نویسی سطح‌بالاست که برای وب، داده، اتوماسیون و هوش مصنوعی استفاده می‌شود.')
-            if 'چرا' in lower and 'پایتون' in lower:
-                parts.append('محبوب است چون خوانایی بالایی دارد، کتابخانه‌های زیادی دارد و برای رسیدن سریع به نتیجه مناسب است.')
-            if 'پروژه' in lower:
-                parts.append('برای پروژه تو می‌تواند برای منطق برنامه، API، اتوماسیون یا پردازش داده مفید باشد؛ انتخاب دقیق به نوع پروژه بستگی دارد.')
+            lower = t.lower(); parts = []
+            if 'پایتون' in lower: parts.append('پایتون یک زبان برنامه‌نویسی سطح‌بالاست که برای وب، داده، اتوماسیون و هوش مصنوعی استفاده می‌شود.')
+            if 'چرا' in lower and 'پایتون' in lower: parts.append('محبوب است چون خوانایی بالایی دارد، کتابخانه‌های زیادی دارد و برای رسیدن سریع به نتیجه مناسب است.')
+            if 'پروژه' in lower: parts.append('برای پروژه تو می‌تواند برای منطق برنامه، API، اتوماسیون یا پردازش داده مفید باشد؛ انتخاب دقیق به نوع پروژه بستگی دارد.')
             if parts: return '\n'.join(f'{i+1}. {part}' for i, part in enumerate(parts))
         if context.question_type == 'follow_up' or self.conversation._is_follow_up(t):
             if 'ساده' in t and previous: return 'ساده‌ترش اینه: ' + previous.split('。')[0].strip(' .')
@@ -58,16 +61,13 @@ class Agent:
             if 'ادامه' in t and previous: return f'ادامه همان بحث: {previous[:180]} سپس بخش بعدی را بررسی می‌کنیم.'
             if 'مثال' in t and topic: return f'مثال ساده درباره «{topic}»: اول یک نمونه کوچک می‌سازی، نتیجه را می‌سنجی و بعد گسترشش می‌دهی.'
             if ('چرا' in t or 'چطور' in t) and topic:
-                if 'پایتون' in topic.lower() and 'چرا' in t:
-                    return 'چون پایتون خوانایی بالایی دارد، کتابخانه‌های زیادی دارد و برای وب، اتوماسیون و تحلیل داده سریع به نتیجه می‌رساند.'
-                if 'پایتون' in topic.lower() and 'چطور' in t:
-                    return 'برای پروژه‌ات می‌توانی از پایتون برای منطق برنامه، API، اتوماسیون یا پردازش داده استفاده کنی؛ انتخاب دقیق به نوع پروژه و محدودیت‌هایش بستگی دارد.'
+                if 'پایتون' in topic.lower() and 'چرا' in t: return 'چون پایتون خوانایی بالایی دارد، کتابخانه‌های زیادی دارد و برای وب، اتوماسیون و تحلیل داده سریع به نتیجه می‌رساند.'
+                if 'پایتون' in topic.lower() and 'چطور' in t: return 'برای پروژه‌ات می‌توانی از پایتون برای منطق برنامه، API، اتوماسیون یا پردازش داده استفاده کنی؛ انتخاب دقیق به نوع پروژه و محدودیت‌هایش بستگی دارد.'
                 return f'اگر منظورت «{topic}» است، باید علت یا روش را با توجه به همان موضوع بررسی کنیم؛ اطلاعات فعلی برای ادعای دقیق کافی نیست.'
         if self.conversation._is_correction(t):
             target = t.split('منظورم', 1)[-1].strip(' :،')
             if target and target != t: return f'متوجه شدم؛ مرجع قبلی را به «{target}» اصلاح کردم و از اینجا همان را مبنا قرار می‌دهم.'
-        if ('موضوع قبلی' in t or 'بحث قبلی' in t or 'برگردیم' in t) and self.conversation.previous_topic():
-            return f'برمی‌گردیم به موضوع قبلی: «{self.conversation.previous_topic()}».'
+        if ('موضوع قبلی' in t or 'بحث قبلی' in t or 'برگردیم' in t) and self.conversation.previous_topic(): return f'برمی‌گردیم به موضوع قبلی: «{self.conversation.previous_topic()}».'
         if ('اسم پروژه' in t or 'نام پروژه' in t): return 'اسم پروژه «IRAN» است؛ معماری آن Iran Cognitive Architecture است.'
         if provider is not None and hasattr(provider, '_special'):
             special = provider._special(t)
