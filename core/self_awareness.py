@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
+import json
+from pathlib import Path
 from typing import Any
 
 
@@ -21,11 +23,33 @@ class SelfState:
 
 
 class SelfAwarenessEngine:
-    """Turns outcomes into an explicit, behavior-relevant self model."""
+    """Turns outcomes into an explicit, persistent and behavior-relevant self model."""
 
-    def __init__(self):
+    def __init__(self, path: str | Path | None = None):
+        self.path = Path(path) if path else None
         self.state = SelfState()
         self.history: list[dict[str, Any]] = []
+        self._load()
+
+    def _load(self):
+        if not self.path or not self.path.exists():
+            return
+        try:
+            data = json.loads(self.path.read_text(encoding="utf-8"))
+            self.state = SelfState(**data.get("state", {}))
+            self.history = list(data.get("history", []))[-100:]
+        except (OSError, ValueError, TypeError):
+            self.state = SelfState()
+            self.history = []
+
+    def _save(self):
+        if not self.path:
+            return
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        payload = {"state": asdict(self.state), "history": self.history[-100:]}
+        tmp = self.path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        tmp.replace(self.path)
 
     def observe(self, goal: str, action: str, score: float, verified: bool,
                 expected: float | None = None, failure_reason: str = "") -> dict[str, Any]:
@@ -55,6 +79,7 @@ class SelfAwarenessEngine:
         }
         self.history.append(event)
         self.history = self.history[-100:]
+        self._save()
         return event
 
     def _overall_confidence(self) -> float:
