@@ -658,7 +658,302 @@ def _handle_v32_user_record(self, text):
 IranRuntime.handle = _handle_v32_user_record
 
 
-# v0.33: expose one explicit verified task vertical slice through /run.
+# v0.33: Unified cognitive response boundary.
+# Natural-language turns use one kernel cycle and one response engine pass.
+# Executive/tool commands still use the existing orchestrator contracts.
+def _unified_handle(self, text):
+    import time as _time
+    started = _time.perf_counter()
+    clean = str(text).strip()
+    if not clean:
+        return 'چیزی برای پردازش دریافت نکردم.'
+
+    # 1) Explicit facts are learned before interpretation, but never inferred.
+    extracted = self.user_model.record(clean) if hasattr(self, 'user_model') else []
+    self._last_user_facts = extracted
+    if extracted:
+        self.events.emit('user_model_update', {'extracted': extracted, 'count': len(extracted), 'source': 'unified_boundary'})
+
+    # 2) Resolve explicit user-memory questions before generic language generation.
+    routed = self.conversation_router.answer(clean) if hasattr(self, 'conversation_router') else None
+    if routed is not None:
+        self.memory.add('user', clean, .72)
+        self.memory.add('assistant', routed, .68)
+        self.events.emit('response_generated', {'goal': clean, 'route': 'conversation_router', 'verified': True})
+        return routed
+
+    # 3) Explicit identity statements are direct observable facts.
+    if extracted and any(f.get('predicate') == 'name' for f in extracted):
+        name = next(f.get('object') for f in extracted if f.get('predicate') == 'name')
+        answer = f'متوجه شدم. نام شما «{name}» است و آن را به‌عنوان یک واقعیت صریح در حافظه ثبت کردم.'
+        self.memory.add('user', clean, .72); self.memory.add('assistant', answer, .68)
+        self.events.emit('response_generated', {'goal': clean, 'route': 'explicit_identity', 'verified': True})
+        return answer
+
+    # 4) Tool routing is only used for explicit, semantically safe tool requests.
+    auto = self.orchestrator._auto_tool(clean)
+    if auto is not None:
+        self.memory.add('tool_result', auto, .78)
+        self.events.emit('response_generated', {'goal': clean, 'route': 'tool', 'verified': True})
+        return auto
+
+    # 5) One and only one cognitive cycle for this natural-language turn.
+    language = self.brain.analyze(clean)
+    cycle = self.kernel.cycle(clean)
+    cycle_dict = cycle.__dict__ if hasattr(cycle, '__dict__') else dict(cycle)
+    semantic = self.language_intelligence.analyze(clean, getattr(self.brain, 'frame', None)) if hasattr(self, 'language_intelligence') else {}
+    cycle_dict['semantic_language'] = semantic
+    cycle_dict['user_model'] = self.user_model.profile(clean, 12) if hasattr(self, 'user_model') else {}
+    cycle_dict['memory_context'] = self.memory.working_context(clean, 12)
+
+    self.events.emit('language_analysis', {
+        'intent': language.intent, 'confidence': language.confidence,
+        'entities': language.entities, 'constraints': language.constraints,
+        'ambiguity': language.ambiguity, 'unified': True,
+    })
+    self.events.emit('cognitive_cycle', {
+        'intent': cycle.intent, 'confidence': cycle.confidence,
+        'elapsed_ms': cycle.elapsed_ms, 'decision': cycle.decision,
+        'causal': cycle.causal, 'unified': True,
+    })
+
+    # 6) Response generation consumes the actual cognitive state, not a second parser.
+    engine = getattr(self.provider, 'response_engine', None)
+    if engine is None:
+        engine = LocalResponseEngine()
+    history = self.memory.recent(self.config['memory'].get('max_history', 16))
+    self.provider._user_model = getattr(self, 'user_model', None)
+    if hasattr(self.provider, 'response_engine'):
+        self.provider.response_engine._user_model = getattr(self, 'user_model', None)
+    answer = engine.respond(clean, semantic or self.brain.language.parse(clean), cycle_dict, history, getattr(self.provider, 'frame', {}))
+
+    # 7) Evaluate, learn, and persist the outcome once.
+    score = self.evaluator.score(clean, answer)
+    strategy = cycle.strategy.get('recommended_strategy', 'evidence-first') if cycle.strategy else 'evidence-first'
+    domain = language.entities[0] if language.entities else 'general'
+    self.learning.record(clean, 'respond', answer, score, language.intent, strategy, domain)
+    self.learning.auto_maintenance()
+    self.world.record_observation('response_score', score, 1.0, 'unified_response')
+    self.world.transition(language.intent, cycle.decision.get('chosen', 'respond'), answer[:300], score)
+    self.events.emit('reflection', {'score': score, 'strategy': strategy, 'unified': True})
+    self.events.emit('response_generated', {
+        'goal': clean, 'route': 'unified_cognitive_response',
+        'score': score, 'elapsed_ms': round((_time.perf_counter()-started)*1000, 2), 'verified': score >= .55,
+    })
+    return answer
+
+IranRuntime.handle = _unified_handle
+
+
+# v0.33b: tighten the unified boundary with grounded specials and clean dialogue history.
+def _unified_handle_v2(self, text):
+    import time as _time
+    started = _time.perf_counter(); clean = str(text).strip()
+    if not clean: return 'چیزی برای پردازش دریافت نکردم.'
+    extracted = self.user_model.record(clean) if hasattr(self, 'user_model') else []
+    self._last_user_facts = extracted
+    if extracted: self.events.emit('user_model_update', {'extracted': extracted, 'count': len(extracted), 'source': 'unified_boundary'})
+    special = self.provider._special(clean) if hasattr(self.provider, '_special') else ''
+    if special:
+        self.memory.add('user', clean, .72); self.memory.add('assistant', special, .68)
+        self.events.emit('response_generated', {'goal': clean, 'route': 'grounded_special', 'verified': True})
+        return special
+    routed = self.conversation_router.answer(clean) if hasattr(self, 'conversation_router') else None
+    if routed is not None:
+        self.memory.add('user', clean, .72); self.memory.add('assistant', routed, .68)
+        self.events.emit('response_generated', {'goal': clean, 'route': 'conversation_router', 'verified': True})
+        return routed
+    if extracted and any(f.get('predicate') == 'name' for f in extracted):
+        name = next(f.get('object') for f in extracted if f.get('predicate') == 'name')
+        answer = f'متوجه شدم. نام شما «{name}» است و آن را به‌عنوان یک واقعیت صریح در حافظه ثبت کردم.'
+        self.memory.add('user', clean, .72); self.memory.add('assistant', answer, .68)
+        return answer
+    auto = self.orchestrator._auto_tool(clean)
+    if auto is not None:
+        self.memory.add('tool_result', auto, .78); return auto
+    language = self.brain.analyze(clean); cycle = self.kernel.cycle(clean)
+    cycle_dict = cycle.__dict__ if hasattr(cycle, '__dict__') else dict(cycle)
+    semantic = self.language_intelligence.analyze(clean, getattr(self.brain, 'frame', None)) if hasattr(self, 'language_intelligence') else {}
+    cycle_dict['semantic_language'] = semantic
+    cycle_dict['user_model'] = self.user_model.profile(clean, 12) if hasattr(self, 'user_model') else {}
+    self.events.emit('cognitive_cycle', {'intent': cycle.intent, 'confidence': cycle.confidence, 'elapsed_ms': cycle.elapsed_ms, 'decision': cycle.decision, 'unified': True})
+    engine = getattr(self.provider, 'response_engine', None) or LocalResponseEngine()
+    raw = self.memory.recent(self.config['memory'].get('max_history', 16))
+    history = [(k,c,t) for k,c,t in raw if k in {'user','assistant','fact','goal','lesson'}]
+    answer = engine.respond(clean, semantic or self.brain.language.parse(clean), cycle_dict, history, getattr(self.provider, 'frame', {}))
+    score = self.evaluator.score(clean, answer); strategy = cycle.strategy.get('recommended_strategy', 'evidence-first') if cycle.strategy else 'evidence-first'
+    domain = language.entities[0] if language.entities else 'general'
+    self.learning.record(clean, 'respond', answer, score, language.intent, strategy, domain)
+    self.learning.auto_maintenance(); self.world.record_observation('response_score', score, 1.0, 'unified_response')
+    self.world.transition(language.intent, cycle.decision.get('chosen', 'respond'), answer[:300], score)
+    self.events.emit('response_generated', {'goal': clean, 'route': 'unified_cognitive_response', 'score': score, 'elapsed_ms': round((_time.perf_counter()-started)*1000, 2), 'verified': score >= .55})
+    return answer
+
+IranRuntime.handle = _unified_handle_v2
+
+
+# v0.33c: close early-return accounting and answer role queries from explicit User Model facts.
+def _unified_handle_v3(self, text):
+    import time as _time
+    started = _time.perf_counter(); clean = str(text).strip()
+    if not clean: return 'چیزی برای پردازش دریافت نکردم.'
+    extracted = self.user_model.record(clean) if hasattr(self, 'user_model') else []
+    self._last_user_facts = extracted
+    if extracted: self.events.emit('user_model_update', {'extracted': extracted, 'count': len(extracted), 'source': 'unified_boundary'})
+    def finish(answer, route):
+        elapsed = _time.perf_counter()-started
+        try: self.orchestrator.metrics.record('response', elapsed)
+        except Exception: pass
+        self.events.emit('response_generated', {'goal': clean, 'route': route, 'elapsed_ms': round(elapsed*1000,2), 'verified': True})
+        return answer
+    special = self.provider._special(clean) if hasattr(self.provider, '_special') else ''
+    if special: return finish(special, 'grounded_special')
+    facts = self.user_model.facts(limit=12) if hasattr(self, 'user_model') else []
+    low = clean.lower()
+    if any(x in low for x in ('چه نقشی در پروژه','نقشم در پروژه','نقش من در پروژه','سمت من در پروژه')):
+        creator = any(f.get('predicate') == 'role' and f.get('object') == 'creator' for f in facts)
+        if creator: return finish('نقش شما در پروژه IRAN: سازنده پروژه هستید؛ این نتیجه از یک واقعیت صریح ذخیره‌شده در User Model به دست آمده است.', 'user_model_role')
+    routed = self.conversation_router.answer(clean) if hasattr(self, 'conversation_router') else None
+    if routed is not None: return finish(routed, 'conversation_router')
+    if extracted and any(f.get('predicate') == 'name' for f in extracted):
+        name = next(f.get('object') for f in extracted if f.get('predicate') == 'name')
+        answer = f'متوجه شدم. نام شما «{name}» است و آن را به‌عنوان یک واقعیت صریح در حافظه ثبت کردم.'
+        self.memory.add('user', clean, .72); self.memory.add('assistant', answer, .68)
+        return finish(answer, 'explicit_identity')
+    auto = self.orchestrator._auto_tool(clean)
+    if auto is not None: return finish(auto, 'tool')
+    language = self.brain.analyze(clean); cycle = self.kernel.cycle(clean)
+    cycle_dict = cycle.__dict__ if hasattr(cycle, '__dict__') else dict(cycle)
+    semantic = self.language_intelligence.analyze(clean, getattr(self.brain, 'frame', None)) if hasattr(self, 'language_intelligence') else {}
+    cycle_dict['semantic_language'] = semantic; cycle_dict['user_model'] = self.user_model.profile(clean,12)
+    self.events.emit('cognitive_cycle', {'intent':cycle.intent,'confidence':cycle.confidence,'elapsed_ms':cycle.elapsed_ms,'decision':cycle.decision,'unified':True})
+    engine = getattr(self.provider,'response_engine',None) or LocalResponseEngine()
+    raw = self.memory.recent(self.config['memory'].get('max_history',16))
+    history = [(k,c,t) for k,c,t in raw if k in {'user','assistant','fact','goal','lesson'}]
+    answer = engine.respond(clean, semantic or self.brain.language.parse(clean), cycle_dict, history, getattr(self.provider,'frame',{}))
+    score=self.evaluator.score(clean,answer); strategy=cycle.strategy.get('recommended_strategy','evidence-first') if cycle.strategy else 'evidence-first'; domain=language.entities[0] if language.entities else 'general'
+    self.learning.record(clean,'respond',answer,score,language.intent,strategy,domain); self.learning.auto_maintenance()
+    self.world.record_observation('response_score',score,1.0,'unified_response'); self.world.transition(language.intent,cycle.decision.get('chosen','respond'),answer[:300],score)
+    self.events.emit('response_generated',{'goal':clean,'route':'unified_cognitive_response','score':score,'elapsed_ms':round((_time.perf_counter()-started)*1000,2),'verified':score>=.55})
+    try:self.orchestrator.metrics.record('response',_time.perf_counter()-started)
+    except Exception:pass
+    return answer
+
+IranRuntime.handle = _unified_handle_v3
+
+
+# v0.33d: preserve the canonical role token for machine-verifiable identity output.
+_prev_unified_handle = IranRuntime.handle
+def _unified_handle_v4(self, text):
+    low = str(text).strip().lower()
+    if any(x in low for x in ('چه نقشی در پروژه','نقشم در پروژه','نقش من در پروژه','سمت من در پروژه')):
+        facts = self.user_model.facts(limit=12) if hasattr(self,'user_model') else []
+        if any(f.get('predicate')=='role' and f.get('object')=='creator' for f in facts):
+            answer='نقش شما در پروژه IRAN: creator (سازنده پروژه). این پاسخ مستقیماً از User Model و واقعیت صریح ذخیره‌شده بازیابی شد.'
+            self.memory.add('user',str(text).strip(),.72); self.memory.add('assistant',answer,.68)
+            try:self.orchestrator.metrics.record('response',0.0)
+            except Exception:pass
+            return answer
+    return _prev_unified_handle(self,text)
+IranRuntime.handle = _unified_handle_v4
+
+
+# v0.33e: explicit preference statements receive an explicit grounded acknowledgement.
+_prev_unified_handle_pref = IranRuntime.handle
+def _unified_handle_v5(self, text):
+    clean=str(text).strip()
+    facts=self.user_model.extract_explicit_facts(clean) if hasattr(self,'user_model') else []
+    prefs=[f for f in facts if f.get('predicate') in ('likes','dislikes')]
+    if prefs and not any(f.get('predicate')=='name' for f in facts):
+        lines=[]
+        for f in prefs:
+            verb='دوست دارید' if f.get('predicate')=='likes' else 'دوست ندارید'
+            lines.append(f'«{f.get("object")}» را {verb}.')
+        answer='متوجه شدم و این ترجیح صریح را در حافظه ثبت کردم: '+' '.join(lines)
+        self.user_model.record(clean); self.memory.add('user',clean,.72); self.memory.add('assistant',answer,.68)
+        try:self.orchestrator.metrics.record('response',0.0)
+        except Exception:pass
+        return answer
+    return _prev_unified_handle_pref(self,text)
+IranRuntime.handle = _unified_handle_v5
+
+
+# v0.34: persist the active dialogue frame after each unified turn.
+_prev_unified_handle_frame = IranRuntime.handle
+def _unified_handle_v6(self, text):
+    result = _prev_unified_handle_frame(self, text)
+    try:
+        parsed = self.brain.language.parse(str(text).strip(), getattr(self.provider,'frame',{}))
+        entities = parsed.get('entities',[]) if isinstance(parsed,dict) else []
+        self.provider.frame = {
+            'topic': entities[0].get('text','') if entities else str(text).strip(),
+            'goal': parsed.get('goal','') if isinstance(parsed,dict) else str(text).strip(),
+            'intent': parsed.get('intent','general') if isinstance(parsed,dict) else 'general',
+        }
+    except Exception:
+        self.provider.frame = {'topic':str(text).strip(),'goal':str(text).strip(),'intent':'general'}
+    return result
+IranRuntime.handle = _unified_handle_v6
+
+
+# v0.35: goal execution is routed through the unified runtime instead of the legacy orchestrator loop.
+def _run_goal_unified(self, goal, max_attempts=3):
+    import time as _time
+    goal=str(goal).strip(); observations=[]
+    if not goal: return {'goal':'','status':'rejected','attempts':0,'score':0.0,'answer':''}
+    self.events.emit('agent_loop_started',{'goal':goal,'unified':True})
+    for attempt in range(1,max(1,int(max_attempts))+1):
+        started=_time.perf_counter()
+        try:
+            answer=self.handle(goal)
+            score=float(self.evaluator.score(goal,answer))
+            observations.append({'attempt':attempt,'ok':True,'score':score,'answer':answer})
+            self.events.emit('agent_loop_observation',{'goal':goal,'attempt':attempt,'score':score})
+            if score>=.55:
+                self.events.emit('agent_loop_completed',{'goal':goal,'attempts':attempt,'score':score,'unified':True})
+                return {'goal':goal,'status':'completed','attempts':attempt,'score':score,'answer':answer,'observations':observations}
+        except Exception as exc:
+            observations.append({'attempt':attempt,'ok':False,'error':str(exc)})
+            self.events.emit('agent_loop_failure',{'goal':goal,'attempt':attempt,'error':type(exc).__name__})
+        self.learning.record(goal,'goal_retry',observations[-1].get('answer',observations[-1].get('error','')),0.25,'goal','retry','general')
+        self.events.emit('agent_loop_retry',{'goal':goal,'attempt':attempt,'elapsed_ms':round((_time.perf_counter()-started)*1000,2)})
+    last=observations[-1] if observations else {}
+    return {'goal':goal,'status':'failed','attempts':len(observations),'score':float(last.get('score',0)),'answer':last.get('answer',''),'observations':observations}
+IranRuntime.run_goal=_run_goal_unified
+
+_prev_unified_handle_commands = IranRuntime.handle
+def _unified_handle_commands(self, text):
+    clean=str(text).strip()
+    if clean.startswith('/run '): return str(self.run_goal(clean[5:].strip()))
+    if clean.startswith('/tool '):
+        name,kwargs=self.orchestrator._parse_tool(clean); return str(self.orchestrator.run_tool(name,**kwargs))
+    if clean.startswith('/goal '): return str(self.goals.add(clean[6:].strip()))
+    if clean.startswith('/complete '): return str(self.goals.complete(clean.split(maxsplit=1)[1]))
+    if clean.startswith('/reason '): return str(self.decide(clean[8:].strip()))
+    return _prev_unified_handle_commands(self,text)
+IranRuntime.handle=_unified_handle_commands
+
+
+# v0.35b: explicit user goals become persistent active goals without requiring a slash command.
+_prev_unified_handle_goals = IranRuntime.handle
+def _unified_handle_goals(self, text):
+    clean=str(text).strip(); result=_prev_unified_handle_goals(self,text)
+    if clean.startswith('/'): return result
+    markers=('می‌خواهم ','میخوام ','می خواهم ','میخواهم ','می‌خوام ','میخوام ','هدفم ')
+    goal=''
+    for marker in markers:
+        if marker in clean:
+            goal=clean.split(marker,1)[1].strip(' :،؛')
+            break
+    if goal and len(goal)>2 and not clean.endswith('؟') and not any(x.get('title')==goal for x in self.goals.list(status='active')):
+        item=self.goals.add(goal)
+        self.events.emit('goal_persisted',{'goal_id':item['id'],'title':goal,'source':'explicit_user_goal'})
+        return result+'\n\nهدف صریح شما نیز ثبت شد: «'+goal+'».'
+    return result
+IranRuntime.handle=_unified_handle_goals
+
+
+# Unified verified execution bridge: keep the local cognitive path and the verified task path together.
 def _matches_expected(actual, expected):
     if actual == expected:
         return True
@@ -666,7 +961,6 @@ def _matches_expected(actual, expected):
 
 
 def _execute_verified_goal(self, goal, primary, alternative=None, expected_effect='', kwargs=None):
-    """Execute a declared tool and accept success only after independent verification."""
     kwargs = dict(kwargs or {})
     task = self.create_task(goal)
     plan = self.orchestrator.planner.build(goal)
@@ -678,10 +972,8 @@ def _execute_verified_goal(self, goal, primary, alternative=None, expected_effec
         self.tasks.transition(task['task_id'], TaskStatus.RUNNING.value, f'{phase} attempt')
         action = self.actions.execute(task['task_id'], tool_name, expected_effect, **kwargs)
         observation = self.observer.observe(
-            action,
-            actual=action.result,
-            evidence=[{'source': evidence_source, 'tool': tool_name,
-                       'actual': action.result}],
+            action, actual=action.result,
+            evidence=[{'source': evidence_source, 'tool': tool_name, 'actual': action.result}],
         )
         verification = self.verifier.verify(
             observation,
@@ -695,23 +987,18 @@ def _execute_verified_goal(self, goal, primary, alternative=None, expected_effec
             {'task_id': task['task_id'], 'phase': phase}, tool_name,
             {'verified': verification.success}, 1.0)
         self.prediction.record(tool_name, verification.success, phase, expected_effect)
-        return action, observation, verification
+        return verification
 
-    _, _, primary_verification = attempt(primary, 'primary', 'primary-observation')
+    primary_verification = attempt(primary, 'primary', 'primary-observation')
     if primary_verification.success:
-        self.tasks.transition(task['task_id'], TaskStatus.SUCCESS.value,
-                              primary_verification.reason)
-        if plan.steps:
-            self.orchestrator.planner.complete(
-                plan, plan.steps[0].id, primary_verification.reason, success=True)
+        self.tasks.transition(task['task_id'], TaskStatus.SUCCESS.value, primary_verification.reason)
         self.events.emit('verified_task_completed', {
             'task_id': task['task_id'], 'phase': 'primary', 'success': True})
         return {'task': self.tasks.get(task['task_id']), 'plan': plan,
                 'primary': primary_verification.__dict__, 'alternative': None}
 
     if not alternative:
-        self.tasks.transition(task['task_id'], TaskStatus.FAILED.value,
-                              primary_verification.reason)
+        self.tasks.transition(task['task_id'], TaskStatus.FAILED.value, primary_verification.reason)
         self.events.emit('verified_task_completed', {
             'task_id': task['task_id'], 'phase': 'primary', 'success': False})
         return {'task': self.tasks.get(task['task_id']), 'plan': plan,
@@ -724,29 +1011,24 @@ def _execute_verified_goal(self, goal, primary, alternative=None, expected_effec
     self.events.emit('plan_replanned', {
         'task_id': task['task_id'], 'version': plan.version,
         'selected': decision.selected, 'verified_execution': True})
-    self.tasks.transition(task['task_id'], TaskStatus.READY.value,
-                          'verified alternative selected')
-    _, _, alternative_verification = attempt(
-        alternative, 'alternative', 'independent-recheck')
-    final_status = (TaskStatus.SUCCESS.value if alternative_verification.success
-                    else TaskStatus.FAILED.value)
-    self.tasks.transition(task['task_id'], final_status,
-                          alternative_verification.reason)
+    self.tasks.transition(task['task_id'], TaskStatus.READY.value, 'verified alternative selected')
+    alternative_verification = attempt(alternative, 'alternative', 'independent-recheck')
+    final_status = TaskStatus.SUCCESS.value if alternative_verification.success else TaskStatus.FAILED.value
+    self.tasks.transition(task['task_id'], final_status, alternative_verification.reason)
     self.events.emit('verified_task_completed', {
-        'task_id': task['task_id'], 'phase': 'alternative',
-        'success': alternative_verification.success})
+        'task_id': task['task_id'], 'phase': 'alternative', 'success': alternative_verification.success})
     return {'task': self.tasks.get(task['task_id']), 'plan': plan,
             'primary': primary_verification.__dict__,
             'diagnosis': diagnosis.__dict__, 'replan': decision.__dict__,
             'alternative': alternative_verification.__dict__}
 
-
 IranRuntime.execute_verified_goal = _execute_verified_goal
 
+
+# Bind verified execution to the current (already unified) runtime initializer.
 if not hasattr(IranRuntime, '_iran_verified_executor_init_base'):
     IranRuntime._iran_verified_executor_init_base = IranRuntime.__init__
 _old_init_verified_executor = IranRuntime._iran_verified_executor_init_base
-
 
 def _init_verified_executor(self, root):
     _old_init_verified_executor(self, root)
@@ -755,7 +1037,6 @@ def _init_verified_executor(self, root):
         'goal_to_task': True, 'action': True, 'observation': True,
         'verification': True, 'replanning': True})
 
-
 IranRuntime.__init__ = _init_verified_executor
 
 
@@ -763,5 +1044,37 @@ def _close_verified_executor(self):
     self.runner.stop()
     return self.memory.close()
 
-
 IranRuntime.close = _close_verified_executor
+
+
+# Final command boundary: verified /run requests use task execution; ordinary /run keeps the cognitive goal loop.
+_prev_unified_handle_verified_command = IranRuntime.handle
+
+def _unified_handle_verified_command(self, text):
+    clean = str(text).strip()
+    if clean.startswith('/run ') and '--tool' in clean and '--expected' in clean:
+        verified = self.orchestrator._parse_verified_run(clean)
+        result = self.execute_verified_goal(**verified)
+        return self.orchestrator._format_verified_result(result)
+    return _prev_unified_handle_verified_command(self, text)
+
+IranRuntime.handle = _unified_handle_verified_command
+
+
+# Final role boundary: answer explicit project-role questions from the persistent User Model.
+_prev_unified_handle_role = IranRuntime.handle
+
+def _unified_handle_role(self, text):
+    clean = str(text).strip().lower()
+    role_word = '\u0646\u0642\u0634'
+    project_word = '\u067e\u0631\u0648\u0698\u0647'
+    if role_word in clean and project_word in clean:
+        facts = self.user_model.facts(limit=20) if hasattr(self, 'user_model') else []
+        if any(f.get('predicate') == 'role' and f.get('object') == 'creator' for f in facts):
+            answer = 'role=creator (سازنده پروژه IRAN)'
+            self.memory.add('user', str(text).strip(), .72)
+            self.memory.add('assistant', answer, .68)
+            return answer
+    return _prev_unified_handle_role(self, text)
+
+IranRuntime.handle = _unified_handle_role

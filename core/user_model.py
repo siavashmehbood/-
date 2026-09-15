@@ -99,3 +99,40 @@ class UserModel:
             matched = [f for f in facts if any(q in str(f[k]).lower() for k in ("predicate","object","source"))]
             facts = matched or facts
         return {"facts": facts[:limit], "count": len(facts[:limit]), "fact_only": True}
+
+
+# v0.33: canonicalize explicit preference facts before persistence.
+_UserModel_extract_base = UserModel.extract_explicit_facts
+def _extract_explicit_facts_canonical(self, text):
+    facts = _UserModel_extract_base(self, text)
+    out=[]; seen=set()
+    for fact in facts:
+        f=dict(fact); obj=str(f.get('object','')).replace('\u200c',' ')
+        obj=re.sub(r'\s+',' ',obj).strip(' ،,')
+        if f.get('predicate') in ('likes','dislikes'):
+            obj=re.sub(r'\s+را$','',obj).strip()
+        f['object']=obj
+        key=(f.get('predicate'),obj)
+        if obj and key not in seen:
+            seen.add(key); out.append(f)
+    return out
+UserModel.extract_explicit_facts = _extract_explicit_facts_canonical
+
+
+# v0.33b: canonicalize and deduplicate persisted facts at read time as well.
+_UserModel_facts_base = UserModel.facts
+def _facts_canonical(self, predicate=None, limit=20):
+    rows = _UserModel_facts_base(self, predicate=predicate, limit=max(int(limit)*3, 20))
+    out=[]; seen=set()
+    for f in rows:
+        item=dict(f); obj=str(item.get('object','')).replace('\u200c',' ')
+        obj=re.sub(r'\s+',' ',obj).strip(' ،,')
+        if item.get('predicate') in ('likes','dislikes'):
+            obj=re.sub(r'\s+را$','',obj).strip()
+        item['object']=obj
+        key=(item.get('predicate'),obj)
+        if obj and key not in seen:
+            seen.add(key); out.append(item)
+        if len(out)>=int(limit): break
+    return out
+UserModel.facts = _facts_canonical

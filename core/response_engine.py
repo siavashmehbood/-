@@ -384,3 +384,79 @@ def _memory_answer_v30(self,text,history,frame):
     return 'در حافظه محلی شاهد مستقل کافی برای این مرجع پیدا نکردم.'
 
 LocalResponseEngine.memory_answer=_memory_answer_v30
+
+
+# v0.33: conjunction splitting is token-boundary safe; never split inside Persian words such as «چطور».
+def _split_intents_safe(self, text):
+    t=self.clean(text).rstrip('؟?')
+    if ('بین ' in t and ' و ' in t and any(x in t for x in ('کدام','بهتر','مقایسه'))):
+        return [('compare',t)]
+    chunks=re.split(r'\s*(?<![آ-یA-Za-z0-9‌])و(?![آ-یA-Za-z0-9‌])\s*|\s*(?:ولی|اما|همچنین|؛|;|\.\s*)\s*',t)
+    out=[]
+    for c in chunks:
+        c=c.strip()
+        if not c: continue
+        if any(x in c for x in self.WHY): kind='why'
+        elif any(x in c for x in self.HOW): kind='how'
+        elif any(x in c for x in ('کدام','مقایسه','فرق','تفاوت','بهتره','بهتر است')): kind='compare'
+        elif any(x in c for x in self.MEMORY): kind='memory'
+        elif any(x in c for x in ('بساز','ساخت','پیاده','انجام','اجرا')): kind='action'
+        else: kind='general'
+        out.append((kind,c))
+    return out
+LocalResponseEngine.split_intents=_split_intents_safe
+
+
+# v0.34: reference resolution and contextual recall operate on semantic turn content, not tuple representations.
+def _resolve_reference_safe(self, text, history, frame):
+    t=self.clean(text)
+    markers=sorted(self.REF.items(), key=lambda x:-len(x[0]))
+    for marker,target in markers:
+        if re.search(rf'(?<![آ-یA-Za-z0-9‌]){re.escape(marker)}(?![آ-یA-Za-z0-9‌])',t):
+            if target=='last_topic': return str(frame.get('topic') or frame.get('goal') or self._last_content(history))
+            if target=='last_option': return str(frame.get('option') or self._last_content(history))
+            if target=='previous': return str(history[-2] if len(history)>1 else self._last_content(history))
+            if target=='project': return 'پروژه ایران'
+    return ''
+LocalResponseEngine.resolve_reference=_resolve_reference_safe
+
+def _context_hits_safe(self, text, history, limit=4):
+    q=set(self.keywords(text)); q-=set(self.FILLERS)
+    if not q: return []
+    scored=[]
+    for i,item in enumerate(history):
+        s=self.clean(item if isinstance(item,str) else (item[1] if isinstance(item,(tuple,list)) and len(item)>1 else item))
+        k=set(self.keywords(s)); k-=set(self.FILLERS); overlap=len(q&k)
+        required=1 if len(q)<=2 else 2
+        if overlap>=required:
+            scored.append((overlap/max(1,len(q)),i,s))
+    return sorted(scored,key=lambda x:(x[0],x[1]),reverse=True)[:limit]
+LocalResponseEngine.context_hits=_context_hits_safe
+
+
+# v0.34b: normalize history items at the final reference boundary.
+def _last_content_safe(self, history):
+    if not history: return ''
+    item=history[-1]
+    if isinstance(item,(tuple,list)) and len(item)>1: return str(item[1])
+    return str(item)
+LocalResponseEngine._last_content=_last_content_safe
+
+def _resolve_reference_safe_v2(self, text, history, frame):
+    t=self.clean(text)
+    for marker,target in sorted(self.REF.items(), key=lambda x:-len(x[0])):
+        if re.search(rf'(?<![آ-یA-Za-z0-9‌]){re.escape(marker)}(?![آ-یA-Za-z0-9‌])',t):
+            if target in ('last_topic','last_option'): return str(frame.get('goal') or frame.get('topic') or self._last_content(history))
+            if target=='previous': return self._last_content(history)
+            if target=='project': return 'پروژه ایران'
+    return ''
+LocalResponseEngine.resolve_reference=_resolve_reference_safe_v2
+
+
+# v0.34c: compound references such as «همون قبلی» resolve as one phrase.
+def _resolve_reference_safe_v3(self, text, history, frame):
+    t=self.clean(text)
+    if any(re.search(rf'(?<![آ-یA-Za-z0-9‌]){re.escape(p)}(?![آ-یA-Za-z0-9‌])',t) for p in ('همون قبلی','همون قبلیش','همونو')):
+        return str(frame.get('goal') or frame.get('topic') or self._last_content(history))
+    return _resolve_reference_safe_v2(self,text,history,frame)
+LocalResponseEngine.resolve_reference=_resolve_reference_safe_v3
