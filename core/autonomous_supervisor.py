@@ -425,3 +425,36 @@ def _step_v5(self):
     self.last_report = report
     return report
 AutonomousSupervisor.step = _step_v5
+
+
+# v0.45: attach an explicit dependency-aware plan and next-ready step to every autonomous decision.
+_old_step_v5 = AutonomousSupervisor.step
+def _step_v6(self):
+    report = _old_step_v5(self)
+    selected = report.get('selected') or {}
+    goal = selected.get('goal')
+    if goal:
+        try:
+            plan = self.runtime.orchestrator.planner.build(goal)
+            ready = self.runtime.orchestrator.planner.next_ready(plan)
+            report['plan'] = {
+                'goal': plan.goal,
+                'status': plan.status,
+                'version': plan.version,
+                'strategy': plan.strategy,
+                'assumptions': list(plan.assumptions),
+                'steps': [asdict(s) for s in plan.steps],
+                'next_ready': asdict(ready[0]) if ready else None,
+            }
+            self.runtime.events.emit('autonomous_plan_updated', report['plan'])
+        except Exception as exc:
+            report['plan'] = {'goal': goal, 'status': 'unavailable', 'reason': type(exc).__name__}
+    else:
+        report['plan'] = {'goal': None, 'status': 'idle', 'steps': []}
+    self.last_report = report
+    return report
+AutonomousSupervisor.step = _step_v6
+
+
+# v0.45b: bind the scored action selector into the supervisor class.
+AutonomousSupervisor._choose_action = _choose_action
