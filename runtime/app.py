@@ -1501,6 +1501,9 @@ _chat_final_runtime_base = IranRuntime.handle
 def _chat_final_runtime_handle(self, text):
     low = str(text or '').strip().replace('ي','ی').replace('ك','ک').rstrip('؟?!').strip().lower()
     if low in {'سلام','درود','سلام ایران','هی','hello','hi'}:
+        # Preserve the canonical runtime telemetry/metrics path, then replace only the
+        # analytical greeting with the natural conversational answer.
+        _chat_final_runtime_base(self, text)
         return self.dialogue.handle(str(text).strip())
     return _chat_final_runtime_base(self, text)
 
