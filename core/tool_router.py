@@ -1,14 +1,15 @@
 import re
 
 class ToolRouter:
-    """Maps natural language to the safest available tool without substring collisions."""
+    """Maps explicit natural-language tool requests to the safest available tool."""
     @staticmethod
     def _has_token(text, token):
         return re.search(rf'(?<![\wآ-ی]){re.escape(token)}(?![\wآ-ی])', text) is not None
 
     def choose(self, text):
         t = str(text).lower().strip()
-        if any(self._has_token(t, x) for x in ('ساعت','زمان','تاریخ')):
+        current_time = ('ساعت را بگو' in t or 'الان ساعت' in t or 'ساعت الان' in t or 'زمان فعلی' in t or 'تاریخ امروز' in t)
+        if current_time:
             return 'time_now', {}
         if any(x in t for x in ('مشخصات سیستم','مشخصات کامپیوتر','سیستم من')):
             return 'system_info', {}
