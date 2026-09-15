@@ -286,6 +286,39 @@ class SelfAwarenessEngine:
                 "error": error, "verified": bool(verified),
                 "learning_signal": learning_signal, "calibration_direction": direction}
 
+    def evaluate_goal(self, goal: str, evidence_confidence=.5, novelty=.5, feasibility=.5, importance=.5, reversibility=.8, safety=1.0) -> dict[str, Any]:
+        """Evaluate whether a goal itself is sufficiently understood and feasible before planning."""
+        evidence=max(0.,min(1.,float(evidence_confidence))); novelty=max(0.,min(1.,float(novelty)))
+        feasibility=max(0.,min(1.,float(feasibility))); importance=max(0.,min(1.,float(importance)))
+        reversibility=max(0.,min(1.,float(reversibility))); safety=max(0.,min(1.,float(safety)))
+        ambiguity=1.-evidence; risk=(ambiguity*.25+novelty*.2+(1-feasibility)*.25+(1-reversibility)*.1+(1-safety)*.2)
+        confidence=max(0.,min(1.,evidence*.3+feasibility*.35+importance*.1+(1-novelty)*.1+reversibility*.05+safety*.1))
+        decision='avoid' if safety<.5 or feasibility<.2 or risk>=.8 else ('clarify' if evidence<.35 or novelty>.8 else ('gather_evidence' if risk>=.5 else 'proceed'))
+        reasons=[]
+        if evidence<.35: reasons.append('goal poorly evidenced')
+        if novelty>.8: reasons.append('goal highly novel')
+        if feasibility<.4: reasons.append('goal feasibility is uncertain')
+        if reversibility<.35: reasons.append('goal is hard to reverse')
+        if safety<.8: reasons.append('goal has elevated safety concern')
+        return {'goal':str(goal),'evidence_confidence':round(evidence,4),'novelty':round(novelty,4),'feasibility':round(feasibility,4),'importance':round(importance,4),'reversibility':round(reversibility,4),'safety':round(safety,4),'ambiguity':round(ambiguity,4),'risk':round(max(0.,min(1.,risk)),4),'confidence':round(confidence,4),'decision':decision,'reasons':reasons or ['goal sufficiently understood and feasible']}
+
+    def evaluate_prediction(self, prediction_confidence=.5, evidence_confidence=.5, model_agreement=.5, novelty=.5, calibration=None) -> dict[str, Any]:
+        """Evaluate the reliability of a prediction before allowing it to drive action."""
+        p=max(0.,min(1.,float(prediction_confidence))); e=max(0.,min(1.,float(evidence_confidence)))
+        agreement=max(0.,min(1.,float(model_agreement))); novelty=max(0.,min(1.,float(novelty)))
+        cal=max(0.,min(1.,1.-(self.state.calibration_error if calibration is None else float(calibration))))
+        risk=(1-p)*.3+(1-e)*.25+(1-agreement)*.2+novelty*.1+(1-cal)*.15
+        confidence=max(0.,min(1.,p*.35+e*.25+agreement*.2+cal*.2))
+        decision='reject' if risk>=.7 else ('verify' if risk>=.35 else 'accept')
+        return {'prediction_confidence':round(p,4),'evidence_confidence':round(e,4),'model_agreement':round(agreement,4),'novelty':round(novelty,4),'calibration_confidence':round(cal,4),'risk':round(risk,4),'confidence':round(confidence,4),'decision':decision}
+
+    def calibration_update(self, predicted_confidence: float, actual_score: float, verified: bool=True) -> dict[str, Any]:
+        """Persist a bounded calibration update from prediction error."""
+        predicted=max(0.,min(1.,float(predicted_confidence))); actual=max(0.,min(1.,float(actual_score)))
+        error=abs(predicted-actual); self.state.calibration_error=round(self.state.calibration_error*.8+error*.2,4)
+        self.state.confidence=round(self._overall_confidence(),4); self.state.last_update=datetime.now().isoformat(timespec='seconds'); self._save()
+        return {'predicted':round(predicted,4),'actual':round(actual,4),'error':round(error,4),'verified':bool(verified),'calibration_error':self.state.calibration_error,'confidence':self.state.confidence}
+
     def introspect(self) -> dict[str, Any]:
         strongest = sorted(self.state.capability.items(), key=lambda x: x[1], reverse=True)
         weakest = sorted(self.state.capability.items(), key=lambda x: x[1])

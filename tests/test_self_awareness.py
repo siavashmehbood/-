@@ -143,6 +143,37 @@ class SelfAwarenessTests(unittest.TestCase):
         self.assertEqual(outcome["calibration_direction"], "overconfident")
         self.assertGreater(outcome["error"], .5)
 
+    def test_goal_evaluation_distinguishes_clarification(self):
+        engine = SelfAwarenessEngine()
+        result = engine.evaluate_goal("unknown goal", evidence_confidence=.2, novelty=.9, feasibility=.7)
+        self.assertEqual(result["decision"], "clarify")
+        self.assertGreaterEqual(result["ambiguity"], .8)
+
+    def test_goal_evaluation_rejects_infeasible_goal(self):
+        engine = SelfAwarenessEngine()
+        result = engine.evaluate_goal("goal", evidence_confidence=.9, novelty=.2, feasibility=.1, safety=1.)
+        self.assertEqual(result["decision"], "avoid")
+
+    def test_prediction_evaluation_requires_verification(self):
+        engine = SelfAwarenessEngine()
+        result = engine.evaluate_prediction(.8, .4, .3, .7)
+        self.assertEqual(result["decision"], "verify")
+        self.assertGreater(result["risk"], .35)
+
+    def test_prediction_evaluation_rejects_low_reliability(self):
+        engine = SelfAwarenessEngine()
+        result = engine.evaluate_prediction(.2, .1, .1, .9)
+        self.assertEqual(result["decision"], "reject")
+
+    def test_calibration_update_persists(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path=Path(tmp)/"self_model.json"
+            engine=SelfAwarenessEngine(path)
+            result=engine.calibration_update(.9,.2,False)
+            self.assertGreater(result["calibration_error"],0)
+            restarted=SelfAwarenessEngine(path)
+            self.assertEqual(restarted.state.calibration_error,result["calibration_error"])
+
 
 
 if __name__ == "__main__":
