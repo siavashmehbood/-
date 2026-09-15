@@ -849,7 +849,8 @@ def _unified_handle_v3(self, text):
         elapsed = _time.perf_counter()-started
         try: self.orchestrator.metrics.record('response', elapsed)
         except Exception: pass
-        self.events.emit('response_generated', {'goal': clean, 'route': route, 'elapsed_ms': round(elapsed*1000,2), 'verified': True})
+        mode = self.answer_generator.mode(answer) if hasattr(self, 'answer_generator') else route
+        self.events.emit('response_generated', {'goal': clean, 'route': route, 'mode': mode, 'confidence': .75, 'elapsed_ms': round(elapsed*1000, 2), 'verified': True})
         return answer
     feedback_terms = ('درست بود', 'درسته', 'عالی بود', 'خوبه', 'اشتباه', 'غلط بود', 'بد بود', 'ضعیف بود')
     if any(term in clean.lower() for term in feedback_terms) and hasattr(self, 'learning'):
