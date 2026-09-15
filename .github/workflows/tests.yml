@@ -1,8 +1,11 @@
 name: tests
 on:
   push:
-    branches: ['*']
+    # `*` does not match branch names containing `/`, so the inherited config
+    # never fired on push for branches like this one.
+    branches: ['**']
   pull_request:
+  workflow_dispatch:
 jobs:
   test:
     runs-on: ubuntu-latest
