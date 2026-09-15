@@ -67,6 +67,26 @@ class SelfAwarenessTests(unittest.TestCase):
         control = engine.control_next_action(["project_files", "project_summary"])
         self.assertEqual(control["reason"], "best capability under low calibration confidence")
 
+    def test_cross_goal_transfer(self):
+        engine = SelfAwarenessEngine()
+        for _ in range(6):
+            engine.observe("inspect project changes", "project_files", .9, True)
+        for _ in range(2):
+            engine.observe("inspect project changes", "project_summary", .2, False)
+        result = engine.transfer_control(
+            "understand what changed in the workspace",
+            ["project_summary", "project_files"],
+        )
+        self.assertEqual(result["preferred_action"], "project_files")
+        self.assertGreater(result["transfer_confidence"], .6)
+
+    def test_transfer_penalizes_miscalibration(self):
+        engine = SelfAwarenessEngine()
+        for _ in range(5):
+            engine.observe("goal", "project_files", .9, True, expected=.2)
+        score = engine.transfer_score("new goal", "project_files")
+        self.assertLess(score, engine.state.capability["project_files"])
+
 
 if __name__ == "__main__":
     unittest.main()
