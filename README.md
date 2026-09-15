@@ -134,3 +134,26 @@ Task C safety remains local and policy-gated: `safe_mode=true`, `allow_shell=fal
 - `core/virtual_world.py` provides a deterministic long-horizon sandbox for observe/act/verify evaluation.
 - `IranRuntime.virtual_world_benchmark()` exposes the sandbox benchmark and records its result in the event stream.
 - Autonomy state is stored locally in `data/autonomy_state.json` and does not depend on external AI services.
+
+
+## Autonomous Runtime 0.43
+
+نسخه فعلی علاوه بر مکالمه، یک supervisor خودمختار محلی دارد:
+`PERCEIVE -> ATTENTION -> ANOMALY -> INITIATIVE -> REASON -> PREDICT -> DECIDE -> SAFE ACTION -> OBSERVE -> VERIFY -> REFLECT -> LEARN`.
+
+تغییرات مهم محیط پروژه به‌صورت metadata محلی پایش می‌شوند. initiativeها بر اساس priority، urgency، confidence، expected value و risk رتبه‌بندی می‌شوند. تصمیم، نتیجه و درس کوتاه در `data/autonomy_journal.json` ذخیره می‌شود؛ chain-of-thought خصوصی ذخیره یا نمایش داده نمی‌شود.
+
+اجرای دستی:
+`python run_autonomy.py --cycles 10`
+
+اجرای daemon کنترل‌شده:
+`python run_autonomy.py --daemon --interval 10`
+
+اجرای benchmarkهای خودمختاری از طریق runtime نیز در دسترس است. عملیات خودکار پیش‌فرض فقط read-only و permission-aware هستند.
+
+
+## Autonomous Runtime 0.44
+- scored initiatives are re-evaluated after reasoning/prediction
+- decision summaries are persisted without private chain-of-thought
+- stalled goals trigger bounded evidence reassessment instead of blind repetition
+- every autonomous cycle remains permission-aware, read-only and auditable

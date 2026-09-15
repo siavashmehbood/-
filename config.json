@@ -1,6 +1,6 @@
 {
   "name": "ایران",
-  "version": "0.41.0",
+  "version": "0.44.0",
   "model": {
     "provider": "iran",
     "name": "Iran Symbolic Core",
@@ -10,6 +10,6 @@
   "security": {"safe_mode": true, "allow_shell": false, "allow_network_tools": true},
   "self_improvement": {"enabled": true, "sandbox": "sandbox", "auto_deploy": false, "require_tests": true},
   "autonomy": {"enabled": true, "mode": "local-safe-read-only", "auto_start": false, "max_cycles": 100},
-  "runtime": {"event_log": "logs/events.jsonl", "goals": "data/goals.json", "service_interval": 10}
+  "runtime": {"event_log": "logs/events.jsonl", "goals": "data/goals.json", "service_interval": 10, "autonomy_journal": "data/autonomy_journal.json"}
 }
 

@@ -291,3 +291,137 @@ class LongHorizonWorldBenchmarkV2(LongHorizonWorldBenchmark):
         return super().run(max_cycles=max_cycles)
 
 AutonomousBenchmark = LongHorizonWorldBenchmarkV2
+
+
+# v0.42: scored initiative generation with evidence, urgency, value and risk.
+from core.initiative_engine import InitiativeEngine as ScoredInitiativeEngine
+
+_scored_engine = ScoredInitiativeEngine
+
+def _init_scored(self):
+    self.scored_initiatives = _scored_engine(self.runtime)
+    self.last_initiatives = []
+    self.completed_initiatives = []
+
+_old_v2_init = AutonomousSupervisor.__init__
+def _supervisor_init_v2(self, runtime):
+    _old_v2_init(self, runtime)
+    _init_scored(self)
+AutonomousSupervisor.__init__ = _supervisor_init_v2
+
+
+def _choose_action(self, initiative):
+    if initiative is None:
+        return 'project_summary'
+    mapping = {
+        'inspect project changes': 'project_files',
+        'inspect removed project files': 'project_files',
+        'investigate unusual project state': 'project_files',
+        'maintain situational awareness': 'project_summary',
+    }
+    return mapping.get(initiative.goal, 'project_summary')
+
+_old_v2_step = AutonomousSupervisor.step
+def _step_v3(self):
+    self.cycle_count += 1
+    signals = self.monitor.observe_changes()
+    signal_text = ' '.join(f'{s.kind}:{s.value}' for s in signals)
+    anomaly = self.runtime.anomaly.observe(signal_text or 'stable')
+    preliminary = {'anomaly': asdict(anomaly)}
+    candidates = self.scored_initiatives.generate(signals, preliminary)
+    selected = self.scored_initiatives.choose(candidates)
+    reasoning = self._reasoning_step(selected, signals)
+    candidates = self.scored_initiatives.generate(signals, reasoning)
+    selected = self.scored_initiatives.choose(candidates)
+    action = self._choose_action(selected)
+    predictions = self.runtime.prediction.predict([action, 'project_summary', 'memory_search'], context=signal_text, state=selected.goal if selected else '')
+    best = self.runtime.prediction.best(predictions)
+    if best and best.action in {'project_summary', 'project_files', 'memory_search'}:
+        action = best.action
+    result = self.runtime.registry.run(action)
+    verified = result is not None
+    score = round(float(getattr(best, 'confidence', .5)), 3) if best else .5
+    reflection = self.runtime.reflector.reflect(selected.goal if selected else 'observe', action, score, signals)
+    self.runtime.learning.record(selected.goal if selected else 'observe', action, str(reflection.lessons), score, 'autonomous', 'evidence-first', 'local')
+    report = {
+        'cycle': self.cycle_count,
+        'signals': [asdict(x) for x in signals],
+        'initiatives': self.scored_initiatives.snapshot(candidates),
+        'selected': selected.snapshot() if selected else None,
+        'reasoning': reasoning,
+        'decision': {'action': action, 'permission': 'read', 'safe': True, 'prediction_confidence': score},
+        'observation': result,
+        'verified': verified,
+        'reflection': asdict(reflection),
+        'learning': self.runtime.learning.adapt(selected.goal if selected else 'observe', 'autonomous', 'local'),
+        'time': datetime.now().isoformat(timespec='seconds'),
+    }
+    self.last_report = report
+    self.last_initiatives = report['initiatives']
+    if selected and verified:
+        self.completed_initiatives.append({'goal': selected.goal, 'cycle': self.cycle_count, 'action': action})
+    self.runtime.events.emit('initiative_ranked', {'candidates': report['initiatives'], 'selected': report['selected']})
+    self.runtime.events.emit('prediction_completed', {'goal': selected.goal if selected else 'observe', 'best': asdict(best) if best else None})
+    self.runtime.events.emit('reflection', report['reflection'])
+    self.runtime.events.emit('learning_update', {'goal': selected.goal if selected else 'observe', 'strategy': report['learning'].get('recommended_strategy')})
+    self.runtime.events.emit('supervisor_cycle', report)
+    return report
+
+AutonomousSupervisor.step = _step_v3
+
+
+# v0.43: persistent user-visible autonomy journal and concise decision explanation.
+from core.autonomy_journal import AutonomyJournal
+
+_old_supervisor_init_v3 = AutonomousSupervisor.__init__
+def _supervisor_init_v3(self, runtime):
+    _old_supervisor_init_v3(self, runtime)
+    self.journal = AutonomyJournal(Path(runtime.config.get('runtime', {}).get('autonomy_journal', 'data/autonomy_journal.json')))
+AutonomousSupervisor.__init__ = _supervisor_init_v3
+
+_old_step_v3 = AutonomousSupervisor.step
+def _step_v4(self):
+    report = _old_step_v3(self)
+    entry = self.journal.append(report)
+    report['autonomy_status'] = self.journal.summary()
+    report['decision_explanation'] = {
+        'trigger': entry.get('signals', []),
+        'selected_goal': entry.get('goal'),
+        'why': entry.get('reason'),
+        'chosen_action': entry.get('action'),
+        'verified': entry.get('verified'),
+    }
+    self.last_report = report
+    return report
+AutonomousSupervisor.step = _step_v4
+AutonomousSupervisor.journal_summary = lambda self: self.journal.summary()
+
+
+# v0.44: detect stalled goals and force a bounded reassessment instead of repeating forever.
+_old_init_v4 = AutonomousSupervisor.__init__
+def _supervisor_init_v4(self, runtime):
+    _old_init_v4(self, runtime)
+    self._goal_signature = None
+    self._goal_stagnation = 0
+AutonomousSupervisor.__init__ = _supervisor_init_v4
+
+_old_step_v4 = AutonomousSupervisor.step
+def _step_v5(self):
+    report = _old_step_v4(self)
+    selected = report.get('selected') or {}
+    signature = selected.get('goal')
+    if signature == self._goal_signature:
+        self._goal_stagnation += 1
+    else:
+        self._goal_signature = signature
+        self._goal_stagnation = 0
+    if self._goal_stagnation >= 3 and signature:
+        report['stagnation'] = {'detected': True, 'cycles': self._goal_stagnation, 'response': 'reassess'}
+        self.runtime.events.emit('goal_stagnation_detected', {'goal': signature, 'cycles': self._goal_stagnation})
+        report['decision']['action'] = 'memory_search'
+        report['decision']['reason'] = 'reassess stalled goal using prior evidence'
+    else:
+        report['stagnation'] = {'detected': False, 'cycles': self._goal_stagnation}
+    self.last_report = report
+    return report
+AutonomousSupervisor.step = _step_v5
