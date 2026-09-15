@@ -1,15 +1,38 @@
 {
   "name": "ایران",
-  "version": "0.45.0",
+  "version": "0.46.0",
   "model": {
     "provider": "iran",
     "name": "Iran Symbolic Core",
     "mode": "offline-symbolic"
   },
-  "memory": {"db": "data/iran.db", "max_history": 16, "search_limit": 12},
-  "security": {"safe_mode": true, "allow_shell": false, "allow_network_tools": true},
-  "self_improvement": {"enabled": true, "sandbox": "sandbox", "auto_deploy": false, "require_tests": true},
-  "autonomy": {"enabled": true, "mode": "local-safe-read-only", "auto_start": false, "max_cycles": 100},
-  "runtime": {"event_log": "logs/events.jsonl", "goals": "data/goals.json", "service_interval": 10, "autonomy_journal": "data/autonomy_journal.json"}
+  "memory": {
+    "db": "data/iran.db",
+    "max_history": 16,
+    "search_limit": 12
+  },
+  "security": {
+    "safe_mode": true,
+    "allow_shell": false,
+    "allow_network_tools": true
+  },
+  "self_improvement": {
+    "enabled": true,
+    "sandbox": "sandbox",
+    "auto_deploy": false,
+    "require_tests": true
+  },
+  "autonomy": {
+    "enabled": true,
+    "mode": "local-safe-read-only",
+    "auto_start": false,
+    "max_cycles": 100
+  },
+  "runtime": {
+    "event_log": "logs/events.jsonl",
+    "goals": "data/goals.json",
+    "service_interval": 10,
+    "autonomy_journal": "data/autonomy_journal.json",
+    "autonomous_goal_state": "data/autonomous_goal_state.json"
+  }
 }
-

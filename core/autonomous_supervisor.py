@@ -458,3 +458,43 @@ AutonomousSupervisor.step = _step_v6
 
 # v0.45b: bind the scored action selector into the supervisor class.
 AutonomousSupervisor._choose_action = _choose_action
+
+
+# v0.46: persistent multi-cycle goal progression.
+from core.autonomous_goal_runner import AutonomousGoalRunner
+_old_init_v5 = AutonomousSupervisor.__init__
+def _supervisor_init_v5(self, runtime):
+    _old_init_v5(self, runtime)
+    self.goal_runner = AutonomousGoalRunner(
+        runtime,
+        Path(runtime.config.get('runtime', {}).get('autonomous_goal_state', 'data/autonomous_goal_state.json')),
+    )
+AutonomousSupervisor.__init__ = _supervisor_init_v5
+
+_old_step_v6 = AutonomousSupervisor.step
+def _step_v7(self):
+    report = _old_step_v6(self)
+    active = self.runtime.goals.list(status='active')
+    if active:
+        goal = active[0]
+        plan = self.runtime.orchestrator.planner.build(goal.get('title', ''))
+        state, observation = self.goal_runner.advance(goal, plan)
+        report['long_horizon'] = {
+            'goal_id': goal.get('id'),
+            'goal': goal.get('title'),
+            'status': state.get('status'),
+            'step': state.get('step', 0),
+            'total_steps': len(plan.steps),
+            'last': state.get('last'),
+        }
+        if state.get('status') == 'completed':
+            self.runtime.goals.complete(goal.get('id'))
+            self.runtime.events.emit('autonomous_goal_completed', report['long_horizon'])
+        elif state.get('status') == 'reassess':
+            self.runtime.events.emit('autonomous_goal_reassess', report['long_horizon'])
+    else:
+        report['long_horizon'] = {'status': 'no_active_goal'}
+    self.last_report = report
+    return report
+AutonomousSupervisor.step = _step_v7
+AutonomousSupervisor.goal_progress_snapshot = lambda self: self.goal_runner.snapshot()
