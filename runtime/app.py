@@ -962,7 +962,9 @@ def _matches_expected(actual, expected):
 
 def _execute_verified_goal(self, goal, primary, alternative=None, expected_effect='', kwargs=None):
     kwargs = dict(kwargs or {})
-    task = self.create_task(goal)
+    goal_record = self.goals.add(goal) if self.goals else None
+    goal_id = goal_record.get('id') if isinstance(goal_record, dict) else None
+    task = self.create_task(goal, goal_id=goal_id)
     plan = self.orchestrator.planner.build(goal)
     self.events.emit('task_plan_created', {
         'task_id': task['task_id'], 'version': plan.version,
@@ -976,22 +978,39 @@ def _execute_verified_goal(self, goal, primary, alternative=None, expected_effec
             evidence=[{'source': evidence_source, 'tool': tool_name, 'actual': action.result}],
         )
         verification = self.verifier.verify(
-            observation,
-            predicate=lambda item: _matches_expected(item.actual, expected_effect),
-        )
+            observation, predicate=lambda item: _matches_expected(item.actual, expected_effect))
         self.world.record_observation('action_verification', {
             'task_id': task['task_id'], 'action_id': action.action_id,
             'tool': tool_name, 'phase': phase, 'success': verification.success,
             'reason': verification.reason}, 1.0, 'verification')
-        self.world.transition(
-            {'task_id': task['task_id'], 'phase': phase}, tool_name,
-            {'verified': verification.success}, 1.0)
+        self.world.transition({'task_id': task['task_id'], 'phase': phase}, tool_name,
+                              {'verified': verification.success}, 1.0)
         self.prediction.record(tool_name, verification.success, phase, expected_effect)
-        return verification
+        self.learning.record(goal, tool_name, str(action.result),
+                            1.0 if verification.success else 0.0,
+                            'command', phase, 'verified-task')
+        return action, observation, verification
 
-    primary_verification = attempt(primary, 'primary', 'primary-observation')
+    if alternative:
+        calibration = self.prediction.calibration()
+        primary_stats = calibration.get(primary, {})
+        alternative_stats = calibration.get(alternative, {})
+        if (alternative_stats.get('samples', 0) > 0 and
+                primary_stats.get('samples', 0) > 0 and
+                alternative_stats.get('success_rate', 0) > primary_stats.get('success_rate', 0)):
+            primary, alternative = alternative, primary
+            self.events.emit('strategy_reused', {
+                'goal': goal, 'selected': primary,
+                'reason': 'verified historical success rate'})
+
+    _, _, primary_verification = attempt(primary, 'primary', 'primary-observation')
     if primary_verification.success:
         self.tasks.transition(task['task_id'], TaskStatus.SUCCESS.value, primary_verification.reason)
+        if plan.steps:
+            self.orchestrator.planner.complete(plan, plan.steps[0].id,
+                                               primary_verification.reason, success=True)
+        if goal_record and self.goals:
+            self.goals.complete(goal_record['id'])
         self.events.emit('verified_task_completed', {
             'task_id': task['task_id'], 'phase': 'primary', 'success': True})
         return {'task': self.tasks.get(task['task_id']), 'plan': plan,
@@ -1004,19 +1023,22 @@ def _execute_verified_goal(self, goal, primary, alternative=None, expected_effec
         return {'task': self.tasks.get(task['task_id']), 'plan': plan,
                 'primary': primary_verification.__dict__, 'alternative': None}
 
-    diagnosis, decision = self.fail_and_replan(
-        task['task_id'], primary_verification.reason, 'verification',
-        expected_effect, [alternative])
+    diagnosis, decision = self.fail_and_replan(task['task_id'], primary_verification.reason,
+                                                'verification', expected_effect, [alternative])
     plan = self.orchestrator.planner.replan(plan, 1, primary_verification.reason)
     self.events.emit('plan_replanned', {
         'task_id': task['task_id'], 'version': plan.version,
         'selected': decision.selected, 'verified_execution': True})
     self.tasks.transition(task['task_id'], TaskStatus.READY.value, 'verified alternative selected')
-    alternative_verification = attempt(alternative, 'alternative', 'independent-recheck')
-    final_status = TaskStatus.SUCCESS.value if alternative_verification.success else TaskStatus.FAILED.value
+    _, _, alternative_verification = attempt(alternative, 'alternative', 'independent-recheck')
+    final_status = (TaskStatus.SUCCESS.value if alternative_verification.success
+                    else TaskStatus.FAILED.value)
     self.tasks.transition(task['task_id'], final_status, alternative_verification.reason)
+    if alternative_verification.success and goal_record and self.goals:
+        self.goals.complete(goal_record['id'])
     self.events.emit('verified_task_completed', {
-        'task_id': task['task_id'], 'phase': 'alternative', 'success': alternative_verification.success})
+        'task_id': task['task_id'], 'phase': 'alternative',
+        'success': alternative_verification.success})
     return {'task': self.tasks.get(task['task_id']), 'plan': plan,
             'primary': primary_verification.__dict__,
             'diagnosis': diagnosis.__dict__, 'replan': decision.__dict__,

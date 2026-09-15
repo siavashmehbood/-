@@ -207,15 +207,18 @@ def _generate_v3(self, messages, **kwargs):
     if special:
         self.last_answers.append(special)
         return special
-    history = self._context(messages)
+    # The last user message is the query, not recalled evidence.
+    history = self._context(messages)[:-1]
     parsed = self.language.parse(text, self.frame)
     cycle = kwargs.get('cognitive_context') or {}
     if hasattr(cycle, '__dict__'):
         cycle = cycle.__dict__
     answer = self.response_engine.respond(text, parsed, cycle, history, self.frame)
     self._remember(text, parsed)
+    resolved = self.response_engine.resolve_reference(text, history, self.frame)
+    next_topic = resolved or parsed.get('goal') or text
     self.frame = {
-        'topic': parsed.get('entities',[{}])[0].get('text','') if parsed.get('entities') else self.frame.get('topic',''),
+        'topic': next_topic,
         'goal': parsed.get('goal','') or self.frame.get('goal',''),
         'intent': parsed.get('intent','general'),
         'option': self.response_engine.extract_options(text)[0] if self.response_engine.extract_options(text) else self.frame.get('option','')

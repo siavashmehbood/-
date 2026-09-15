@@ -53,7 +53,7 @@ class UserModel:
         if m:
             pred = "likes" if re.fullmatch(likes, m.group(2), re.I) else "dislikes"
             value = re.sub(r"\s+را$", "", m.group(1).strip()).strip(" ،,")
-            if value:
+            if value and value not in {"چی", "چه", "کدام", "کدوم", "چه چیزی", "چه‌چیزی"}:
                 facts.append(self._fact(pred, value, .93))
         want = r"(?:می[‌\s]?خواهم|می[‌\s]?خواهم)"
         m = re.match(r"^" + man + r"\s+" + want + r"\s+(.+)$", t, re.I)
@@ -91,6 +91,31 @@ class UserModel:
         args.append(int(limit))
         rows = self.memory.conn.execute(sql, tuple(args)).fetchall()
         return [{"subject":r[0],"predicate":r[1],"object":r[2],"confidence":r[3],"source":r[4],"timestamp":r[5],"type":"FACT"} for r in rows]
+
+    def current_belief(self, predicate, limit=1):
+        """Return the current belief while retaining all historical fact rows."""
+        rows = self.facts(predicate=predicate, limit=1000)
+        ranked = sorted(rows, key=lambda row: (row.get('timestamp', ''),
+                                               float(row.get('confidence', 0))), reverse=True)
+        return ranked[:int(limit)]
+
+    def contradictions(self, predicate=None):
+        rows = self.facts(predicate=predicate, limit=1000)
+        groups = {}
+        for row in rows:
+            groups.setdefault(row['predicate'], set()).add(row['object'])
+        return {key: sorted(values) for key, values in groups.items() if len(values) > 1}
+
+    def current_profile(self, limit=20):
+        """Return one current belief per predicate without deleting historical facts."""
+        rows = self.facts(limit=1000)
+        latest = {}
+        for row in rows:
+            current = latest.get(row['predicate'])
+            if current is None or (row.get('timestamp', ''), float(row.get('confidence', 0))) > (
+                    current.get('timestamp', ''), float(current.get('confidence', 0))):
+                latest[row['predicate']] = row
+        return list(latest.values())[:int(limit)]
 
     def profile(self, query="", limit=12):
         facts = self.facts(limit=limit)

@@ -8,7 +8,10 @@ class ConversationRouter:
         if not self._asks_about_user(t):
             return None
         model = getattr(self.runtime, 'user_model', None)
-        facts = model.facts(limit=20) if model is not None else []
+        if model is not None:
+            facts = model.current_profile(limit=20) if hasattr(model, 'current_profile') else model.facts(limit=20)
+        else:
+            facts = []
         if facts:
             return self._format_facts(facts)
         return 'هنوز واقعیت صریح و پایداری درباره شما در حافظه ندارم.'

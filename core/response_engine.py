@@ -4,7 +4,7 @@ from collections import Counter
 class LocalResponseEngine:
     """Deterministic Persian response planner: decomposes intent, grounds in context, and avoids canned filler."""
     FILLERS={'بگو','گفتیم','هست','است','را','رو','یه','این','آن','من','تو','ما','برای','درباره','میشه','می‌شود','لطفا','لطفاً'}
-    REF={'این':'last_topic','این یکی':'last_option','همین':'last_topic','اون':'last_topic','آن':'last_topic','قبلی':'previous','بالایی':'previous','همین پروژه':'project'}
+    REF={'این یکی':'last_option','همین پروژه':'project','موضوع قبلی':'last_topic','روش قبلی':'last_topic','مورد قبلی':'last_topic','همونو':'last_topic','همون رو':'last_topic','اون یکی':'last_option','این':'last_topic','همین':'last_topic','اون':'last_topic','آن':'last_topic','قبلی':'last_topic','بالایی':'last_topic'}
     WHY={'چرا','دلیل','علت','به چه دلیل'}
     HOW={'چطور','چگونه','چه‌طور','چه جوری','چجوری'}
     MEMORY={'یادت','یادته','یادت هست','قبلاً','قبلا','دیروز','هفته پیش','گفتیم','صحبت کردیم'}
@@ -40,8 +40,9 @@ class LocalResponseEngine:
             if marker in t:
                 if target=='last_topic': return frame.get('topic') or self._last_content(history)
                 if target=='last_option': return frame.get('option') or self._last_content(history)
-                if target=='previous': return history[-2] if len(history)>1 else self._last_content(history)
                 if target=='project': return 'پروژه ایران'
+        if any(marker in t for marker in ('ادامه بده','بیشتر توضیح بده','بیشتر بگو','ادامه‌اش','ادامه‌اش بده')):
+            return frame.get('topic') or frame.get('goal') or self._last_content(history)
         return ''
     def _last_content(self,history):
         return str(history[-1]) if history else ''
@@ -123,6 +124,9 @@ class LocalResponseEngine:
             return f'مرجع «{text.strip()}» را به «{self.clean(ref)[:160]}» وصل کردم. حالا همین موضوع را مبنای پاسخ قرار می‌دهم.'
         if hits:
             return f'برداشت من این است که موضوع «{self.clean(text).rstrip("؟?")}» به زمینه قبلی وصل است. نزدیک‌ترین زمینه: «{self.clean(hits[0][2])[:180]}». بر همان مبنا ادامه می‌دهم.'
+        if parsed.get('intent') == 'question' or self.clean(text).endswith(('؟','?')):
+            return ('UNKNOWN: برای این سؤال در حافظه، دانش و شواهد محلی پاسخ قابل اتکایی ندارم. '
+                    'اگر داده یا منبع مجاز مشخصی بدهی، دوباره بررسی و نتیجه را با سطح اطمینان اعلام می‌کنم.')
         return f'موضوع را به‌عنوان «{self.clean(text).rstrip("؟?")}» ثبت کردم. برای اینکه پاسخ فقط تکرار سؤال نباشد، هدف، شواهد موجود و نتیجه قابل‌آزمایش را از هم جدا می‌کنم.'
     def respond(self,text,parsed,cycle,history,frame):
         kinds=self.split_intents(text)
