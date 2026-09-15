@@ -1189,3 +1189,65 @@ def _unified_handle_role(self, text):
     return _prev_unified_handle_role(self, text)
 
 IranRuntime.handle = _unified_handle_role
+
+
+# Autonomous cognitive runtime: continuous perception/attention/reasoning loop.
+from core.autonomy import AutonomousController
+
+_base_runtime_init_autonomy = IranRuntime.__init__
+def _runtime_init_autonomy(self, root):
+    _base_runtime_init_autonomy(self, root)
+    self.autonomy = AutonomousController(self)
+    self.events.emit('autonomy_ready', {'enabled': True, 'mode': 'local-safe'})
+
+IranRuntime.__init__ = _runtime_init_autonomy
+
+
+def _autonomous_step(self):
+    return self.autonomy.step()
+
+
+def _autonomous_run(self, cycles=1):
+    return self.autonomy.run(cycles)
+
+
+def _autonomy_snapshot(self):
+    return {
+        'state': self.autonomy.state.__dict__.copy(),
+        'running': self.autonomy.running,
+    }
+
+IranRuntime.autonomous_step = _autonomous_step
+IranRuntime.autonomous_run = _autonomous_run
+IranRuntime.autonomy_snapshot = _autonomy_snapshot
+
+
+# Persist and restore autonomous cognitive state across local restarts.
+_base_autonomy_step = AutonomousController.step
+
+def _autonomy_step_persistent(self):
+    result = _base_autonomy_step(self)
+    self._persist()
+    return result
+
+AutonomousController.step = _autonomy_step_persistent
+
+_base_runtime_init_autonomy_restore = IranRuntime.__init__
+def _runtime_init_autonomy_restore(self, root):
+    _base_runtime_init_autonomy_restore(self, root)
+    self.autonomy.restore()
+
+IranRuntime.__init__ = _runtime_init_autonomy_restore
+
+
+# v0.36: expose safe autonomous inspection and deterministic long-horizon simulation.
+from core.virtual_world import VirtualWorldBenchmark
+
+
+def _virtual_world_benchmark(self, cycles=50):
+    result = VirtualWorldBenchmark().run(cycles=int(cycles))
+    self.events.emit('virtual_world_benchmark', {
+        'success': result['success'], 'cycles': result['cycles'], 'goal': result['goal']})
+    return result
+
+IranRuntime.virtual_world_benchmark = _virtual_world_benchmark

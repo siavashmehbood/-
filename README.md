@@ -125,3 +125,12 @@ Version 0.29.0 adds a structured learning-transfer layer while reusing the exist
 - `runtime/app.py`: Task C components are integrated into runtime and cognitive-cycle skill retrieval telemetry.
 
 Task C safety remains local and policy-gated: `safe_mode=true`, `allow_shell=false`, `auto_deploy=false`.
+
+
+## Autonomous Cognitive Runtime 0.36
+- `core/autonomy.py` now persists autonomous cognitive state and restores it after restart.
+- Autonomous cycles perform perception, attention ranking, goal selection, cognition, safe read-only action, outcome observation and event emission.
+- Autonomous execution is restricted to explicitly safe/read-only tools; write/shell actions remain outside autonomous mode.
+- `core/virtual_world.py` provides a deterministic long-horizon sandbox for observe/act/verify evaluation.
+- `IranRuntime.virtual_world_benchmark()` exposes the sandbox benchmark and records its result in the event stream.
+- Autonomy state is stored locally in `data/autonomy_state.json` and does not depend on external AI services.
