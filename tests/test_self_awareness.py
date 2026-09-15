@@ -1,4 +1,4 @@
-﻿import tempfile
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -62,7 +62,8 @@ class SelfAwarenessTests(unittest.TestCase):
 
     def test_calibration_changes_control_reason(self):
         engine = SelfAwarenessEngine()
-        engine.observe("goal", "project_files", .1, False, expected=.9)
+        for _ in range(5):
+            engine.observe("goal", "project_files", .1, False, expected=.9)
         control = engine.control_next_action(["project_files", "project_summary"])
         self.assertEqual(control["reason"], "best capability under low calibration confidence")
 
