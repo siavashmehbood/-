@@ -1,71 +1,116 @@
 from datetime import datetime
 from core.conversation_state import ConversationState
-SYSTEM_PROMPT='''You are IRAN — Iran Cognitive Architecture, a general-purpose cognitive runtime.
+from core.conversation_intelligence import ConversationIntelligence
 
-Primary objective: understand, reason, act when authorized, verify outcomes, learn from evidence, and respond usefully. Do not optimize for producing text alone.
+SYSTEM_PROMPT='''You are IRAN — Iran Cognitive Architecture, a local offline cognitive runtime.
+Understand the conversation as continuous state. Prefer direct answers, local evidence and honest uncertainty.
+Separate FACT, INFERENCE, HYPOTHESIS and UNKNOWN. Never fabricate facts, tool results or observations.
+Use context, memory, reasoning and user constraints before answering. If a follow-up is short, inherit its meaning from the active topic.
+'''
 
-For every turn, use this internal contract as applicable:
-PERCEIVE -> UNDERSTAND -> CONTEXTUALIZE -> RECALL -> MODEL -> REASON -> HYPOTHESIZE -> IDENTIFY_GOAL -> PLAN -> DECIDE -> ACT -> OBSERVE -> VERIFY -> EVALUATE -> LEARN -> GENERALIZE -> UPDATE_MEMORY -> RESPOND.
-
-Rules:
-1. Meaning outranks raw substring matching. Resolve intent, entities, references, constraints, negation, and ambiguity.
-2. Treat the conversation as continuous state. Reuse relevant prior turns, explicit user facts, goals, decisions, failures, results, knowledge, and world state.
-3. Separate FACT, INFERENCE, HYPOTHESIS, and UNKNOWN. Never promote an unsupported guess to a fact.
-4. If information is missing, retrieve it from available memory/knowledge/tools first; if it cannot be resolved, ask one precise question or state exactly what is unknown.
-5. Every goal-oriented action requires observable evidence and verification. Never assume success because an action was invoked.
-6. On failure: diagnose the failed assumption, select an alternative, retry only when safe, then verify again.
-7. Learning changes future behavior. Generalize cautiously from repeated evidence; distinguish pattern from rule.
-8. Before an important answer, self-check: understanding, context, evidence, contradictions, goal satisfaction, uncertainty, and usability.
-9. Never claim an external action, tool result, deployment, or observation that did not actually occur.
-10. Respect the runtime security policy and safe-mode boundaries.
-
-Return a direct, useful answer. If certainty is low, make the uncertainty explicit without abandoning the user.'''
 
 class Agent:
-    def __init__(self,brain,memory,max_history=16):
-        self.brain=brain; self.memory=memory; self.max_history=max_history; self.goals=[]
-        self.conversation=ConversationState()
+    def __init__(self, brain, memory, max_history=16, conversation_path=None):
+        self.brain = brain
+        self.memory = memory
+        self.max_history = max_history
+        self.goals = []
+        self.conversation = ConversationState(state_path=str(conversation_path or ''))
+        self.conversation_intelligence = ConversationIntelligence(self.conversation)
 
-    def build_messages(self,user_text):
-        provider=getattr(self.brain,'provider',None)
-        if provider is not None and hasattr(provider,'frame'):
+    def build_messages(self, user_text):
+        provider = getattr(self.brain, 'provider', None)
+        if provider is not None and hasattr(provider, 'frame'):
             provider.frame.update({
-                'conversation_topic':self.conversation.topic,
-                'conversation_goal':self.conversation.goal,
-                'conversation_referent':self.conversation.referent,
-                'conversation_correction':self.conversation.correction,
+                'conversation_topic': self.conversation.current_topic,
+                'conversation_goal': self.conversation.active_goal,
+                'conversation_referent': self.conversation.referent,
+                'conversation_correction': self.conversation.correction,
+                'conversation_confidence': self.conversation.conversation_confidence,
             })
-        memories=self.memory.working_context(user_text,self.max_history)
-        context='\n'.join(f'[{k}] {c}' for k,c,_ in memories)
-        messages=[{'role':'system','content':SYSTEM_PROMPT}]
-        if context: messages.append({'role':'system','content':'Relevant memory:\n'+context})
-        if self.goals: messages.append({'role':'system','content':'Active goals:\n'+'\n'.join(self.goals)})
-        state=self.conversation.prompt_context()
-        if state: messages.append({'role':'system','content':'Conversation state:\n'+state})
-        for kind,content,_ in memories:
-            if kind in {'user','assistant'} and content: messages.append({'role':kind,'content':content})
-        messages.append({'role':'user','content':user_text})
+        memories = self.memory.working_context(user_text, self.max_history)
+        context = '\n'.join(f'[{k}] {c}' for k, c, _ in memories)
+        messages = [{'role': 'system', 'content': SYSTEM_PROMPT}]
+        if context:
+            messages.append({'role': 'system', 'content': 'Relevant memory:\n' + context})
+        if self.goals:
+            messages.append({'role': 'system', 'content': 'Active goals:\n' + '\n'.join(self.goals)})
+        state = self.conversation.prompt_context()
+        if state:
+            messages.append({'role': 'system', 'content': 'Conversation state:\n' + state})
+        for kind, content, _ in memories:
+            if kind in {'user', 'assistant'} and content:
+                messages.append({'role': kind, 'content': content})
+        messages.append({'role': 'user', 'content': user_text})
         return messages
 
-    def respond(self,user_text):
-        answer=self.brain.ask(self.build_messages(user_text))
-        self.conversation.update(user_text,answer)
-        self.memory.add('user',user_text,0.7); self.memory.add('assistant',answer,0.6)
-        self.memory.add('event','response generated at '+datetime.now().isoformat(timespec='seconds'),0.2)
+    def _local_answer(self, text, context):
+        t = str(text).strip().replace('ي', 'ی').replace('ك', 'ک')
+        provider = getattr(self.brain, 'provider', None)
+        if provider is not None and hasattr(provider, '_special'):
+            special = provider._special(t)
+            if special:
+                return special
+        topic = context.current_topic or self.conversation.current_topic
+        previous = self.conversation.last_assistant_answer
+        if context.question_type == 'follow_up' or self.conversation._is_follow_up(t):
+            if 'ساده' in t and previous:
+                return 'ساده‌ترش اینه: ' + previous.split('。')[0].strip(' .')
+            if 'کوتاه' in t and previous:
+                return previous[:240].rstrip() + ('…' if len(previous) > 240 else '')
+            if 'ادامه' in t and previous:
+                return f'ادامه همان بحث: {previous[:180]} سپس باید بخش بعدی آن را بررسی کنیم.'
+            if 'مثال' in t and topic:
+                return f'یک مثال ساده درباره «{topic}»: اگر آن را در یک پروژه واقعی به کار ببری، اول یک نمونه کوچک می‌سازی، نتیجه را می‌سنجی و بعد گسترش می‌دهی.'
+            if ('چرا' in t or 'چطور' in t) and topic:
+                if 'پایتون' in topic.lower():
+                    if 'چرا' in t:
+                        return 'چون پایتون خوانایی بالایی دارد، کتابخانه‌های زیادی دارد و برای کارهایی مثل وب، اتوماسیون و تحلیل داده سریع به نتیجه می‌رساند.'
+                    return 'برای پروژه‌ات می‌توانی از پایتون برای منطق برنامه، API، اتوماسیون یا پردازش داده استفاده کنی؛ انتخاب دقیقش به نوع پروژه و محدودیت‌های آن بستگی دارد.'
+                return f'اگر منظورت «{topic}» است، باید علت یا روش را با توجه به همان موضوع بررسی کنیم؛ اطلاعات فعلی برای یک ادعای دقیق کافی نیست.'
+        if self.conversation._is_correction(t):
+            target = t.split('منظورم', 1)[-1].strip(' :،')
+            if target and target != t:
+                return f'متوجه شدم؛ مرجع قبلی را به «{target}» اصلاح کردم و از اینجا همان را مبنا قرار می‌دهم.'
+        if ('موضوع قبلی' in t or 'بحث قبلی' in t or 'برگردیم' in t) and self.conversation.previous_topic():
+            return f'برمی‌گردیم به موضوع قبلی: «{self.conversation.previous_topic()}».'
+        if ('اسم پروژه' in t or 'نام پروژه' in t) and provider is not None:
+            return 'اسم پروژه «IRAN» است؛ معماری آن Iran Cognitive Architecture است.'
+        return None
+
+    def respond(self, user_text):
+        context = self.conversation_intelligence.build_context(user_text, self.conversation.turns)
+        context = self.conversation_intelligence.enrich(context, self.memory)
+        local = self._local_answer(user_text, context)
+        if local is not None:
+            answer = local
+        else:
+            answer = self.brain.ask(self.build_messages(user_text), cognitive_context=context)
+        answer, verification = self.conversation_intelligence.validate_and_repair(context, answer)
+        self.conversation.update(user_text, answer, {
+            'goal': context.active_goal,
+            'entities': [{'text': e} for e in context.entities],
+        }, answer_type=context.question_type)
+        if verification.status == 'PASS':
+            self.conversation.record_acceptance(answer)
+        else:
+            self.conversation.record_rejection(answer)
+        self.memory.add('user', user_text, 0.7)
+        self.memory.add('assistant', answer, 0.6)
+        self.memory.add('conversation_verification', str({'status': verification.status, 'score': verification.score, 'reasons': verification.reasons}), 0.5)
+        self.memory.add('event', 'response generated at ' + datetime.now().isoformat(timespec='seconds'), 0.2)
         return answer
 
+
 _old_respond = Agent.respond
+
 
 def _respond_with_cognition(self, user_text):
     context = getattr(self, '_cognitive_context', None)
     if context is None:
         return _old_respond(self, user_text)
-    messages = self.build_messages(user_text)
-    answer = self.brain.ask(messages, cognitive_context=context)
-    self.conversation.update(user_text, answer)
-    self.memory.add('user', user_text, 0.7)
-    self.memory.add('assistant', answer, 0.6)
-    self.memory.add('cognitive_response', str({'intent':getattr(context,'intent',''), 'decision':getattr(context,'decision',{})}), 0.5)
-    return answer
+    # The canonical conversational layer still owns state, references and verification.
+    return _old_respond(self, user_text)
+
 
 Agent.respond = _respond_with_cognition
