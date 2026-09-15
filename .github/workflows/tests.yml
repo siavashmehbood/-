@@ -12,3 +12,4 @@ jobs:
         with:
           python-version: '3.12'
       - run: python -m unittest discover -s tests -q
+      - run: python scripts/run_conversation_audit.py
