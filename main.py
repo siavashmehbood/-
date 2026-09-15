@@ -24,12 +24,15 @@ def run_cli():
             if cmd=='/metrics': print(runtime.metrics()); continue
             if cmd=='/memory': print(runtime.memory.recent(CONFIG['memory']['max_history'])); continue
             if cmd=='/events': print(runtime.events.recent()); continue
+            if cmd=='/trace':
+                for event in runtime.events.recent(20):
+                    print(f"{event['time']} | {event['event']} | {event.get('data', {})}")
+                continue
             if cmd=='/tools': print(runtime.registry.list()); continue
             if cmd=='/evaluate': print(evaluator.smoke_test()); continue
             if cmd=='/sandbox': snap=improver.create_snapshot(); print(snap); print(evaluator.evaluate_candidate(snap['snapshot'])); continue
             if cmd=='/reason': print(reasoner.analyze(input('Goal > ').strip())); continue
-            if cmd=='/help': print('/status /health /metrics /memory /events /tools /evaluate /sandbox /reason /goal TITLE /complete ID /tool NAME /run TEXT /exit'); continue
+            if cmd=='/help': print('/status /health /metrics /memory /events /trace /tools /evaluate /sandbox /reason /goal TITLE /complete ID /tool NAME /run TEXT /exit'); continue
             if text: print('ایران > '+runtime.handle(text))
     finally: runtime.close()
 if __name__=='__main__': run_cli()
-
