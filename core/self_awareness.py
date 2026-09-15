@@ -283,9 +283,19 @@ class SelfAwarenessEngine:
             "underconfident" if actual > predicted + .15 else "calibrated"
         )
         learning_signal = round(max(0.0, min(1.0, actual - error - (0.2 if not verified else 0.0))), 4)
+        calibration = self.calibration_update(predicted, actual, verified=verified)
+        learned = self.observe(
+            goal=str(evaluation.get("goal", self.state.active_goal)),
+            action=str(evaluation.get("action", self.state.strategy)),
+            score=actual,
+            verified=verified,
+            expected=None,
+            failure_reason="outcome was weaker than predicted" if direction == "overconfident" else "",
+        )
         return {"predicted": round(predicted, 4), "actual": round(actual, 4),
                 "error": error, "verified": bool(verified),
-                "learning_signal": learning_signal, "calibration_direction": direction}
+                "learning_signal": learning_signal, "calibration_direction": direction,
+                "calibration_update": calibration, "self_model_update": learned}
 
     def evaluate_goal(self, goal: str, evidence_confidence=.5, novelty=.5, feasibility=.5, importance=.5, reversibility=.8, safety=1.0) -> dict[str, Any]:
         """Evaluate whether a goal itself is sufficiently understood and feasible before planning."""

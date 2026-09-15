@@ -206,3 +206,14 @@ class SelfAwarenessTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+    def test_outcome_closes_learning_loop(self):
+        engine = SelfAwarenessEngine()
+        evaluation = engine.evaluate_action("goal", "project_files", .9, .9, .0, .9, 1.0, True)
+        before = engine.state.calibration_error
+        outcome = engine.evaluate_outcome(evaluation, .2, False)
+        self.assertIn("calibration_update", outcome)
+        self.assertIn("self_model_update", outcome)
+        self.assertGreater(engine.state.calibration_error, before)
+        self.assertGreaterEqual(engine.state.recent_failures, 1)
+        self.assertIn("project_files", engine.state.capability)
