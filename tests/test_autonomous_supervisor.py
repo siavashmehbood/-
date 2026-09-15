@@ -22,23 +22,27 @@ class AutonomousSupervisorTests(unittest.TestCase):
     def test_initial_cycle_is_safe_and_observable(self):
         with tempfile.TemporaryDirectory() as directory:
             runtime = self.make_runtime(directory)
-            report = runtime.autonomous_supervisor_step()
-            self.assertEqual(report["decision"]["permission"], "read")
-            self.assertTrue(report["decision"]["safe"])
-            self.assertTrue(report["verified"])
-            self.assertTrue(any(e["event"] == "supervisor_cycle" for e in runtime.events.recent(20)))
-            runtime.close()
+            try:
+                report = runtime.autonomous_supervisor_step()
+                self.assertEqual(report["decision"]["permission"], "read")
+                self.assertTrue(report["decision"]["safe"])
+                self.assertTrue(report["verified"])
+                self.assertTrue(any(e["event"] == "supervisor_cycle" for e in runtime.events.recent(20)))
+            finally:
+                runtime.close()
 
     def test_change_detection_creates_initiative(self):
         with tempfile.TemporaryDirectory() as directory:
             runtime = self.make_runtime(directory)
-            runtime.autonomous_supervisor_step()
-            target = Path(directory) / "data" / "watched.txt"
-            target.write_text("change", encoding="utf-8")
-            report = runtime.autonomous_supervisor_step()
-            self.assertTrue(any(s["kind"] == "files_added" for s in report["signals"]))
-            self.assertEqual(report["decision"]["action"], "project_summary")
-            runtime.close()
+            try:
+                runtime.autonomous_supervisor_step()
+                target = Path(directory) / "data" / "watched.txt"
+                target.write_text("change", encoding="utf-8")
+                report = runtime.autonomous_supervisor_step()
+                self.assertTrue(any(s["kind"] == "files_added" for s in report["signals"]))
+                self.assertIn(report["decision"]["action"], {"project_summary", "project_files"})
+            finally:
+                runtime.close()
 
     def test_benchmark_has_100_scenarios(self):
         result = AutonomousBenchmark().run()
@@ -49,3 +53,4 @@ class AutonomousSupervisorTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+

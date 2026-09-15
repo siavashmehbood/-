@@ -214,3 +214,80 @@ class LongHorizonWorldBenchmark:
 # Replace the earlier smoke benchmark with the substantive long-horizon benchmark.
 AutonomousBenchmark = LongHorizonWorldBenchmark
 
+
+
+# v0.39: close the loop with the existing cognitive kernel, prediction, learning and reflection.
+def _reasoning_step(self, selected, signals):
+    goal = selected.goal
+    signal_text = ' '.join(f'{s.kind}:{s.value}' for s in signals)
+    anomaly = self.runtime.anomaly.observe(signal_text or 'stable')
+    candidates = ['project_summary', 'memory_search', 'project_files']
+    predictions = self.runtime.prediction.predict(candidates, context=signal_text, state=goal)
+    best = self.runtime.prediction.best(predictions)
+    cycle = self.runtime.kernel.cycle(goal)
+    score = float(cycle.confidence) if hasattr(cycle, 'confidence') else .5
+    reflection = self.runtime.reflector.reflect(goal, str(best.action if best else 'observe'), score, signals)
+    self.runtime.learning.record(goal, best.action if best else 'observe', str(reflection.lessons), score, 'autonomous', 'evidence-first', 'local')
+    return {
+        'goal': goal,
+        'anomaly': asdict(anomaly),
+        'hypotheses': list(getattr(cycle, 'hypotheses', []) or []),
+        'predictions': [asdict(p) if hasattr(p, '__dataclass_fields__') else p for p in predictions],
+        'best_prediction': asdict(best) if best else None,
+        'confidence': round(score, 3),
+        'reflection': asdict(reflection),
+    }
+
+_old_supervisor_step = AutonomousSupervisor.step
+def _step_v2(self):
+    self.cycle_count += 1
+    signals = self.monitor.observe_changes()
+    proposed = self.initiatives.propose(signals)
+    selected = proposed[0] if proposed else Initiative('maintain situational awareness', 'no active initiative', .2, 'monitor')
+    reasoning = self._reasoning_step(selected, signals)
+    action = self._safe_action(selected.goal)
+    result = self.runtime.registry.run(action)
+    verified = result is not None
+    report = {
+        'cycle': self.cycle_count,
+        'signals': [asdict(x) for x in signals],
+        'initiatives': [asdict(x) for x in proposed],
+        'selected': asdict(selected),
+        'reasoning': reasoning,
+        'decision': {'action': action, 'permission': 'read', 'safe': True},
+        'observation': result,
+        'verified': verified,
+        'learning': self.runtime.learning.adapt(selected.goal, 'autonomous', 'local'),
+        'time': datetime.now().isoformat(timespec='seconds'),
+    }
+    self.last_report = report
+    self.runtime.events.emit('initiative_detected', {'selected': asdict(selected), 'count': len(proposed)})
+    self.runtime.events.emit('prediction_completed', {'goal': selected.goal, 'best': reasoning['best_prediction'], 'confidence': reasoning['confidence']})
+    self.runtime.events.emit('reflection', reasoning['reflection'])
+    self.runtime.events.emit('learning_update', {'goal': selected.goal, 'strategy': report['learning'].get('recommended_strategy')})
+    self.runtime.events.emit('supervisor_cycle', report)
+    return report
+
+AutonomousSupervisor._reasoning_step = _reasoning_step
+AutonomousSupervisor.step = _step_v2
+
+# v0.40: goal-sensitive safe action selection instead of a single fixed action.
+def _safe_action_v2(self, goal: str) -> str:
+    mapping = {
+        'inspect project changes': 'project_files',
+        'inspect removed project files': 'project_files',
+        'maintain situational awareness': 'project_summary',
+    }
+    return mapping.get(str(goal).strip(), 'project_summary')
+
+AutonomousSupervisor._safe_action = _safe_action_v2
+
+
+# v0.41: compatibility wrapper accepts the runtime supervisor while keeping benchmark semantics.
+class LongHorizonWorldBenchmarkV2(LongHorizonWorldBenchmark):
+    def run(self, max_cycles=50, supervisor=None):
+        if not isinstance(max_cycles, int):
+            max_cycles = 50
+        return super().run(max_cycles=max_cycles)
+
+AutonomousBenchmark = LongHorizonWorldBenchmarkV2
