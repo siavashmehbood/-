@@ -25,6 +25,7 @@ from self.benchmark import CognitiveBenchmark
 from self.improvement_loop import SelfImprovementLoop
 from core.answer_generator import AnswerGenerator
 from core.response_engine import LocalResponseEngine
+from core.rule_engine import SymbolicRuleEngine
 
 class IranRuntime:
     """Local autonomous runtime wiring perception, cognition, memory, action, learning and self-evaluation."""
@@ -35,6 +36,9 @@ class IranRuntime:
         self.evaluator=Evaluator(self.root);self.benchmark=CognitiveBenchmark();self.improvement=SelfImprovementLoop(self.root);self.cognition_engine=CognitiveEngine();self.world=WorldModel(self.root/'data/world.json')
         self.knowledge=KnowledgeGraph(self.root/'data/knowledge.json');self.learning=LearningEngine(self.root/'data/experiences.json');self.prediction=PredictionEngine(self.root/'data/predictions.json');self.anomaly=AnomalyDetector();self.kernel=CognitiveKernel(self.memory,self.world,self.knowledge,self.prediction,self.anomaly,self.learning)
         self._seed_local_knowledge()
+        self.rules=SymbolicRuleEngine()
+        self.rules.add('پروژه ایران', 'معماری شناختی', .95, 'project_definition')
+        self.rules.add('معماری شناختی', 'نیازمند حافظه و استدلال', .9, 'architecture_principle')
         self.answer_generator=AnswerGenerator(getattr(self.provider,'response_engine',None) or LocalResponseEngine(), self.knowledge)
         self.reflector=ReflectionEngine();self.orchestrator=Orchestrator(self.agent,self.memory,self.events,self.registry,self.policy,self.goals,self.evaluator);self.scheduler=Scheduler(self.root/'data/schedule.json');self.runner=BackgroundRunner(self.scheduler,self.events)
         self.events.emit('runtime_ready',{'provider':self.provider.name,'version':self.config['version'],'cognitive':True,'offline':True,'network_model':False})
@@ -61,7 +65,8 @@ class IranRuntime:
     def metrics(self):return self.orchestrator.metrics.snapshot()
     def cognitive_snapshot(self,text):
         state=self.cognition_engine.analyze(text);cycle=self.kernel.cycle(text)
-        return {'state':state.__dict__,'cycle':cycle.__dict__,'world':self.world.snapshot(),'knowledge':self.knowledge.stats(),'learning':self.learning.stats(),'memory':self.memory.stats(),'prediction':self.prediction.calibration()}
+        rule_result=self.rules.explain([str(text)], 'نیازمند حافظه و استدلال')
+        return {'state':state.__dict__,'cycle':cycle.__dict__,'rules':rule_result,'world':self.world.snapshot(),'knowledge':self.knowledge.stats(),'learning':self.learning.stats(),'memory':self.memory.stats(),'prediction':self.prediction.calibration()}
     def benchmark_run(self):return self.benchmark.run(self.brain.language,self.provider,self.brain,self.orchestrator.planner,self.kernel).__dict__
     def evaluate(self):return {'compile':self.evaluator.compile_all(),'benchmark':self.benchmark_run(),'world':self.world.snapshot(),'learning':self.learning.stats(),'prediction':self.prediction.calibration()}
     def decide(self,text):return self.orchestrator.explain_decision(text)
@@ -887,11 +892,12 @@ def _unified_handle_v3(self, text):
     parsed_input = semantic or self.brain.language.parse(clean)
     final_answer = self.answer_generator.generate(clean, parsed_input, cycle_dict, history, getattr(self.provider,'frame',{}))
     answer = final_answer.text
-    score=self.evaluator.score(clean,answer); strategy=cycle.strategy.get('recommended_strategy','evidence-first') if cycle.strategy else 'evidence-first'; domain=language.entities[0] if language.entities else 'general'
+    score=self.evaluator.score(clean,answer); quality=self.evaluator.evaluate_answer(clean,answer,final_answer.evidence,final_answer.unknown); strategy=cycle.strategy.get('recommended_strategy','evidence-first') if cycle.strategy else 'evidence-first'; domain=language.entities[0] if language.entities else 'general'
     experience = self.learning.record(clean,'respond',answer,score,language.intent,strategy,domain); self.learning.auto_maintenance()
     self.world.record_observation('response_score',score,1.0,'unified_response'); self.world.transition(language.intent,cycle.decision.get('chosen','respond'),answer[:300],score)
     reflection = self.reflector.post_action(clean, cycle.decision.get('chosen','respond'), answer, score)
-    self.events.emit('reflection', {'score': score, 'strategy': strategy, 'canonical': True})
+    self.events.emit('evaluation_completed', {'score': score, 'quality': quality, 'mode': final_answer.mode, 'canonical': True})
+    self.events.emit('reflection', {'score': score, 'quality': quality, 'strategy': strategy, 'canonical': True})
     self.events.emit('learning_update', {'score': score, 'strategy': strategy, 'experience': experience, 'canonical': True})
     self.events.emit('response_generated',{'goal':clean,'route':'unified_cognitive_response','mode':final_answer.mode,'unknown':final_answer.unknown,'score':score,'elapsed_ms':round((_time.perf_counter()-started)*1000,2),'verified':score>=.55})
     try:self.orchestrator.metrics.record('response',_time.perf_counter()-started)

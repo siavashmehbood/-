@@ -30,6 +30,19 @@ class Evaluator:
         if any(x in text for x in ('error','failed','ناموفق','نمی‌دانم')): score-=.20
         return round(max(0,min(1,score)),3)
 
+    def evaluate_answer(self, goal, answer, evidence=None, unknown=False):
+        goal_text=str(goal).strip().lower(); answer_text=str(answer).strip().lower(); evidence=list(evidence or [])
+        goal_words={w for w in re.findall(r'[\wآ-ی]+',goal_text) if len(w)>2}
+        overlap=sum(1 for w in goal_words if w in answer_text)
+        relevance=min(1.0, overlap/max(1,len(goal_words)))
+        directness=1.0 if answer_text and not answer_text.startswith(('intent =','hypotheses =')) else .1
+        clarity=1.0 if answer_text and len(answer_text) <= 900 else .6
+        grounding=1.0 if evidence and any(str(item).strip() for item in evidence) else (.7 if unknown else .35)
+        calibration=.9 if unknown and ('unknown' in answer_text or 'نمی‌دانم' in answer_text) else .65
+        values={k:round(v,3) for k,v in {'relevance':relevance,'directness':directness,'grounding':grounding,'clarity':clarity,'uncertainty_calibration':calibration}.items()}
+        values['overall']=round(sum(values.values())/len(values),3)
+        return values
+
     def evidence_score(self,answer,context):
         if not context:return .25
         text=str(answer).lower(); hits=sum(1 for row in context if len(row)>1 and any(w in text for w in str(row[1]).lower().split() if len(w)>3))
