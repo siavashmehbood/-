@@ -1,4 +1,4 @@
-import tempfile
+﻿import tempfile
 import unittest
 from pathlib import Path
 
@@ -34,6 +34,37 @@ class SelfAwarenessTests(unittest.TestCase):
             self.assertEqual(second.state.active_goal, "goal")
             self.assertIn("project_files", second.state.capability)
             self.assertGreater(second.state.recent_successes, 0)
+
+    def test_self_assesses_domains(self):
+        engine = SelfAwarenessEngine()
+        for _ in range(5):
+            engine.observe("goal", "project_files", .9, True)
+        for _ in range(5):
+            engine.observe("goal", "project_summary", .2, False)
+        view = engine.introspect()
+        self.assertIn("perception", view["self_model"]["capability_domains"])
+        self.assertIn("understanding", view["self_model"]["capability_domains"])
+        self.assertIn("understanding", " ".join(view["self_model"]["known_limits"]))
+        self.assertIn("weakest_domains", view)
+
+    def test_control_next_action_persists_preference(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "self_model.json"
+            engine = SelfAwarenessEngine(path)
+            for _ in range(5):
+                engine.observe("goal", "project_files", .9, True)
+            for _ in range(5):
+                engine.observe("goal", "project_summary", .2, False)
+            control = engine.control_next_action(["project_summary", "project_files"])
+            self.assertEqual(control["preferred_action"], "project_files")
+            restarted = SelfAwarenessEngine(path)
+            self.assertEqual(restarted.state.preferred_action, "project_files")
+
+    def test_calibration_changes_control_reason(self):
+        engine = SelfAwarenessEngine()
+        engine.observe("goal", "project_files", .1, False, expected=.9)
+        control = engine.control_next_action(["project_files", "project_summary"])
+        self.assertEqual(control["reason"], "best capability under low calibration confidence")
 
 
 if __name__ == "__main__":
