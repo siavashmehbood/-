@@ -4,6 +4,7 @@ from enum import Enum
 import json
 from pathlib import Path
 from typing import Any
+from persistence import atomic_write_json, load_json_with_backup
 
 
 class TaskStatus(str, Enum):
@@ -64,12 +65,10 @@ class TaskRuntime:
             self._save([])
 
     def _save(self, tasks):
-        tmp = self.path.with_suffix('.tmp')
-        tmp.write_text(json.dumps(tasks, ensure_ascii=False, indent=2), encoding='utf-8')
-        tmp.replace(self.path)
+        atomic_write_json(self.path, tasks)
 
     def _load(self):
-        return json.loads(self.path.read_text(encoding='utf-8'))
+        return load_json_with_backup(self.path, [])
 
     def create(self, description, goal_id=None, task_id=None, **kwargs):
         task_id = task_id or f"task-{int(datetime.now().timestamp() * 1000)}"

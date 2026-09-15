@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 from datetime import datetime
+from persistence import atomic_write_json, load_json_with_backup
 
 
 class GoalStore:
@@ -11,12 +12,10 @@ class GoalStore:
             self.path.write_text('[]', encoding='utf-8')
 
     def _load(self):
-        return json.loads(self.path.read_text(encoding='utf-8'))
+        return load_json_with_backup(self.path, [])
 
     def _save(self, items):
-        tmp = self.path.with_suffix('.tmp')
-        tmp.write_text(json.dumps(items, ensure_ascii=False, indent=2), encoding='utf-8')
-        tmp.replace(self.path)
+        atomic_write_json(self.path, items)
 
     def add(self, title):
         items = self._load()
