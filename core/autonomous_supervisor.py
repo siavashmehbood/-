@@ -544,3 +544,30 @@ def _choose_action_v2(self, initiative):
     except Exception:
         return base
 AutonomousSupervisor._choose_action = _choose_action_v2
+
+
+# v0.48: self-awareness controls the next cycle, not only introspection.
+_old_step_v8 = AutonomousSupervisor.step
+def _step_v9(self):
+    report = _old_step_v8(self)
+    candidates = ['project_summary', 'project_files', 'memory_search']
+    try:
+        control = self.self_awareness.control_next_action(candidates)
+        report['self_awareness_control'] = control
+        decision = report.setdefault('decision', {})
+        decision['next_action'] = control['preferred_action']
+        decision['self_model_reason'] = control['reason']
+        self.runtime.events.emit('self_awareness_control', control)
+    except Exception as exc:
+        report['self_awareness_control'] = {'error': type(exc).__name__}
+    self.last_report = report
+    return report
+AutonomousSupervisor.step = _step_v9
+
+_old_choose_action_v2 = AutonomousSupervisor._choose_action
+def _choose_action_v3(self, initiative):
+    preferred = getattr(self.self_awareness.state, 'preferred_action', '')
+    if preferred in {'project_summary', 'project_files', 'memory_search'}:
+        return preferred
+    return _old_choose_action_v2(self, initiative)
+AutonomousSupervisor._choose_action = _choose_action_v3
