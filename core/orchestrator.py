@@ -74,7 +74,9 @@ class Orchestrator:
         if clean.startswith('/goal '): return str(self.goals.add(clean[6:].strip()) if self.goals else 'Goal store unavailable.')
         if clean.startswith('/complete '): return str(self.goals.complete(clean.split(maxsplit=1)[1]) if self.goals else 'Goal not found.')
         if clean.startswith('/reason '): return str(self.reasoner.analyze(clean[8:].strip(),self.memory.working_context(clean,6)))
-        # Natural language is now a single canonical conversational path. Tool use remains explicit via /tool.
+        if any(x in clean for x in ('ساعت را بگو','زمان سیستم','خلاصه پروژه','مشخصات سیستم','فایل‌های پروژه')):
+            auto=self._auto_tool(clean)
+            if auto is not None: return auto
         answer=self.agent.respond(clean)
         self.events.emit('response_generated',{'goal':clean,'intent':cognitive.intent,'decision':decision.actions,'path':'conversation_intelligence'})
         self.metrics.record('response',time.perf_counter()-started); return answer
@@ -82,35 +84,27 @@ class Orchestrator:
         c=self.cognition.analyze(text); d=self.intelligence.decide(text); return {'intent':c.intent,'confidence':c.confidence,'needs_model':c.needs_model,'goals':c.goals,'actions':d.actions,'reasons':c.reasons}
     def run_smart(self,goal): return self.loop.run(goal)
 
-
 def _user_model_context(self,text):
     model=getattr(self,'_user_model',None) or getattr(getattr(self,'agent',None),'_user_model',None)
     if model is None:return []
     try:return [('user_model',f"{f['predicate']}={f['object']} confidence={float(f['confidence']):.2f} source={f['source']}") for f in model.facts(limit=12)]
     except Exception:return []
-
 if not hasattr(Orchestrator,'_iran_v31_init_base'): Orchestrator._iran_v31_init_base=Orchestrator.__init__
 _base_v31_init_orch=Orchestrator._iran_v31_init_base
-
 def _init_v31_orch(self,*args,**kwargs):
     _base_v31_init_orch(self,*args,**kwargs); model=getattr(self.agent,'_user_model',None)
     if model is not None:self._user_model=model; self.planner.user_model=model; self.reasoner.user_model=model
 Orchestrator.__init__=_init_v31_orch
 Orchestrator._user_model_context=_user_model_context
-
 if not hasattr(Orchestrator,'_iran_conversation_base_handle'): Orchestrator._iran_conversation_base_handle=Orchestrator.handle
 _base_conversation_handle=Orchestrator._iran_conversation_base_handle
-
 def _handle_conversation(self,text):
     clean=str(text).strip()
-    if any(marker in clean for marker in ('همونو','همون قبلی','ادامه بده','بیشتر توضیح بده','این بخش','این جواب','این مشکل','قبلی')):
-        return self.agent.respond(clean)
+    if any(marker in clean for marker in ('همونو','همون قبلی','ادامه بده','بیشتر توضیح بده','این بخش','این جواب','این مشکل','قبلی')): return self.agent.respond(clean)
     return _base_conversation_handle(self,text)
 Orchestrator.handle=_handle_conversation
-
 if not hasattr(Orchestrator,'_iran_v31_explain_base'): Orchestrator._iran_v31_explain_base=Orchestrator.explain_decision
 _base_v31_explain=Orchestrator._iran_v31_explain_base
-
 def _explain_v31(self,text):
     context=list(self.memory.working_context(text,6))+self._user_model_context(text); r=self.reasoner.analyze(text,context); d=self.intelligence.decide(text); c=self.cognition.analyze(text)
     return {'intent':c.intent,'confidence':c.confidence,'needs_model':c.needs_model,'goals':c.goals,'actions':d.actions,'reasons':c.reasons,'user_model':self._user_model_context(text),'reasoning':r.__dict__}
