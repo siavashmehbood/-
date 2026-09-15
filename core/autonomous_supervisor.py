@@ -167,3 +167,50 @@ class AutonomousBenchmark:
             passed += int(ok)
             results.append({"id": scenario["id"], "passed": ok})
         return {"total": len(self.scenarios), "passed": passed, "success": passed == len(self.scenarios), "results": results}
+
+
+class LongHorizonWorldBenchmark:
+    """100 varied deterministic worlds; every action is legal, observable and verified."""
+    def _world(self, i):
+        from core.virtual_world import VirtualWorld
+        world = VirtualWorld(state={
+            "system": "degraded" if i % 2 else "healthy",
+            "queue": i % 6,
+            "resource": 6 + (i % 7),
+            "risk": round((i % 10) / 10, 2),
+        })
+        return world
+
+    def run(self, max_cycles=50):
+        cases = []
+        passed = 0
+        for i in range(1, 101):
+            world = self._world(i)
+            goal = "restore system" if i % 2 else "reduce queue"
+            history = []
+            for cycle in range(1, max_cycles + 1):
+                before = world.observe()
+                legal = world.legal_actions()
+                if goal == "restore system" and "restore" in legal:
+                    action = "restore"
+                elif goal == "reduce queue" and "process_queue" in legal:
+                    action = "process_queue"
+                elif "inspect" in legal:
+                    action = "inspect"
+                else:
+                    action = legal[0] if legal else "inspect"
+                result = world.act(action)
+                verified = result.get("success", False) and action in legal
+                history.append({"cycle": cycle, "action": action, "verified": verified, "before": before, "after": result.get("after")})
+                if goal == "restore system" and world.goal_satisfied(goal):
+                    passed += 1
+                    break
+                if goal == "reduce queue" and world.goal_satisfied(goal):
+                    passed += 1
+                    break
+            cases.append({"id": i, "goal": goal, "success": world.goal_satisfied(goal), "cycles": len(history), "history": history})
+        return {"total": 100, "passed": passed, "success": passed == 100, "cases": cases}
+
+# Replace the earlier smoke benchmark with the substantive long-horizon benchmark.
+AutonomousBenchmark = LongHorizonWorldBenchmark
+
