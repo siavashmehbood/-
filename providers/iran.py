@@ -213,9 +213,23 @@ def _generate_v3(self, messages, **kwargs):
     cycle = kwargs.get('cognitive_context') or {}
     if hasattr(cycle, '__dict__'):
         cycle = cycle.__dict__
-    answer = self.response_engine.respond(text, parsed, cycle, history, self.frame)
+    frame_before = dict(self.frame)
+    if any(marker in text for marker in ('همونو', 'همون قبلی', 'ادامه بده', 'بیشتر توضیح بده')):
+        candidate = str(frame_before.get('topic') or frame_before.get('goal') or '')
+        if not candidate or any(marker in candidate for marker in ('همونو', 'همون قبلی', 'ادامه بده', 'بیشتر توضیح بده')):
+            for item in reversed(history):
+                if not any(marker in item for marker in ('همونو', 'همون قبلی', 'ادامه بده', 'بیشتر توضیح بده')):
+                    candidate = item
+                    break
+        if candidate:
+            answer = f'مرجع «{text.strip()}» را به «{candidate[:240]}» وصل کردم. حالا همین موضوع را مبنای پاسخ قرار می‌دهم.'
+            self.frame = {'topic': candidate, 'goal': candidate, 'intent': parsed.get('intent', 'general')}
+            self.last_answers.append(answer)
+            self.last_answers = self.last_answers[-20:]
+            return answer
+    answer = self.response_engine.respond(text, parsed, cycle, history, frame_before)
     self._remember(text, parsed)
-    resolved = self.response_engine.resolve_reference(text, history, self.frame)
+    resolved = self.response_engine.resolve_reference(text, history, frame_before)
     next_topic = resolved or parsed.get('goal') or text
     self.frame = {
         'topic': next_topic,
@@ -223,6 +237,9 @@ def _generate_v3(self, messages, **kwargs):
         'intent': parsed.get('intent','general'),
         'option': self.response_engine.extract_options(text)[0] if self.response_engine.extract_options(text) else self.frame.get('option','')
     }
+    if resolved:
+        self.frame['topic'] = resolved
+        self.frame['goal'] = resolved
     self.last_answers.append(answer)
     self.last_answers = self.last_answers[-20:]
     return answer

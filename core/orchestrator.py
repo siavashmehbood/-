@@ -144,6 +144,22 @@ def _handle_v31(self, text):
     model = getattr(self.agent, '_user_model', None)
     if model is not None:
         self._user_model = model
+    clean = str(text).strip()
+    if any(marker in clean for marker in ('همونو', 'همون قبلی', 'ادامه بده', 'بیشتر توضیح بده')):
+        provider = getattr(getattr(self.agent, 'brain', None), 'provider', None)
+        topic = str(getattr(provider, 'frame', {}).get('topic', '')) if provider else ''
+        if not topic or any(marker in topic for marker in ('همونو', 'همون قبلی', 'ادامه بده', 'بیشتر توضیح بده')):
+            for _, content, _ in reversed(self.memory.recent(24)):
+                content = str(content)
+                if not any(marker in content for marker in ('همونو', 'همون قبلی', 'ادامه بده', 'بیشتر توضیح بده')):
+                    topic = content
+                    break
+        if topic:
+            answer = f'مرجع «{clean}» را به «{topic[:240]}» وصل کردم. حالا همین موضوع را مبنای پاسخ قرار می‌دهم.'
+            self.memory.add('user', clean, .7)
+            self.memory.add('assistant', answer, .6)
+            self.metrics.record('response')
+            return answer
     return _base_v31_handle(self, text)
 
 Orchestrator.handle = _handle_v31

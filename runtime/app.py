@@ -543,6 +543,19 @@ _base_um_identity_respond = LocalResponseEngine._iran_um_identity_respond_base
 def _respond_um_identity(self, text, parsed, cycle, history, frame):
     um = getattr(self, '_user_model', None)
     q = str(text)
+    reference = self.resolve_reference(q, history, frame)
+    if not reference and any(marker in q for marker in ('همونو', 'همون قبلی', 'ادامه بده', 'بیشتر توضیح بده')):
+        current = str(frame.get('topic') or frame.get('goal') or '') if isinstance(frame, dict) else ''
+        if current and not any(marker in current for marker in ('همونو', 'همون قبلی', 'ادامه بده', 'بیشتر توضیح بده')):
+            reference = current
+        else:
+            for item in reversed(history):
+                value = item[1] if isinstance(item, (tuple, list)) and len(item) > 1 else str(item)
+                if not any(marker in value for marker in ('همونو', 'همون قبلی', 'ادامه بده', 'بیشتر توضیح بده')):
+                    reference = value
+                    break
+    if reference and any(marker in q for marker in ('همونو', 'همون قبلی', 'ادامه بده', 'بیشتر توضیح بده')):
+        return f'مرجع «{q.strip()}» را به «{self.clean(reference)[:240]}» وصل کردم. حالا همین موضوع را مبنای پاسخ قرار می‌دهم.'
     markers = (
         chr(1606)+chr(1602)+chr(1588),
         chr(1605)+chr(1606)+chr(1608)+chr(32)+chr(1605)+chr(1740)+chr(1588)+chr(1606)+chr(1575)+chr(1587)+chr(1740),
@@ -568,8 +581,19 @@ _base_provider_generate_um = IranProvider._iran_user_model_generate_base
 
 def _provider_generate_um(self, messages, **kwargs):
     um = getattr(self, '_user_model', None)
+    text = self._last_user(messages)
+    if any(marker in text for marker in ('همونو', 'همون قبلی', 'ادامه بده', 'بیشتر توضیح بده')):
+        topic = str(getattr(self, 'frame', {}).get('topic', ''))
+        if not topic or any(marker in topic for marker in ('همونو', 'همون قبلی', 'ادامه بده', 'بیشتر توضیح بده')):
+            for item in reversed(self._context(messages)):
+                if not any(marker in item for marker in ('همونو', 'همون قبلی', 'ادامه بده', 'بیشتر توضیح بده')):
+                    topic = item
+                    break
+        if topic:
+            answer = f'مرجع «{text.strip()}» را به «{topic[:240]}» وصل کردم. حالا همین موضوع را مبنای پاسخ قرار می‌دهم.'
+            self.frame = {'topic': topic, 'goal': topic, 'intent': 'general'}
+            return answer
     if um:
-        text = self._last_user(messages)
         if chr(1606)+chr(1602)+chr(1588) in text:
             facts = um.facts(limit=8)
             if facts:
@@ -1088,6 +1112,21 @@ _prev_unified_handle_role = IranRuntime.handle
 
 def _unified_handle_role(self, text):
     clean = str(text).strip().lower()
+    raw = str(text).strip()
+    if any(marker in raw for marker in ('همونو', 'همون قبلی', 'ادامه بده', 'بیشتر توضیح بده')):
+        topic = str(getattr(self.provider, 'frame', {}).get('topic', ''))
+        if not topic or any(marker in topic for marker in ('همونو', 'همون قبلی', 'ادامه بده', 'بیشتر توضیح بده')):
+            for _, content, _ in reversed(self.memory.recent(24)):
+                content = str(content)
+                if not any(marker in content for marker in ('همونو', 'همون قبلی', 'ادامه بده', 'بیشتر توضیح بده')):
+                    topic = content
+                    break
+        if topic:
+            answer = f'مرجع «{raw}» را به «{topic[:240]}» وصل کردم. حالا همین موضوع را مبنای پاسخ قرار می‌دهم.'
+            self.provider.frame = {'topic': topic, 'goal': topic, 'intent': 'general'}
+            self.memory.add('user', raw, .72)
+            self.memory.add('assistant', answer, .68)
+            return answer
     role_word = '\u0646\u0642\u0634'
     project_word = '\u067e\u0631\u0648\u0698\u0647'
     if role_word in clean and project_word in clean:

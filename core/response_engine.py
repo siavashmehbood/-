@@ -334,7 +334,11 @@ LocalResponseEngine.action_answer=_action_v3
 _old_respond_engine=LocalResponseEngine.respond
 def _respond_v2(self,text,parsed,cycle,history,frame):
     self._active_cycle=cycle or {}
-    try:return _old_respond_engine(self,text,parsed,cycle,history,frame)
+    try:
+        reference = self.resolve_reference(text, history, frame)
+        if reference and any(marker in self.clean(text) for marker in ('همونو','همون قبلی','ادامه بده','بیشتر توضیح بده')):
+            return f'مرجع «{text.strip()}» را به «{self.clean(reference)[:240]}» وصل کردم. حالا همین موضوع را مبنای پاسخ قرار می‌دهم.'
+        return _old_respond_engine(self,text,parsed,cycle,history,frame)
     finally:self._active_cycle={}
 LocalResponseEngine.respond=_respond_v2
 
@@ -450,7 +454,7 @@ def _resolve_reference_safe_v2(self, text, history, frame):
     t=self.clean(text)
     for marker,target in sorted(self.REF.items(), key=lambda x:-len(x[0])):
         if re.search(rf'(?<![آ-یA-Za-z0-9‌]){re.escape(marker)}(?![آ-یA-Za-z0-9‌])',t):
-            if target in ('last_topic','last_option'): return str(frame.get('goal') or frame.get('topic') or self._last_content(history))
+            if target in ('last_topic','last_option'): return str(frame.get('topic') or frame.get('goal') or self._last_content(history))
             if target=='previous': return self._last_content(history)
             if target=='project': return 'پروژه ایران'
     return ''
@@ -460,7 +464,14 @@ LocalResponseEngine.resolve_reference=_resolve_reference_safe_v2
 # v0.34c: compound references such as «همون قبلی» resolve as one phrase.
 def _resolve_reference_safe_v3(self, text, history, frame):
     t=self.clean(text)
+    def substantive_fallback():
+        for item in reversed(history):
+            value=self._last_content([item])
+            if not any(marker in value for marker in ('همون','همینو','قبلی','ادامه بده','بیشتر توضیح بده')):
+                return value
+        return ''
     if any(re.search(rf'(?<![آ-یA-Za-z0-9‌]){re.escape(p)}(?![آ-یA-Za-z0-9‌])',t) for p in ('همون قبلی','همون قبلیش','همونو')):
-        return str(frame.get('goal') or frame.get('topic') or self._last_content(history))
+        current=str(frame.get('topic') or frame.get('goal') or '')
+        return current if current and not any(marker in current for marker in ('همون','قبلی','ادامه بده')) else substantive_fallback()
     return _resolve_reference_safe_v2(self,text,history,frame)
 LocalResponseEngine.resolve_reference=_resolve_reference_safe_v3

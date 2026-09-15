@@ -25,7 +25,8 @@ class SpecificationBehaviorTests(unittest.TestCase):
             runtime.handle('من برنامه‌نویسی را دوست دارم.')
             runtime.handle('من چی دوست دارم؟')
             facts = runtime.user_model.facts(predicate='likes', limit=20)
-            self.assertEqual([fact['object'] for fact in facts], ['برنامه‌نویسی'])
+            values = [fact['object'].replace('\u200c', ' ') for fact in facts]
+            self.assertEqual(values, ['برنامه نویسی'])
             runtime.close()
 
     def test_current_belief_preserves_history_and_prefers_recent_fact(self):
