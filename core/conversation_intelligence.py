@@ -30,10 +30,10 @@ class CognitiveContext:
 class QuestionAnalyzer:
     def analyze(self, text: str) -> tuple[str, list[str]]:
         t = self._clean(text)
-        units = [u.strip() for u in re.split(r'\s*(?:و|همچنین)\s*', t) if u.strip()]
+        units = [u.strip() for u in re.split(r'\s+(?:و|همچنین)\s+', t) if u.strip()]
         if len(units) > 1:
             return 'multi_intent', units
-        if any(x in t for x in ('چرا',)):
+        if 'چرا' in t:
             return 'why', units
         if any(x in t for x in ('چطور', 'چگونه', 'چه جوری')):
             return 'how', units
@@ -58,7 +58,7 @@ class ReferenceResolver:
         if not any(w in t for w in self.WORDS):
             return {}
         result = {}
-        candidate = state.current_referent or state.current_topic or state.last_user_message
+        candidate = state.referent or state.current_topic or state.last_user_message
         if candidate:
             for word in self.WORDS:
                 if word in t:
