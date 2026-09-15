@@ -1448,3 +1448,48 @@ IranRuntime.handle = _handle_v41
 IranRuntime.advanced_cognitive_snapshot = lambda self: (
     self.cognitive_core.last_state.snapshot() if getattr(self, 'cognitive_core', None) and self.cognitive_core.last_state else None
 )
+
+
+# v2.1: install the natural local conversation layer after all dialogue compatibility patches.
+try:
+    from core.chat_upgrade import install as _install_chat_upgrade
+    _install_chat_upgrade()
+except Exception as _chat_upgrade_error:
+    # Keep runtime importable; diagnostics can inspect this flag.
+    IranRuntime._chat_upgrade_error = type(_chat_upgrade_error).__name__
+
+try:
+    from core.chat_upgrade import install_v2 as _install_chat_upgrade_v2
+    _install_chat_upgrade_v2()
+except Exception as _chat_upgrade_v2_error:
+    IranRuntime._chat_upgrade_v2_error = type(_chat_upgrade_v2_error).__name__
+
+try:
+    from core.chat_upgrade import install_v3 as _install_chat_upgrade_v3
+    _install_chat_upgrade_v3()
+except Exception as _chat_upgrade_v3_error:
+    IranRuntime._chat_upgrade_v3_error = type(_chat_upgrade_v3_error).__name__
+
+try:
+    from core.chat_upgrade import install_v4 as _install_chat_upgrade_v4
+    _install_chat_upgrade_v4()
+except Exception as _chat_upgrade_v4_error:
+    IranRuntime._chat_upgrade_v4_error = type(_chat_upgrade_v4_error).__name__
+
+try:
+    from core.chat_upgrade import install_v5 as _install_chat_upgrade_v5
+    _install_chat_upgrade_v5()
+except Exception as _chat_upgrade_v5_error:
+    IranRuntime._chat_upgrade_v5_error = type(_chat_upgrade_v5_error).__name__
+
+try:
+    from core.chat_upgrade import install_v6 as _install_chat_upgrade_v6
+    _install_chat_upgrade_v6()
+except Exception as _chat_upgrade_v6_error:
+    IranRuntime._chat_upgrade_v6_error = type(_chat_upgrade_v6_error).__name__
+
+try:
+    from core.chat_upgrade import install_v7 as _install_chat_upgrade_v7
+    _install_chat_upgrade_v7()
+except Exception as _chat_upgrade_v7_error:
+    IranRuntime._chat_upgrade_v7_error = type(_chat_upgrade_v7_error).__name__
