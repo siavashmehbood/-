@@ -1251,3 +1251,58 @@ def _virtual_world_benchmark(self, cycles=50):
     return result
 
 IranRuntime.virtual_world_benchmark = _virtual_world_benchmark
+
+
+# v0.37: behavior-visible autonomous supervisor: local perception -> initiative -> safe action -> verification.
+from core.autonomous_supervisor import AutonomousSupervisor, AutonomousBenchmark
+
+_base_runtime_init_supervisor = IranRuntime.__init__
+def _runtime_init_supervisor(self, root):
+    _base_runtime_init_supervisor(self, root)
+    self.autonomous_supervisor = AutonomousSupervisor(self)
+    self.events.emit('autonomous_supervisor_ready', {'initiative': True, 'local_monitor': True, 'safe_actions_only': True})
+IranRuntime.__init__ = _runtime_init_supervisor
+
+IranRuntime.autonomous_supervisor_step = lambda self: self.autonomous_supervisor.step()
+IranRuntime.autonomous_supervisor_run = lambda self, cycles=1: self.autonomous_supervisor.run(cycles)
+IranRuntime.autonomous_supervisor_snapshot = lambda self: self.autonomous_supervisor.snapshot()
+IranRuntime.autonomous_benchmark = lambda self: AutonomousBenchmark().run(self.autonomous_supervisor)
+
+_base_runtime_close_supervisor = IranRuntime.close
+def _runtime_close_supervisor(self):
+    if hasattr(self, 'autonomous_supervisor'):
+        self.autonomous_supervisor.stop()
+    return _base_runtime_close_supervisor(self)
+IranRuntime.close = _runtime_close_supervisor
+
+
+# v0.38: explicit controllable background autonomy service (safe/read-only by default).
+import threading
+
+def _start_autonomous_daemon(self, interval=None):
+    if getattr(self, '_autonomy_thread', None) and self._autonomy_thread.is_alive():
+        return False
+    delay = max(1, int(interval or self.config.get('runtime', {}).get('service_interval', 10)))
+    self._autonomy_stop = threading.Event()
+    def loop():
+        self.events.emit('autonomous_daemon_started', {'interval': delay})
+        while not self._autonomy_stop.wait(delay):
+            try:
+                self.autonomous_supervisor_step()
+                self.autonomous_step()
+            except Exception as exc:
+                self.events.emit('autonomous_daemon_error', {'error': type(exc).__name__})
+        self.events.emit('autonomous_daemon_stopped', {})
+    self._autonomy_thread = threading.Thread(target=loop, name='iran-autonomy', daemon=True)
+    self._autonomy_thread.start()
+    return True
+
+def _stop_autonomous_daemon(self):
+    stop = getattr(self, '_autonomy_stop', None)
+    if stop: stop.set()
+    thread = getattr(self, '_autonomy_thread', None)
+    if thread: thread.join(timeout=2)
+    return True
+
+IranRuntime.start_autonomous_daemon = _start_autonomous_daemon
+IranRuntime.stop_autonomous_daemon = _stop_autonomous_daemon
