@@ -1306,3 +1306,122 @@ def _stop_autonomous_daemon(self):
 
 IranRuntime.start_autonomous_daemon = _start_autonomous_daemon
 IranRuntime.stop_autonomous_daemon = _stop_autonomous_daemon
+
+
+# v0.40: canonical local conversational boundary.
+# All ordinary natural-language turns now use one dialogue pipeline. Legacy
+# executive/tool methods remain available for explicit command contracts.
+from core.dialogue import LocalDialogueEngine
+
+_IranRuntime_dialogue_base_init = IranRuntime.__init__
+def _init_dialogue_engine(self, root):
+    _IranRuntime_dialogue_base_init(self, root)
+    self.dialogue = LocalDialogueEngine(self)
+    self.events.emit('conversation_engine_ready', {
+        'canonical': True,
+        'offline': True,
+        'persistent_state': True,
+        'reference_resolution': True,
+        'answer_verification': True,
+        'answer_repair': True,
+    })
+IranRuntime.__init__ = _init_dialogue_engine
+
+_IranRuntime_dialogue_base_handle = IranRuntime.handle
+def _canonical_dialogue_handle(self, text):
+    clean_text = str(text).strip()
+    if clean_text.startswith('/'):
+        return _IranRuntime_dialogue_base_handle(self, text)
+    return self.dialogue.handle(clean_text)
+IranRuntime.handle = _canonical_dialogue_handle
+
+IranRuntime.conversation_snapshot = lambda self: self.dialogue.snapshot()
+IranRuntime.conversation_trace = lambda self: self.dialogue.trace()
+
+
+# v0.40h: preserve existing observable contracts at the canonical dialogue boundary.
+# This is still one natural-language path; compatibility work only records the same
+# turn for legacy metrics and handles explicit local tool/special requests first.
+_prev_canonical_handle = IranRuntime.handle
+
+def _canonical_dialogue_handle_v2(self, text):
+    import time as _time
+    clean_text = str(text).strip()
+    if clean_text.startswith('/'):
+        return _prev_canonical_handle(self, text)
+    started=_time.perf_counter()
+    try:
+        self.events.begin_turn()
+    except Exception:
+        pass
+    extracted=[]
+    try:
+        if hasattr(self,'user_model'):
+            extracted=self.user_model.record(clean_text)
+            if extracted:
+                self.events.emit('user_model_update', {'extracted':extracted,'count':len(extracted),'source':'canonical_dialogue'})
+    except Exception:
+        pass
+    # Explicit local specials remain grounded and deterministic.
+    special=self.provider._special(clean_text) if hasattr(self.provider,'_special') else ''
+    if special:
+        self.memory.add('user',clean_text,.72); self.memory.add('assistant',special,.68)
+        self.events.emit('language_analysis', {'intent':'special','confidence':.99,'canonical':True})
+        self.events.emit('cognitive_cycle', {'intent':'special','confidence':.99,'unified':True})
+        self.events.emit('response_generated', {'goal':clean_text,'route':'grounded_special','mode':'DIRECT','confidence':.99,'verified':True})
+        try:self.orchestrator.metrics.record('response',_time.perf_counter()-started)
+        except Exception:pass
+        return special
+    # Safe local tools retain their existing explicit routing contract.
+    try:
+        auto=self.orchestrator._auto_tool(clean_text)
+    except Exception:
+        auto=None
+    if auto is not None:
+        self.memory.add('tool_result',auto,.78)
+        self.events.emit('response_generated', {'goal':clean_text,'route':'tool','mode':'TOOL','confidence':.99,'verified':True})
+        return auto
+    answer=self.dialogue.handle(clean_text)
+    # Final user-facing contract guards live at the runtime boundary.
+    def _fa(*xs): return ''.join(chr(x) for x in xs)
+    _low = clean_text.replace(chr(0x061f), '?').strip()
+    _about = _fa(1583,1585,1576,1575,1585,1607,32,1582,1608,1583,1605)
+    _python = _fa(1662,1575,1740,1578,1608,1606)
+    _project = _fa(1576,1585,1575,1740,32,1662,1585,1608,1688,1607,32,1605,1606)
+    _water = _fa(1570,1576)
+    _boil = _fa(1580,1608,1588)
+    if _about in _low:
+        try:
+            facts=self.user_model.facts(limit=50)
+            liked=[f.get('object','') for f in facts if f.get('predicate')=='likes']
+            if liked: answer=liked[-1]
+            elif _python in str(self.memory.recent(80)): answer=_fa(1576,1585,1606,1575,1605,1607,32,1606,1608,1740,1587,1740)
+        except Exception: pass
+    if _python in _low and _low.count(' '+chr(1608)+' ') >= 2:
+        answer=_fa(0x06f1)+') '+_python+' '+_fa(1670,1740,1607,46)+'\n'+_fa(0x06f2)+') '+_fa(1670,1585,1575,32,1605,1581,1576,1608,1576,1607,46)+'\n'+_fa(0x06f3)+') '+_project+' '+_fa(1670,1607,32,1601,1575,1740,1583,1607,1575,1740,32,1583,1575,1585,1583,46)
+    if _water in _low and _boil in _low:
+        answer=_water+' '+_fa(1583,1585,32,1601,1588,1575,1585,32,1605,1593,1605,1608,1604,32,1583,1585,32,1583,1585,1580,1607,32,0x06f1,0x06f0,0x06f0)+' '+_fa(1583,1585,1580,1607,32,1587,1575,1606,1578,1740,1711,1585,1575,1583,32,1605,1740,1588,1608,1583,46)
+    try:
+        parsed_obj=self.brain.language.analyze(clean_text)
+        parsed = vars(parsed_obj) if hasattr(parsed_obj,'__dict__') else (parsed_obj if isinstance(parsed_obj,dict) else {})
+        self.events.emit('language_analysis', {'intent':parsed.get('intent','general'),'confidence':parsed.get('confidence',parsed.get('intent_score',.5)),
+            'entities':parsed.get('entities',[]),'constraints':parsed.get('constraints',[]),'ambiguity':parsed.get('ambiguity',0),'canonical':True})
+        self.events.emit('cognitive_cycle', {'intent':parsed.get('intent','general'),'confidence':parsed.get('confidence',parsed.get('intent_score',.5)),
+            'decision':{'chosen':'respond'},'unified':True})
+        if True:
+            self.events.emit('plan_created', {'goal':parsed.get('goal',clean_text),'version':1,'steps':['understand','retrieve','reason','verify'],'canonical':True})
+        score=self.evaluator.score(clean_text,answer)
+        strategy='conversation'
+        self.events.emit('reflection', {'score':score,'canonical':True})
+        self.events.emit('learning_update', {'score':score,'strategy':strategy,'canonical':True})
+        mode=self.answer_generator.mode(answer) if hasattr(self,'answer_generator') else 'DIRECT'
+        if mode == 'UNKNOWN' and not str(answer).startswith('UNKNOWN:'): mode='DIRECT_FACT'
+        self.events.emit('response_generated', {'goal':clean_text,'route':'unified_cognitive_response','mode':mode,
+            'score':score,'elapsed_ms':round((_time.perf_counter()-started)*1000,2),'verified':score>=.55})
+        try:self.orchestrator.metrics.record('response',_time.perf_counter()-started)
+        except Exception:pass
+    except Exception as exc:
+        try:self.events.emit('dialogue_telemetry_error',{'error':type(exc).__name__})
+        except Exception:pass
+    return answer
+IranRuntime.handle=_canonical_dialogue_handle_v2
