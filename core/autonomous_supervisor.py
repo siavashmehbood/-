@@ -338,9 +338,33 @@ def _step_v3(self):
     best = self.runtime.prediction.best(predictions)
     if best and best.action in {'project_summary', 'project_files', 'memory_search'}:
         action = best.action
+    try:
+        evaluation = self.self_awareness.evaluate_action(
+            selected.goal if selected else 'observe',
+            action,
+            predicted_confidence=float(getattr(best, 'confidence', reasoning.get('confidence', .5))) if best else float(reasoning.get('confidence', .5)),
+            evidence_confidence=float(reasoning.get('confidence', .5)),
+            novelty=max((float(getattr(signal, 'novelty', .0)) for signal in signals), default=.0),
+            reversibility=.95,
+            safety=1.0,
+            verification_available=True,
+        )
+        if evaluation['decision'] == 'gather_evidence':
+            action = 'project_files'
+        elif evaluation['decision'] == 'avoid':
+            action = 'project_summary'
+        evaluation['executed_action'] = action
+    except Exception as exc:
+        evaluation = {'decision': 'act', 'risk': .5, 'confidence': .5, 'error': type(exc).__name__, 'executed_action': action}
     result = self.runtime.registry.run(action)
     verified = result is not None
     score = round(float(getattr(best, 'confidence', .5)), 3) if best else .5
+    try:
+        report_outcome = self.self_awareness.evaluate_outcome(
+            evaluation, .9 if verified else .1, verified
+        )
+    except Exception as exc:
+        report_outcome = {'error': type(exc).__name__}
     reflection = self.runtime.reflector.reflect(selected.goal if selected else 'observe', action, score, signals)
     self.runtime.learning.record(selected.goal if selected else 'observe', action, str(reflection.lessons), score, 'autonomous', 'evidence-first', 'local')
     report = {
@@ -349,7 +373,11 @@ def _step_v3(self):
         'initiatives': self.scored_initiatives.snapshot(candidates),
         'selected': selected.snapshot() if selected else None,
         'reasoning': reasoning,
-        'decision': {'action': action, 'permission': 'read', 'safe': True, 'prediction_confidence': score},
+        'self_evaluation': evaluation,
+        'self_evaluation_outcome': report_outcome,
+        'decision': {'action': action, 'permission': 'read', 'safe': True, 'prediction_confidence': score,
+                     'evaluation_decision': evaluation.get('decision'), 'risk': evaluation.get('risk'),
+                     'evaluation_confidence': evaluation.get('confidence')},
         'observation': result,
         'verified': verified,
         'reflection': asdict(reflection),
@@ -362,6 +390,8 @@ def _step_v3(self):
         self.completed_initiatives.append({'goal': selected.goal, 'cycle': self.cycle_count, 'action': action})
     self.runtime.events.emit('initiative_ranked', {'candidates': report['initiatives'], 'selected': report['selected']})
     self.runtime.events.emit('prediction_completed', {'goal': selected.goal if selected else 'observe', 'best': asdict(best) if best else None})
+    self.runtime.events.emit('self_evaluation_completed', report['self_evaluation'])
+    self.runtime.events.emit('self_evaluation_outcome', report['self_evaluation_outcome'])
     self.runtime.events.emit('reflection', report['reflection'])
     self.runtime.events.emit('learning_update', {'goal': selected.goal if selected else 'observe', 'strategy': report['learning'].get('recommended_strategy')})
     self.runtime.events.emit('supervisor_cycle', report)
@@ -446,6 +476,15 @@ def _step_v6(self):
                 'steps': [asdict(s) for s in plan.steps],
                 'next_ready': asdict(ready[0]) if ready else None,
             }
+            try:
+                report['plan_evaluation'] = self.self_awareness.evaluate_plan(
+                    goal, report['plan']['steps'],
+                    predicted_confidence=float(report.get('decision', {}).get('prediction_confidence', .5)),
+                    evidence_confidence=float(report.get('reasoning', {}).get('confidence', .5)),
+                )
+                self.runtime.events.emit('autonomous_plan_evaluated', report['plan_evaluation'])
+            except Exception as exc:
+                report['plan_evaluation'] = {'decision': 'act', 'error': type(exc).__name__}
             self.runtime.events.emit('autonomous_plan_updated', report['plan'])
         except Exception as exc:
             report['plan'] = {'goal': goal, 'status': 'unavailable', 'reason': type(exc).__name__}

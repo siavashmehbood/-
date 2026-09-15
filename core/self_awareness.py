@@ -190,6 +190,102 @@ class SelfAwarenessEngine:
         return {"goal": str(goal), "preferred_action": chosen, "ranked_actions": ranked,
                 "transfer_confidence": score, "reason": reason}
 
+    def evaluate_action(self, goal: str, action: str, predicted_confidence: float = 0.5, evidence_confidence: float = 0.5, novelty: float = 0.0, reversibility: float = 0.8, safety: float = 1.0, verification_available: bool = True) -> dict[str, Any]:
+        """Comprehensive pre-action metacognitive evaluation and control gate."""
+        goal = str(goal); action = str(action)
+        predicted = max(0.0, min(1.0, float(predicted_confidence)))
+        evidence = max(0.0, min(1.0, float(evidence_confidence)))
+        novelty = max(0.0, min(1.0, float(novelty)))
+        reversibility = max(0.0, min(1.0, float(reversibility)))
+        safety = max(0.0, min(1.0, float(safety)))
+        capability = self.transfer_score(goal, action)
+        domain = self.DOMAIN_MAP.get(action, "execution")
+        domain_capability = self.state.capability_domains.get(domain, capability)
+        calibration = max(0.0, min(1.0, 1.0 - self.state.calibration_error))
+        failure_pressure = min(1.0, max(0, self.state.recent_failures - self.state.recent_successes) / 5.0)
+        uncertainty_pressure = min(1.0, len(self.state.uncertainty) / 5.0)
+        risk = ((1-capability)*.24 + (1-calibration)*.18 + (1-evidence)*.14 + novelty*.12 + failure_pressure*.10 + uncertainty_pressure*.06 + (1-reversibility)*.06 + (1-safety)*.10)
+        risk = round(max(0.0, min(1.0, risk)), 4)
+        confidence = round(max(0.0, min(1.0, capability*.35 + predicted*.25 + evidence*.15 + calibration*.15 + safety*.10)), 4)
+        reasons = []
+        if capability < .4: reasons.append("weak capability")
+        if domain_capability < .4: reasons.append(f"weak domain capability: {domain}")
+        if self.state.calibration_error > .25: reasons.append("poor calibration")
+        if evidence < .45: reasons.append("insufficient evidence")
+        if novelty > .65: reasons.append("high novelty")
+        if failure_pressure > .4: reasons.append("recent failure pressure")
+        if not verification_available: reasons.append("verification unavailable")
+        if reversibility < .35: reasons.append("low reversibility")
+        if safety < .8: reasons.append("elevated safety concern")
+        if safety < .5 or capability < .05 or risk >= .82:
+            decision = "avoid"
+        elif not verification_available or risk >= .52 or capability < .4 or evidence < .45 or self.state.calibration_error > .25:
+            decision = "gather_evidence"
+        else:
+            decision = "act"
+        result = {
+            "goal": goal, "action": action, "domain": domain,
+            "capability": round(capability, 4), "domain_capability": round(domain_capability, 4),
+            "predicted_confidence": round(predicted, 4), "evidence_confidence": round(evidence, 4),
+            "calibration_confidence": round(calibration, 4), "novelty": round(novelty, 4),
+            "failure_pressure": round(failure_pressure, 4), "uncertainty_pressure": round(uncertainty_pressure, 4),
+            "reversibility": round(reversibility, 4), "safety": round(safety, 4),
+            "verification_available": bool(verification_available), "risk": risk,
+            "confidence": confidence, "decision": decision,
+            "reasons": reasons or ["sufficient capability and evidence"],
+            "time": datetime.now().isoformat(timespec="seconds"),
+        }
+        self.state.active_goal = goal
+        self.state.strategy = action
+        self.state.preferred_action = action if decision == "act" else ("project_files" if decision == "gather_evidence" else "")
+        self._save()
+        return result
+
+    def evaluation_snapshot(self, candidates: list[str], goal: str = "") -> dict[str, Any]:
+        """Evaluate all candidate actions and expose a decision matrix."""
+        goal = str(goal or self.state.active_goal)
+        evaluations = [self.evaluate_action(goal, action) for action in dict.fromkeys(candidates)]
+        ranked = sorted(evaluations, key=lambda item: (item["decision"] != "act", item["risk"], -item["confidence"]))
+        return {"goal": goal, "evaluations": ranked, "recommended": ranked[0] if ranked else None,
+                "self_confidence": self.state.confidence, "calibration_error": self.state.calibration_error,
+                "known_limits": list(self.state.known_limits)}
+
+    def evaluate_plan(self, goal: str, steps: list[Any], predicted_confidence: float = .5, evidence_confidence: float = .5) -> dict[str, Any]:
+        """Evaluate every plan step and identify the weakest link before execution."""
+        evaluations = []
+        for index, step in enumerate(steps):
+            if isinstance(step, dict):
+                action = step.get("action") or step.get("title") or "project_summary"
+            else:
+                action = str(step)
+            evaluations.append(self.evaluate_action(
+                goal, action, predicted_confidence, evidence_confidence,
+                novelty=min(.9, index * .12), reversibility=.8, safety=1.0,
+                verification_available=True,
+            ))
+        risks = [item["risk"] for item in evaluations]
+        weakest = min(evaluations, key=lambda item: item["confidence"]) if evaluations else None
+        total_risk = round(sum(risks) / len(risks), 4) if risks else .5
+        decision = "avoid" if any(x["decision"] == "avoid" for x in evaluations) else (
+            "gather_evidence" if any(x["decision"] == "gather_evidence" for x in evaluations) else "act"
+        )
+        return {"goal": str(goal), "steps": evaluations, "weakest_step": weakest,
+                "total_risk": total_risk, "decision": decision,
+                "plan_confidence": round(max(0.0, 1.0 - total_risk), 4)}
+
+    def evaluate_outcome(self, evaluation: dict[str, Any], actual_score: float, verified: bool) -> dict[str, Any]:
+        """Compare pre-action confidence with reality and expose calibration feedback."""
+        actual = max(0.0, min(1.0, float(actual_score)))
+        predicted = max(0.0, min(1.0, float(evaluation.get("confidence", .5))))
+        error = round(abs(predicted - actual), 4)
+        direction = "overconfident" if predicted > actual + .15 else (
+            "underconfident" if actual > predicted + .15 else "calibrated"
+        )
+        learning_signal = round(max(0.0, min(1.0, actual - error - (0.2 if not verified else 0.0))), 4)
+        return {"predicted": round(predicted, 4), "actual": round(actual, 4),
+                "error": error, "verified": bool(verified),
+                "learning_signal": learning_signal, "calibration_direction": direction}
+
     def introspect(self) -> dict[str, Any]:
         strongest = sorted(self.state.capability.items(), key=lambda x: x[1], reverse=True)
         weakest = sorted(self.state.capability.items(), key=lambda x: x[1])

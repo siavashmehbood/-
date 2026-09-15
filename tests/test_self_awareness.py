@@ -87,6 +87,63 @@ class SelfAwarenessTests(unittest.TestCase):
         score = engine.transfer_score("new goal", "project_files")
         self.assertLess(score, engine.state.capability["project_files"])
 
+    def test_comprehensive_evaluation_acts_when_capable(self):
+        engine = SelfAwarenessEngine()
+        for _ in range(6):
+            engine.observe("goal", "project_files", .95, True)
+        result = engine.evaluate_action("goal", "project_files", .9, .9, .05, .9, 1.0, True)
+        self.assertEqual(result["decision"], "act")
+        self.assertLess(result["risk"], .52)
+        self.assertIn("calibration_confidence", result)
+
+    def test_comprehensive_evaluation_gathers_evidence_when_weak(self):
+        engine = SelfAwarenessEngine()
+        for _ in range(2):
+            engine.observe("goal", "project_files", .1, False, expected=.8)
+        result = engine.evaluate_action("new goal", "project_files", .8, .2, .8, .8, 1.0, True)
+        self.assertEqual(result["decision"], "gather_evidence")
+        self.assertTrue(result["reasons"])
+        self.assertGreaterEqual(result["risk"], .52)
+
+    def test_comprehensive_evaluation_avoids_unsafe_action(self):
+        engine = SelfAwarenessEngine()
+        result = engine.evaluate_action("goal", "unknown", .9, .9, .1, .9, .2, True)
+        self.assertEqual(result["decision"], "avoid")
+        self.assertIn("elevated safety concern", result["reasons"])
+
+    def test_comprehensive_evaluation_requires_verification(self):
+        engine = SelfAwarenessEngine()
+        for _ in range(6):
+            engine.observe("goal", "project_files", .9, True)
+        result = engine.evaluate_action("goal", "project_files", .9, .9, .0, .9, 1.0, False)
+        self.assertEqual(result["decision"], "gather_evidence")
+        self.assertIn("verification unavailable", result["reasons"])
+
+    def test_evaluation_snapshot_compares_candidates(self):
+        engine = SelfAwarenessEngine()
+        for _ in range(5):
+            engine.observe("goal", "project_files", .9, True)
+        snapshot = engine.evaluation_snapshot(["project_summary", "project_files"], "goal")
+        self.assertEqual(len(snapshot["evaluations"]), 2)
+        self.assertIn(snapshot["recommended"]["decision"], {"act", "gather_evidence", "avoid"})
+
+    def test_plan_evaluation_finds_weakest_step(self):
+        engine = SelfAwarenessEngine()
+        for _ in range(6):
+            engine.observe("goal", "project_files", .9, True)
+        result = engine.evaluate_plan("goal", ["project_files", "memory_search"], .8, .8)
+        self.assertEqual(len(result["steps"]), 2)
+        self.assertIn(result["decision"], {"act", "gather_evidence", "avoid"})
+        self.assertIsNotNone(result["weakest_step"])
+
+    def test_outcome_evaluation_detects_overconfidence(self):
+        engine = SelfAwarenessEngine()
+        evaluation = engine.evaluate_action("goal", "project_files", .9, .9, .0, .9, 1.0, True)
+        outcome = engine.evaluate_outcome(evaluation, .2, False)
+        self.assertEqual(outcome["calibration_direction"], "overconfident")
+        self.assertGreater(outcome["error"], .5)
+
+
 
 if __name__ == "__main__":
     unittest.main()
