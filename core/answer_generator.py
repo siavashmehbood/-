@@ -42,6 +42,16 @@ class AnswerGenerator:
 
     def generate(self, user_text, parsed_input, cognitive_context, history, frame):
         text = str(user_text).strip()
+        reference_markers = ('همون', 'قبلی', 'ادامه بده', 'این را', 'این رو', 'اون یکی', 'بیشتر توضیح بده')
+        topic = (frame or {}).get('topic') or (frame or {}).get('goal')
+        if any(marker in text for marker in reference_markers) and not topic and not history:
+            return FinalAnswer('برای ادامه دادن، لطفاً موضوع یا پیام قبلی را مشخص کن؛ هنوز مرجع قابل اتکایی در حافظه ندارم.', 'CLARIFICATION', .25, [], 'موضوع مرجع را بپرس', False)
+        ambiguity = getattr(parsed_input, 'ambiguity', None) if parsed_input is not None else None
+        if ambiguity is not None and float(ambiguity) >= .75:
+            alternatives = getattr(parsed_input, 'alternatives', []) or []
+            labels = [str(item.get('goal', item)) for item in alternatives[:2]]
+            suffix = ' یا '.join(labels)
+            return FinalAnswer('منظورتان را دقیق مشخص نکردم' + (f': «{suffix}»؟' if suffix else '؛ لطفاً یک نمونه یا هدف دقیق‌تر بگویید.'), 'CLARIFICATION', round(1-float(ambiguity), 3), [], 'درخواست توضیح بیشتر', False)
         rendered = self._knowledge_answer(text)
         if not rendered:
             rendered = self.engine.respond(text, parsed_input, cognitive_context or {}, history or [], frame or {})

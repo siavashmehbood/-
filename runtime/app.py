@@ -68,6 +68,9 @@ class IranRuntime:
         rule_result=self.rules.explain([str(text)], 'نیازمند حافظه و استدلال')
         return {'state':state.__dict__,'cycle':cycle.__dict__,'rules':rule_result,'world':self.world.snapshot(),'knowledge':self.knowledge.stats(),'learning':self.learning.stats(),'memory':self.memory.stats(),'prediction':self.prediction.calibration()}
     def benchmark_run(self):return self.benchmark.run(self.brain.language,self.provider,self.brain,self.orchestrator.planner,self.kernel).__dict__
+    def roadmap_benchmark(self):
+        from self.roadmap_benchmark import PersianRoadmapBenchmark
+        return PersianRoadmapBenchmark().run(self)
     def evaluate(self):return {'compile':self.evaluator.compile_all(),'benchmark':self.benchmark_run(),'world':self.world.snapshot(),'learning':self.learning.stats(),'prediction':self.prediction.calibration()}
     def decide(self,text):return self.orchestrator.explain_decision(text)
     def reflect(self,text,answer,score):return self.reflector.reflect(text,answer,score).__dict__
@@ -892,7 +895,11 @@ def _unified_handle_v3(self, text):
     parsed_input = semantic or self.brain.language.parse(clean)
     final_answer = self.answer_generator.generate(clean, parsed_input, cycle_dict, history, getattr(self.provider,'frame',{}))
     answer = final_answer.text
-    score=self.evaluator.score(clean,answer); quality=self.evaluator.evaluate_answer(clean,answer,final_answer.evidence,final_answer.unknown); strategy=cycle.strategy.get('recommended_strategy','evidence-first') if cycle.strategy else 'evidence-first'; domain=language.entities[0] if language.entities else 'general'
+    score=self.evaluator.score(clean,answer); quality=self.evaluator.evaluate_answer(clean,answer,final_answer.evidence,final_answer.unknown); domain=language.entities[0] if language.entities else 'general'
+    learned_strategy=self.learning.recommended_strategy(clean, language.intent, domain)
+    strategy=learned_strategy or (cycle.strategy.get('recommended_strategy','evidence-first') if cycle.strategy else 'evidence-first')
+    if learned_strategy and learned_strategy != 'evidence-first':
+        self.events.emit('strategy_reused', {'goal': clean, 'strategy': learned_strategy, 'source': 'procedural_memory', 'canonical': True})
     experience = self.learning.record(clean,'respond',answer,score,language.intent,strategy,domain); self.learning.auto_maintenance()
     self.world.record_observation('response_score',score,1.0,'unified_response'); self.world.transition(language.intent,cycle.decision.get('chosen','respond'),answer[:300],score)
     reflection = self.reflector.post_action(clean, cycle.decision.get('chosen','respond'), answer, score)

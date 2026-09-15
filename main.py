@@ -32,6 +32,10 @@ def run_cli():
                 rows=[e for e in runtime.events.recent(100) if e['event']=='evaluation_completed']
                 print(rows[-1] if rows else 'هنوز ارزیابی پاسخ ثبت نشده است.')
                 continue
+            if cmd=='/benchmark':
+                result=runtime.roadmap_benchmark()
+                print({'score': result.score, 'passed': result.passed, 'cases': [item.__dict__ for item in result.cases]})
+                continue
             if cmd.startswith('/knowledge '):
                 print(runtime.knowledge.query(text[11:].strip(), limit=20))
                 continue
@@ -39,7 +43,7 @@ def run_cli():
             if cmd=='/evaluate': print(evaluator.smoke_test()); continue
             if cmd=='/sandbox': snap=improver.create_snapshot(); print(snap); print(evaluator.evaluate_candidate(snap['snapshot'])); continue
             if cmd=='/reason': print(reasoner.analyze(input('Goal > ').strip())); continue
-            if cmd=='/help': print('/status /health /metrics /memory /events /trace /quality /knowledge QUERY /tools /evaluate /sandbox /reason /goal TITLE /complete ID /tool NAME /run TEXT /exit'); continue
+            if cmd=='/help': print('/status /health /metrics /memory /events /trace /quality /benchmark /knowledge QUERY /tools /evaluate /sandbox /reason /goal TITLE /complete ID /tool NAME /run TEXT /exit'); continue
             if text: print('ایران > '+runtime.handle(text))
     finally: runtime.close()
 if __name__=='__main__': run_cli()
