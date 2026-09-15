@@ -176,5 +176,33 @@ class SelfAwarenessTests(unittest.TestCase):
 
 
 
+    def test_calibration_adapts_prediction_weights_after_overconfidence(self):
+        engine = SelfAwarenessEngine()
+        before = dict(engine.state.evaluation_weights["prediction"])
+        result = engine.calibration_update(.9, .2, False)
+        after = result["weights"]
+        self.assertLess(after["prediction"], before["prediction"])
+        self.assertGreater(after["evidence"], before["evidence"])
+        self.assertGreater(after["agreement"], before["agreement"])
+
+    def test_adapted_prediction_weights_change_future_evaluation(self):
+        engine = SelfAwarenessEngine()
+        baseline = engine.evaluate_prediction(.8, .4, .3, .7)
+        for _ in range(5):
+            engine.calibration_update(.95, .2, False)
+        adapted = engine.evaluate_prediction(.8, .4, .3, .7)
+        self.assertGreaterEqual(adapted["risk"], baseline["risk"])
+        self.assertIn(adapted["decision"], {"verify", "reject"})
+
+    def test_calibration_adaptation_persists_across_restart(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "self_model.json"
+            first = SelfAwarenessEngine(path)
+            first.calibration_update(.9, .2, False)
+            expected = dict(first.state.evaluation_weights["prediction"])
+            second = SelfAwarenessEngine(path)
+            self.assertEqual(second.state.evaluation_weights["prediction"], expected)
+
+
 if __name__ == "__main__":
     unittest.main()

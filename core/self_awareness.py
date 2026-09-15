@@ -23,6 +23,7 @@ class SelfState:
     calibration_error: float = 0.0
     self_assessment: str = "unknown"
     last_update: str = field(default_factory=lambda: datetime.now().isoformat(timespec="seconds"))
+    evaluation_weights: dict[str, dict[str, float]] = field(default_factory=lambda: {"prediction": {"prediction": .35, "evidence": .25, "agreement": .20, "calibration": .20}})
 
 
 class SelfAwarenessEngine:
@@ -307,8 +308,12 @@ class SelfAwarenessEngine:
         p=max(0.,min(1.,float(prediction_confidence))); e=max(0.,min(1.,float(evidence_confidence)))
         agreement=max(0.,min(1.,float(model_agreement))); novelty=max(0.,min(1.,float(novelty)))
         cal=max(0.,min(1.,1.-(self.state.calibration_error if calibration is None else float(calibration))))
-        risk=(1-p)*.3+(1-e)*.25+(1-agreement)*.2+novelty*.1+(1-cal)*.15
-        confidence=max(0.,min(1.,p*.35+e*.25+agreement*.2+cal*.2))
+        weights=self.state.evaluation_weights.get("prediction", {})
+        wp=float(weights.get("prediction", .35)); we=float(weights.get("evidence", .25))
+        wa=float(weights.get("agreement", .20)); wc=float(weights.get("calibration", .20))
+        total=max(.001,wp+we+wa+wc); wp,we,wa,wc=[x/total for x in (wp,we,wa,wc)]
+        risk=(1-p)*wp+(1-e)*we+(1-agreement)*wa+novelty*.1+(1-cal)*wc
+        confidence=max(0.,min(1.,p*wp+e*we+agreement*wa+cal*wc))
         decision='reject' if risk>=.7 else ('verify' if risk>=.35 else 'accept')
         return {'prediction_confidence':round(p,4),'evidence_confidence':round(e,4),'model_agreement':round(agreement,4),'novelty':round(novelty,4),'calibration_confidence':round(cal,4),'risk':round(risk,4),'confidence':round(confidence,4),'decision':decision}
 
@@ -316,8 +321,17 @@ class SelfAwarenessEngine:
         """Persist a bounded calibration update from prediction error."""
         predicted=max(0.,min(1.,float(predicted_confidence))); actual=max(0.,min(1.,float(actual_score)))
         error=abs(predicted-actual); self.state.calibration_error=round(self.state.calibration_error*.8+error*.2,4)
+        weights=dict(self.state.evaluation_weights.get("prediction", {}))
+        if predicted > actual + .15:
+            weights["prediction"]=min(.55, weights.get("prediction", .35)*.9)
+            weights["evidence"]=min(.55, weights.get("evidence", .25)+.04)
+            weights["agreement"]=min(.45, weights.get("agreement", .20)+.03)
+        elif actual > predicted + .15:
+            weights["prediction"]=min(.55, weights.get("prediction", .35)+.03)
+            weights["evidence"]=max(.10, weights.get("evidence", .25)-.02)
+        self.state.evaluation_weights["prediction"]=weights
         self.state.confidence=round(self._overall_confidence(),4); self.state.last_update=datetime.now().isoformat(timespec='seconds'); self._save()
-        return {'predicted':round(predicted,4),'actual':round(actual,4),'error':round(error,4),'verified':bool(verified),'calibration_error':self.state.calibration_error,'confidence':self.state.confidence}
+        return {'predicted':round(predicted,4),'actual':round(actual,4),'error':round(error,4),'verified':bool(verified),'calibration_error':self.state.calibration_error,'confidence':self.state.confidence,'weights':dict(weights)}
 
     def introspect(self) -> dict[str, Any]:
         strongest = sorted(self.state.capability.items(), key=lambda x: x[1], reverse=True)
