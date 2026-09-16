@@ -7,6 +7,10 @@ reasoning and user-model subsystems, then verifies the planned response.
 from dataclasses import dataclass, field, asdict
 from datetime import datetime
 from typing import Any
+from core.working_memory import SymbolicWorkingMemory
+from core.metacognition import MetacognitiveMonitor
+from core.causal_reasoning import CausalGraph
+from core.analogical_reasoning import AnalogicalReasoner
 import re
 
 @dataclass
@@ -45,6 +49,10 @@ class AdvancedCognitiveCore:
         self.turn = 0
         self.last_state = None
         self.history = []
+        self.working_memory = SymbolicWorkingMemory()
+        self.metacognition = MetacognitiveMonitor()
+        self.causal = CausalGraph()
+        self.analogy = AnalogicalReasoner()
 
     def _parse(self, text):
         parser = getattr(self.runtime, "dialogue", None)
@@ -104,7 +112,9 @@ class AdvancedCognitiveCore:
     def begin(self, text):
         self.turn += 1
         parsed = self._parse(text)
-        evidence = self._memory(text) + self._graph(text)
+        self.working_memory.add(text, salience=0.8, tags=[parsed.get("intent", "general")])
+        working = [{"source":"working_memory", "content":x[1], "confidence":x[0], "kind":"working"} for x in self.working_memory.recall(text, 6)]
+        evidence = working + self._memory(text) + self._graph(text)
         contradictions = self._contradictions(text)
         score = float(parsed.get("intent_score", .45))
         evidence_score = min(1.0, len(evidence) / 5.0)
@@ -124,6 +134,9 @@ class AdvancedCognitiveCore:
             hypotheses=[x.get("name", "") for x in parsed.get("alternatives", [])],
             contradictions=contradictions, unresolved=unresolved,
             plan=self._plan(parsed), confidence=round(confidence, 3), status="planned")
+        meta = self.metacognition.assess(confidence, len(evidence), len(contradictions), len(unresolved))
+        state.unresolved.extend(meta.issues)
+        state.confidence = round(max(0.05, state.confidence - 0.10 * len(meta.issues)), 3)
         self.last_state = state
         self.history.append(state.snapshot())
         self.history = self.history[-100:]
