@@ -1,13 +1,15 @@
-import re
 from .contracts import FinalAnswer
+from .cognitive_realizer import CognitiveRealizer
 
 
 class AnswerGenerator:
     """Canonical boundary between cognitive state and human-facing output."""
 
-    def __init__(self, engine, knowledge=None):
+    def __init__(self, engine, knowledge=None, runtime=None):
         self.engine = engine
         self.knowledge = knowledge
+        self.runtime = runtime
+        self.realizer = CognitiveRealizer()
 
     def _knowledge_answer(self, text):
         if self.knowledge is None:
@@ -44,28 +46,22 @@ class AnswerGenerator:
 
     def generate(self, user_text, parsed_input, cognitive_context, history, frame):
         text = str(user_text).strip()
-        reference_markers = ('همون', 'قبلی', 'ادامه بده', 'این را', 'این رو', 'اون یکی', 'بیشتر توضیح بده')
-        topic = (frame or {}).get('topic') or (frame or {}).get('goal')
-        if any(marker in text for marker in reference_markers) and not topic and not history:
-            return FinalAnswer('برای ادامه دادن، لطفاً موضوع یا پیام قبلی را مشخص کن؛ هنوز مرجع قابل اتکایی در حافظه ندارم.', 'CLARIFICATION', .25, [], 'موضوع مرجع را بپرس', False)
-        ambiguity = getattr(parsed_input, 'ambiguity', None) if parsed_input is not None else None
-        if ambiguity is not None and float(ambiguity) >= .75:
-            alternatives = getattr(parsed_input, 'alternatives', []) or []
-            labels = [str(item.get('goal', item)) for item in alternatives[:2]]
-            suffix = ' یا '.join(labels)
-            return FinalAnswer('منظورتان را دقیق مشخص نکردم' + (f': «{suffix}»؟' if suffix else '؛ لطفاً یک نمونه یا هدف دقیق‌تر بگویید.'), 'CLARIFICATION', round(1-float(ambiguity), 3), [], 'درخواست توضیح بیشتر', False)
-        rendered = self._knowledge_answer(text)
-        if not rendered:
-            rendered = self.engine.respond(text, parsed_input, cognitive_context or {}, history or [], frame or {})
-        mode = self.mode(text, parsed_input)
+        parsed = parsed_input if isinstance(parsed_input, dict) else getattr(parsed_input, '__dict__', {})
+        cycle = dict(cognitive_context or {})
+        if self.runtime is None:
+            grounded = self._knowledge_answer(text)
+            if grounded:
+                return FinalAnswer(grounded, 'DIRECT_FACT', float(cycle.get('confidence', .9) or .9),
+                                   [{'source': 'knowledge_graph', 'content': grounded, 'confidence': .9, 'kind': 'fact'}], '', False)
+            # Compatibility for callers that use AnswerGenerator as a standalone
+            # boundary; the live runtime always supplies the cognitive realizer.
+            rendered = self.engine.respond(text, parsed, cycle, history or [], frame or {})
+            return FinalAnswer(str(rendered), self.mode(text, parsed),
+                               float(cycle.get('confidence', .5) or .5), [], '', 'unknown' in str(rendered).lower())
+        result = self.realizer.realize(text, parsed, cycle, history or [], frame or {}, self.runtime)
+        rendered = result.text.strip()
+        mode = result.mode
         low = rendered.lower()
-        unknown = 'unknown' in low or 'نمی‌دانم' in low or 'اطلاعات قابل اتکا' in low
-        if unknown:
-            mode = 'UNKNOWN'
-        confidence = float((cognitive_context or {}).get('confidence', .5) or .5)
-        evidence = []
-        reasoning = (cognitive_context or {}).get('reasoning', {})
-        if isinstance(reasoning, dict):
-            reasoning = reasoning.get('reasoning', reasoning)
-            evidence = list(reasoning.get('evidence', []) or [])
-        return FinalAnswer(rendered, mode, confidence, evidence, '', unknown)
+        unknown = mode == 'UNCERTAIN' or 'unknown' in low
+        evidence = [item.__dict__ for item in result.evidence]
+        return FinalAnswer(rendered, mode, result.confidence, evidence, '', unknown)

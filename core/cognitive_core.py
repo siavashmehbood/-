@@ -1,4 +1,4 @@
-﻿"""IRAN v2 cognitive core.
+"""IRAN v2 cognitive core.
 
 A deterministic, fully-local orchestration layer. It does not generate text itself;
 it builds a typed cognitive state from the existing language, memory, graph,
@@ -7,6 +7,13 @@ reasoning and user-model subsystems, then verifies the planned response.
 from dataclasses import dataclass, field, asdict
 from datetime import datetime
 from typing import Any
+from core.working_memory import SymbolicWorkingMemory
+from core.metacognition import MetacognitiveMonitor
+from core.causal_reasoning import CausalGraph
+from core.analogical_reasoning import AnalogicalReasoner
+from core.production_rules import ProductionSystem
+from core.goal_stack import GoalStack
+from core.decision_cycle import DecisionCycle
 import re
 
 @dataclass
@@ -33,6 +40,7 @@ class CognitiveState:
     plan: list = field(default_factory=list)
     confidence: float = 0.0
     status: str = "understanding"
+    executive: dict = field(default_factory=dict)
     created_at: str = field(default_factory=lambda: datetime.now().isoformat(timespec="seconds"))
 
     def snapshot(self):
@@ -45,6 +53,15 @@ class AdvancedCognitiveCore:
         self.turn = 0
         self.last_state = None
         self.history = []
+        self.working_memory = SymbolicWorkingMemory()
+        self.metacognition = MetacognitiveMonitor()
+        self.causal = CausalGraph()
+        self.analogy = AnalogicalReasoner()
+        self.production = ProductionSystem()
+        self.production.add("respond_to_intent", ("intent:{intent}",), "respond:{intent}", priority=10, confidence=.95)
+        self.production.add("verify_with_evidence", ("evidence_available",), "verify_answer", priority=20, confidence=.99)
+        self.goals = GoalStack()
+        self.decision_cycle = DecisionCycle(self.production, self.goals)
 
     def _parse(self, text):
         parser = getattr(self.runtime, "dialogue", None)
@@ -104,7 +121,9 @@ class AdvancedCognitiveCore:
     def begin(self, text):
         self.turn += 1
         parsed = self._parse(text)
-        evidence = self._memory(text) + self._graph(text)
+        self.working_memory.add(text, salience=0.8, tags=[parsed.get("intent", "general")])
+        working = [{"source":"working_memory", "content":x[1], "confidence":x[0], "kind":"working"} for x in self.working_memory.recall(text, 6)]
+        evidence = working + self._memory(text) + self._graph(text)
         contradictions = self._contradictions(text)
         score = float(parsed.get("intent_score", .45))
         evidence_score = min(1.0, len(evidence) / 5.0)
@@ -124,10 +143,34 @@ class AdvancedCognitiveCore:
             hypotheses=[x.get("name", "") for x in parsed.get("alternatives", [])],
             contradictions=contradictions, unresolved=unresolved,
             plan=self._plan(parsed), confidence=round(confidence, 3), status="planned")
+        self.goals.clear()
+        self.decision_cycle.reset()
+        self.goals.push(state.goal or text, steps=["respond"])
+        executive_facts = [f"intent:{state.intent}"]
+        if evidence:
+            executive_facts.append("evidence_available")
+        executive = self.executive_cycle(executive_facts)
+        state.executive = executive.__dict__.copy()
+        meta = self.metacognition.assess(confidence, len(evidence), len(contradictions), len(unresolved))
+        state.unresolved.extend(meta.issues)
+        state.confidence = round(max(0.05, state.confidence - 0.10 * len(meta.issues)), 3)
         self.last_state = state
         self.history.append(state.snapshot())
         self.history = self.history[-100:]
         return state
+
+    def executive_cycle(self, facts, goal=None, steps=None, result=None):
+        """Run one symbolic executive cycle over explicit facts and optional goal."""
+        if goal and self.goals.current() is None:
+            self.goals.push(goal, steps=steps or [])
+        return self.decision_cycle.step(facts, result=result)
+
+    def complete_executive(self, answer):
+        facts = ["evidence_available"] if str(answer).strip() else []
+        result = self.executive_cycle(facts, result=str(answer))
+        if self.last_state is not None:
+            self.last_state.executive["verification_cycle"] = result.__dict__.copy()
+        return result
 
     def verify(self, state, answer):
         answer = str(answer or "").strip()
@@ -146,6 +189,11 @@ class AdvancedCognitiveCore:
             return
         self.last_state.status = "learned"
         try:
+            if hasattr(self, "offline_agent"):
+                self.offline_agent.learn_outcome(answer, score)
+        except Exception:
+            pass
+        try:
             self.runtime.events.emit("advanced_cognition", {
                 "turn": self.last_state.turn_id,
                 "intent": self.last_state.intent,
@@ -157,3 +205,33 @@ class AdvancedCognitiveCore:
         except Exception:
             pass
 
+
+
+# v2.5: integrate the independent offline-agent substrate inspired by
+# Soar/BrainStem/humind/el/Shodh capabilities without importing their stacks.
+from core.offline_agent import OfflineAgentKernel
+
+if not hasattr(AdvancedCognitiveCore, '_offline_agent_init_base'):
+    AdvancedCognitiveCore._offline_agent_init_base = AdvancedCognitiveCore.__init__
+    _offline_agent_init_base = AdvancedCognitiveCore._offline_agent_init_base
+
+    def _offline_agent_init(self, runtime):
+        _offline_agent_init_base(self, runtime)
+        self.offline_agent = OfflineAgentKernel(runtime)
+
+    AdvancedCognitiveCore.__init__ = _offline_agent_init
+
+    AdvancedCognitiveCore._offline_agent_begin_base = AdvancedCognitiveCore.begin
+    _offline_agent_begin_base = AdvancedCognitiveCore._offline_agent_begin_base
+
+    def _offline_agent_begin(self, text):
+        state = _offline_agent_begin_base(self, text)
+        result = self.offline_agent.cycle(text)
+        state.executive['offline_agent'] = result.__dict__
+        state.plan = list(dict.fromkeys(state.plan + result.plan))
+        state.unresolved = list(dict.fromkeys(state.unresolved + result.impasse.get('reasons', [])))
+        state.confidence = round(max(.05, min(.99, (state.confidence + result.verification.get('confidence', state.confidence)) / 2)), 3)
+        return state
+
+    AdvancedCognitiveCore.begin = _offline_agent_begin
+    AdvancedCognitiveCore.offline_snapshot = lambda self: self.offline_agent.snapshot()
