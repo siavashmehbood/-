@@ -1124,7 +1124,8 @@ def _execute_verified_goal(self, goal, primary, alternative=None, expected_effec
         failed_learning = self.outcome_learning.record_outcome(
             goal, primary, str(primary_action.result), expected_effect,
             {'verified': True, 'source': 'task_verifier', 'score': 0.0},
-            strategy=lesson.get('strategy', 'evidence-first'), domain='task')
+            strategy=lesson.get('strategy', 'evidence-first'), domain='task',
+            episode_id=task['task_id'], phase='primary', attempt=1)
         self.events.emit('verified_learning', {
             'task_id': task['task_id'], 'phase': 'primary', 'kind': 'verified_failure',
             **failed_learning})
@@ -1138,7 +1139,8 @@ def _execute_verified_goal(self, goal, primary, alternative=None, expected_effec
         learning_result = self.outcome_learning.record_outcome(
             goal, primary, str(primary_action.result), expected_effect,
             {'verified': True, 'source': 'task_verifier', 'score': 1.0},
-            strategy=lesson.get('strategy', 'evidence-first'), domain='task')
+            strategy=lesson.get('strategy', 'evidence-first'), domain='task',
+            episode_id=task['task_id'], phase='primary', attempt=1)
         self.events.emit('verified_learning', {'task_id': task['task_id'], **learning_result})
         self.events.emit('verified_task_completed', {
             'task_id': task['task_id'], 'phase': 'primary', 'success': True})
@@ -1171,7 +1173,8 @@ def _execute_verified_goal(self, goal, primary, alternative=None, expected_effec
         learning_result = self.outcome_learning.record_outcome(
             goal, alternative, str(alternative_action.result), expected_effect,
             {'verified': True, 'source': 'task_verifier', 'score': 1.0},
-            strategy=lesson.get('strategy', 'primary-then-replan'), domain='task')
+            strategy=lesson.get('strategy', 'primary-then-replan'), domain='task',
+            episode_id=task['task_id'], phase='alternative', attempt=2)
         self.events.emit('verified_learning', {'task_id': task['task_id'], **learning_result})
     self.events.emit('verified_task_completed', {
         'task_id': task['task_id'], 'phase': 'alternative',

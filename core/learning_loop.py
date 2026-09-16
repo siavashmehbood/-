@@ -31,6 +31,9 @@ class Outcome:
     score: float
     strategy: str = "default"
     domain: str = "general"
+    episode_id: str = ""
+    phase: str = ""
+    attempt: int = 0
     timestamp: str = ""
 
 
@@ -127,7 +130,7 @@ class OutcomeBackedLearning:
             "strategy": "compare-evidence",
         }
 
-    def record_outcome(self, goal, action, result, expected, verification, strategy="default", domain="general"):
+    def record_outcome(self, goal, action, result, expected, verification, strategy="default", domain="general", episode_id="", phase="", attempt=0):
         """Record an outcome and update LearningEngine only after verification.
 
         ``verification`` is a dict supplied by an independent verifier and must
@@ -149,6 +152,7 @@ class OutcomeBackedLearning:
             goal=str(goal), action=str(action), result=str(result)[:4000], expected=str(expected),
             verified=verified, verification_source=source, score=score,
             strategy=str(strategy), domain=str(domain),
+            episode_id=str(episode_id), phase=str(phase), attempt=int(attempt or 0),
             timestamp=datetime.now().isoformat(timespec="seconds"),
         )
         self.records.append(asdict(outcome))
@@ -170,6 +174,13 @@ class OutcomeBackedLearning:
             "verification_source": source,
             "lesson": self.lesson(outcome.goal, outcome.domain),
         }
+
+    def episode_trace(self, episode_id):
+        """Return the durable verified trace for one execution episode."""
+        target = str(episode_id)
+        rows = [row for row in self.records if str(row.get("episode_id", "")) == target]
+        rows.sort(key=lambda row: (int(row.get("attempt", 0)), row.get("timestamp", "")))
+        return rows
 
     def recommend_action(self, goal, actions, domain="task"):
         """Rank candidate actions using only previously verified outcomes."""

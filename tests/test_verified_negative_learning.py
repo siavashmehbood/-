@@ -30,6 +30,11 @@ class VerifiedNegativeLearningTests(unittest.TestCase):
                 good = [r for r in records if r['action'] == 'good_action']
                 self.assertTrue(bad and bad[-1]['verified'] and bad[-1]['score'] == 0.0)
                 self.assertTrue(good and good[-1]['verified'] and good[-1]['score'] == 1.0)
+                episode_id = first['task']['task_id']
+                trace = runtime.outcome_learning.episode_trace(episode_id)
+                self.assertEqual([row['phase'] for row in trace], ['primary', 'alternative'])
+                self.assertEqual([row['attempt'] for row in trace], [1, 2])
+                self.assertTrue(all(row['episode_id'] == episode_id for row in trace))
 
                 second = runtime.execute_verified_goal(
                     'learn from failure demo', 'bad_action', 'good_action', 'correct')
