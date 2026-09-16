@@ -70,6 +70,23 @@ class CognitivePipeline:
             self._emit("user_model_update", {"extracted": extracted, "count": len(extracted), "source": "canonical_pipeline"})
 
         low = text.lower()
+
+        # Resolve explicit identity/work questions from durable FACT evidence.
+        if any(marker in low for marker in ("اسم من چیه", "نام من چیست", "اسمم چیه")):
+            try:
+                facts = self.runtime.user_model.facts(predicate="name", limit=1)
+                if facts:
+                    return self._persist_answer(text, f"اسم شما «{facts[0]['object']}» است.", "MEMORY", .99)
+            except Exception:
+                pass
+        if any(marker in low for marker in ("موضوع کارم چی بود", "روی چی کار می‌کنم", "روی چه چیزی کار می‌کنم", "الان روی چی کار می‌کنم")):
+            try:
+                facts = self.runtime.user_model.current_belief("work_on", limit=1)
+                if facts:
+                    return self._persist_answer(text, f"طبق آخرین واقعیت صریحی که ثبت کرده‌ای، الان روی «{facts[0]['object']}» کار می‌کنی.", "MEMORY", .98)
+            except Exception:
+                pass
+
         # Feedback is a learning signal, not a normal question.
         if any(x in low for x in ("درست بود", "درسته", "عالی بود", "غلط بود", "اشتباه بود", "بد بود", "ضعیف بود")):
             try:

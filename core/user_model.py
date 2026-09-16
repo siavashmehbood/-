@@ -63,6 +63,13 @@ class UserModel:
         m = re.match(r"^" + goal + r"\s+(.+?)(?:\s+(?:است|هست))?$", t, re.I)
         if m:
             facts.append(self._fact("goal", m.group(1), .92))
+        # Explicit work/topic statements are durable user facts.
+        m = re.match(r"^من\s+(?:روی|در)\s+(.+?)\s+کار\s+می[‌\s]?کنم$", t, re.I)
+        if m:
+            facts.append(self._fact("work_on", m.group(1).strip(" ،,"), .94))
+        m = re.match(r"^(?:نه[،,]?\s*)?منظورم\s+(.+?)\s+(?:بود|است)$", t, re.I)
+        if m:
+            facts.append(self._fact("work_on", m.group(1).strip(" ،,"), .97))
         return facts
 
     def record(self, text):

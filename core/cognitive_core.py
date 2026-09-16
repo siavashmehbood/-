@@ -8,8 +8,10 @@ from dataclasses import dataclass, field, asdict
 from datetime import datetime
 from typing import Any
 import re
+from pathlib import Path
 
 from core.learning_loop import OutcomeBackedLearning
+from core.procedural_skills import ProceduralSkillMemory
 
 @dataclass
 class CognitiveEvidence:
@@ -50,6 +52,8 @@ class AdvancedCognitiveCore:
         learning_engine = getattr(runtime, "learning", None)
         learning_path = getattr(runtime, "learning_path", "data/learning_experiences.json")
         self.outcome_learning = OutcomeBackedLearning(learning_path, learning_engine)
+        skill_path = Path(learning_path).with_name("procedural_skills.json")
+        self.procedural_skills = ProceduralSkillMemory(skill_path)
 
     def _parse(self, text):
         parser = getattr(self.runtime, "dialogue", None)
@@ -192,3 +196,4 @@ class AdvancedCognitiveCore:
             })
         except Exception:
             pass
+

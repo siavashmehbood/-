@@ -42,6 +42,20 @@ class CognitivePipelineTests(unittest.TestCase):
         finally:
             self.tearDown_runtime(root, runtime)
 
+    def test_user_identity_and_work_correction_are_memory_grounded(self):
+        root, runtime = self.make_runtime()
+        try:
+            self.assertIn("سیاوش", runtime.handle("من سیاوش هستم."))
+            self.assertIn("سیاوش", runtime.handle("اسم من چیه؟"))
+            runtime.handle("من روی پایتون کار می‌کنم.")
+            self.assertIn("پایتون", runtime.handle("موضوع کارم چی بود؟"))
+            runtime.handle("نه، منظورم Django بود.")
+            self.assertIn("Django", runtime.handle("پس الان روی چی کار می‌کنم؟"))
+            facts = runtime.user_model.current_belief("work_on", limit=1)
+            self.assertEqual(facts[0]["object"], "Django")
+        finally:
+            self.tearDown_runtime(root, runtime)
+
     def test_unknown_remains_explicit(self):
         root, runtime = self.make_runtime()
         try:
