@@ -58,6 +58,72 @@ class KnowledgeGraph:
         rows=[f for f in self.facts if f.get('subject')==str(subject) and f.get('predicate')==str(predicate)]
         return max(rows,key=lambda x:float(x.get('confidence',0)),default=None)
 
+    def trace(self,subject,predicate=None,depth=3):
+        """Return the provenance chain that supports a fact.
+
+        The mission requires that a conclusion can answer "which facts produced this?".
+        `infer` reports an inferred confidence but not the path that produced it, so
+        this walks the same graph and records the chain of facts and the confidence
+        actually propagated at each hop.
+        """
+        target=str(subject)
+        rows=[f for f in self.facts if f.get('subject')==target]
+        if predicate is not None:
+            rows=[f for f in rows if f.get('predicate')==str(predicate)]
+        chain=[]
+        frontier=[(target,1.0,0,())]
+        seen=set()
+        while frontier:
+            node,conf,level,path=frontier.pop(0)
+            if level>=int(depth):continue
+            for fact in self.facts:
+                if fact.get('subject')!=node:continue
+                key=(fact.get('subject'),fact.get('predicate'),fact.get('object'))
+                if key in seen:continue
+                seen.add(key)
+                score=conf*float(fact.get('confidence',0))
+                chain.append({
+                    'fact':fact,
+                    'hop':level+1,
+                    'propagated_confidence':round(score,4),
+                    'provenance':list(path)+[key],
+                })
+                frontier.append((str(fact.get('object')),score,level+1,path+(key,)))
+        return {
+            'subject':target,
+            'direct_facts':rows,
+            'contradicted':[f for f in rows if 'contradicted_by' in f],
+            'chain':chain,
+            'complete':bool(rows or chain),
+        }
+
+    def validate(self):
+        """Integrity check for the durable graph. Reports, never repairs.
+
+        Checks the invariants the graph itself relies on: every fact carries the fields
+        the traversal code reads, confidence is usable as a weight, and a recorded
+        contradiction points at a real competing object.
+        """
+        problems=[]
+        for index,fact in enumerate(self.facts):
+            if not isinstance(fact,dict):
+                problems.append(f'fact {index}: not an object'); continue
+            for field in ('subject','predicate','object'):
+                if not str(fact.get(field,'')).strip():
+                    problems.append(f'fact {index}: missing {field}')
+            try:
+                confidence=float(fact.get('confidence',0))
+                if not 0.<=confidence<=1.:problems.append(f'fact {index}: confidence out of range')
+            except (TypeError,ValueError):
+                problems.append(f'fact {index}: confidence is not a number')
+            contradicted=fact.get('contradicted_by')
+            if contradicted is not None:
+                if not isinstance(contradicted,dict) or not str(contradicted.get('object','')).strip():
+                    problems.append(f'fact {index}: malformed contradicted_by')
+                elif str(contradicted.get('object'))==str(fact.get('object')):
+                    problems.append(f'fact {index}: contradicted by itself')
+        return {'ok':not problems,'problems':problems[:50],'checked':len(self.facts)}
+
 # v0.22: contradiction-aware retrieval and confidence-weighted inference.
 def _query_v2(self,term,limit=20):
     t=str(term).lower(); rows=[]

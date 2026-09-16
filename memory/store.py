@@ -88,6 +88,73 @@ class Memory:
         self.conn.commit(); return {'decayed':changed,'days':days}
     def stats(self):
         return {'memories':self.conn.execute('SELECT COUNT(*) FROM memories').fetchone()[0],**self.semantic_stats()}
+    def get(self,memory_id):
+        """Fetch one memory row by id, for tracing where a recalled item came from."""
+        row=self.conn.execute('SELECT id,kind,content,importance,confidence,source,created_at,last_access,access_count FROM memories WHERE id=?',(int(memory_id),)).fetchone()
+        if not row:return None
+        keys=('id','kind','content','importance','confidence','source','created_at','last_access','access_count')
+        return dict(zip(keys,row))
+    def update(self,memory_id,content=None,importance=None,confidence=None,source=None):
+        """Revise an existing memory in place.
+
+        Returns the updated row, or None when the id does not exist. Only the fields
+        actually passed are touched, so a caller cannot accidentally blank a value it
+        did not intend to change.
+        """
+        if self.get(memory_id) is None:return None
+        sets=[]; args=[]
+        if content is not None:
+            content=self._norm(content)
+            if not content:raise ValueError('content cannot be empty')
+            sets.append('content=?'); args.append(content)
+        if importance is not None:
+            sets.append('importance=?'); args.append(max(0.,min(1.,float(importance))))
+        if confidence is not None:
+            sets.append('confidence=?'); args.append(max(0.,min(1.,float(confidence))))
+        if source is not None:
+            sets.append('source=?'); args.append(str(source))
+        if not sets:return self.get(memory_id)
+        sets.append('last_access=?'); args.append(datetime.now().isoformat(timespec='seconds'))
+        args.append(int(memory_id))
+        self.conn.execute(f'UPDATE memories SET {",".join(sets)} WHERE id=?',tuple(args)); self.conn.commit()
+        return self.get(memory_id)
+    def forget(self,memory_id=None,kind=None,content=None):
+        """Delete memories. Requires at least one explicit criterion.
+
+        Refusing an unrestricted call is deliberate: this is the one destructive
+        operation on durable memory, so it must name what it is removing rather than
+        defaulting to everything.
+        """
+        if memory_id is not None:
+            cur=self.conn.execute('DELETE FROM memories WHERE id=?',(int(memory_id),))
+        elif kind is not None and content is not None:
+            cur=self.conn.execute('DELETE FROM memories WHERE kind=? AND content=?',(str(kind),self._norm(content)))
+        elif kind is not None:
+            cur=self.conn.execute('DELETE FROM memories WHERE kind=?',(str(kind),))
+        elif content is not None:
+            cur=self.conn.execute('DELETE FROM memories WHERE content=?',(self._norm(content),))
+        else:
+            raise ValueError('forget requires memory_id, kind or content')
+        self.conn.commit(); return {'deleted':cur.rowcount}
+    def validate(self):
+        """Integrity check for durable memory. Reports, never repairs.
+
+        Repairing silently would hide corruption, so this only describes what is wrong
+        and lets the caller decide.
+        """
+        problems=[]
+        for i,k,c,imp,conf in self.conn.execute('SELECT id,kind,content,importance,confidence FROM memories').fetchall():
+            if not str(c or '').strip():problems.append(f'memory {i}: empty content')
+            if imp is None or not 0.<=float(imp)<=1.:problems.append(f'memory {i}: importance out of range')
+            if conf is None or not 0.<=float(conf)<=1.:problems.append(f'memory {i}: confidence out of range')
+            if not str(k or '').strip():problems.append(f'memory {i}: empty kind')
+        for i,s,p,v,conf in self.conn.execute('SELECT id,subject,predicate,value,confidence FROM semantic_facts').fetchall():
+            if not all(str(x or '').strip() for x in (s,p,v)):problems.append(f'fact {i}: empty subject/predicate/value')
+            if conf is None or not 0.<=float(conf)<=1.:problems.append(f'fact {i}: confidence out of range')
+        for i,g,l,conf in self.conn.execute('SELECT id,goal,lesson,confidence FROM lessons').fetchall():
+            if not str(g or '').strip() or not str(l or '').strip():problems.append(f'lesson {i}: empty goal/lesson')
+            if conf is None or not 0.<=float(conf)<=1.:problems.append(f'lesson {i}: confidence out of range')
+        return {'ok':not problems,'problems':problems[:50],'checked':self.stats()}
     def close(self):
         try:self.conn.commit(); self.conn.close()
         except Exception:pass
