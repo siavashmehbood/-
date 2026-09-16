@@ -1221,3 +1221,213 @@ def _human_clean_answer(self, text):
     return answer
 
 LocalDialogueEngine.handle=_human_clean_answer
+
+
+# v0.52: symbolic chain reasoning becomes a first-class answer source.
+# Retrieval alone never reaches the user; only confidence-qualified inference does.
+from core.chain_reasoner import ChainReasoner
+
+_DIALOGUE_CHAIN_INIT = LocalDialogueEngine.__init__
+def _chain_init(self, runtime):
+    _DIALOGUE_CHAIN_INIT(self, runtime)
+    self.chain_reasoner = ChainReasoner(
+        getattr(runtime, 'knowledge', None),
+        getattr(runtime, 'memory', None),
+        Path(runtime.root) / 'data' / 'reasoning_episodes.json',
+    )
+    self.last_chain_result = None
+LocalDialogueEngine.__init__ = _chain_init
+
+_DIALOGUE_CHAIN_HANDLE = LocalDialogueEngine.handle
+def _chain_handle(self, text):
+    clean_text = clean(text)
+    low = bare(clean_text).lower()
+    candidate = None
+    # Facts are eligible for compositional realization; causal/procedural questions
+    # continue through the full dialogue planner so they can use broader context.
+    factual_markers = ('چیست', 'چیه', 'کجاست', 'اسم ', 'نام ', 'پایتخت', 'تعداد')
+    eligible = any(x in low for x in factual_markers) and not any(x in low for x in ('چرا', 'چطور', 'چگونه'))
+    if eligible and getattr(self, 'chain_reasoner', None):
+        try:
+            strategy = self.chain_reasoner.strategy(clean_text)
+            result = self.chain_reasoner.reason(clean_text, min_confidence=.72 if strategy['depth'] < 3 else .68)
+            self.last_chain_result = result
+            self.runtime.events.emit('symbolic_reasoning', {
+                'status': result.status, 'confidence': result.confidence,
+                'steps': len(result.steps), 'units': len(result.query_units),
+                'strategy': strategy,
+            })
+            if result.status in {'VERIFIED_CANDIDATE', 'PARTIAL'} and result.answer:
+                candidate = result.answer
+        except Exception as exc:
+            self.last_chain_result = None
+            try:
+                self.runtime.events.emit('symbolic_reasoning_error', {'error': type(exc).__name__})
+            except Exception:
+                pass
+    answer = _DIALOGUE_CHAIN_HANDLE(self, clean_text)
+    if candidate:
+        # Keep the canonical state machine, memory and verification path intact;
+        # only replace the visible prose with the independently derived result.
+        answer = candidate
+        try:
+            self.state.last_assistant_answer = clean(answer)
+            self.state.last_assistant = clean(answer)
+            self.state.accept(answer)
+            self.state.save(self.state_path)
+            self.runtime.memory.add('assistant', answer, .82, confidence=getattr(self.last_chain_result, 'confidence', .72), source='symbolic_reasoning')
+            self.chain_reasoner.record(clean_text, self.last_chain_result, accepted=True, score=self.last_chain_result.confidence)
+            self.runtime.events.emit('symbolic_reasoning_committed', {
+                'confidence': self.last_chain_result.confidence,
+                'status': self.last_chain_result.status,
+            })
+        except Exception:
+            pass
+    elif getattr(self, 'last_chain_result', None) is not None:
+        try:
+            self.chain_reasoner.record(clean_text, self.last_chain_result, accepted=False, score=0.0)
+        except Exception:
+            pass
+    return answer
+LocalDialogueEngine.handle = _chain_handle
+
+
+# v0.53: evidence-grounded realization bridge. It consumes the existing local
+# knowledge, memory and learning layers without introducing a new model/runtime.
+from core.grounded_synthesizer import GroundedSynthesizer
+_DIALOGUE_GROUNDED_BASE = LocalDialogueEngine.handle
+
+def _grounded_dialogue_handle(self, text):
+    answer = _DIALOGUE_GROUNDED_BASE(self, text)
+    try:
+        synth = getattr(self, 'grounded_synthesizer', None)
+        if synth is None:
+            synth = GroundedSynthesizer(
+                getattr(self.runtime, 'knowledge', None),
+                getattr(self.runtime, 'memory', None),
+                getattr(self.runtime, 'learning', None),
+            )
+            self.grounded_synthesizer = synth
+        low = clean(answer).lower()
+        weak = (low.startswith('unknown:') or
+                'اطلاعات کافی ندارم' in low or
+                'برای این سؤال در دانش' in low)
+        if weak:
+            result = synth.synthesize(text, getattr(self, 'last_chain_result', None))
+            if result.status in {'GROUNDED', 'PARTIAL'} and result.answer:
+                answer = result.answer
+                self.last_grounding = result
+                self.state.last_assistant_answer = clean(answer)
+                self.state.accept(answer)
+                self.state.save(self.state_path)
+                try:
+                    self.runtime.events.emit('grounded_synthesis', {
+                        'status': result.status, 'confidence': result.confidence,
+                        'sources': result.sources, 'strategy': result.strategy,
+                    })
+                except Exception:
+                    pass
+                try:
+                    self.chain_reasoner.record(clean(text), self.last_chain_result,
+                                               accepted=True, score=result.confidence)
+                except Exception:
+                    pass
+    except Exception:
+        pass
+    return answer
+
+LocalDialogueEngine.handle = _grounded_dialogue_handle
+
+
+# v0.52b: reasoning-aware context repair.
+# Follow-up explanations inherit the active semantic topic, while generic
+# question wrappers are not allowed to become the topic themselves.
+_PREV_RESOLVE_CHAIN = ReferenceResolver.resolve
+
+def _resolve_chain_context(self, text, state, history=None):
+    resolved = _PREV_RESOLVE_CHAIN(self, text, state, history)
+    if is_follow_up(text):
+        generic_topics = ('برای پروژه', 'برای پروژه‌م', 'خوب است', 'خوبه', 'چی گفتی', 'چیه')
+        if state.current_topic and any(x in state.current_topic.lower() for x in generic_topics):
+            for candidate in reversed(state.topic_stack):
+                if candidate and not any(x in candidate.lower() for x in generic_topics):
+                    return candidate
+    return resolved
+ReferenceResolver.resolve = _resolve_chain_context
+
+_PREV_MEMORY_CHAIN = LocalDialogueEngine._memory
+
+def _memory_chain_context(self, text):
+    rows = _PREV_MEMORY_CHAIN(self, text)
+    query = clean(text)
+    out = []
+    for row in rows:
+        content = row[1] if isinstance(row, (tuple, list)) and len(row) > 1 else str(row)
+        if clean(content) == query:
+            continue
+        out.append(row)
+    return out
+LocalDialogueEngine._memory = _memory_chain_context
+
+_PREV_CHAIN_HANDLE_CONTEXT = LocalDialogueEngine.handle
+
+def _chain_context_handle(self, text):
+    answer = _PREV_CHAIN_HANDLE_CONTEXT(self, text)
+    low = bare(text).lower()
+    if ('چرا' in low or 'چطور' in low or 'چگونه' in low) and not any(x in low for x in ('چرا سیستم',)):
+        topic = self.state.current_topic or self.state.references.get('latest', '')
+        if topic and clean(topic).lower() not in clean(answer).lower():
+            answer = f'در مورد «{topic}»: {answer}'
+            try:
+                self.state.last_assistant_answer = clean(answer)
+                self.state.last_assistant = clean(answer)
+                self.state.save(self.state_path)
+            except Exception:
+                pass
+    return answer
+LocalDialogueEngine.handle = _chain_context_handle
+
+
+# v0.52c: recover semantic topic from prior user turns when state is too weak.
+# This is retrieval from conversation memory, not a hard-coded topic list.
+def _previous_semantic_topic(self, current):
+    generic = ('برای پروژه', 'برای پروژه‌م', 'خوبه', 'خوب است', 'چی گفتم', 'چه گفتم')
+    candidates = []
+    try:
+        rows = self.runtime.memory.recent(40)
+        candidates.extend(str(row[1]) for row in rows if isinstance(row, (tuple, list)) and len(row) >= 3 and row[0] == 'user')
+    except Exception:
+        pass
+    candidates.extend(reversed(getattr(self.state, 'topic_stack', []) or []))
+    for value in reversed(candidates):
+        value = clean(value)
+        if not value or value == clean(current):
+            continue
+        low = value.lower()
+        if any(marker in low for marker in generic):
+            continue
+        if is_follow_up(value) or is_correction(value):
+            continue
+        return value
+    return ''
+
+_PREV_CHAIN_CONTEXT_HANDLE = LocalDialogueEngine.handle
+def _chain_context_handle_v2(self, text):
+    answer = _PREV_CHAIN_CONTEXT_HANDLE(self, text)
+    low = bare(text).lower()
+    topic = self.state.current_topic or self.state.references.get('latest', '')
+    if ('چرا' in low or 'چطور' in low or 'چگونه' in low or is_follow_up(text)):
+        if not topic or any(x in topic.lower() for x in ('برای پروژه', 'خوبه', 'خوب است')):
+            topic = _previous_semantic_topic(self, text)
+        if topic and clean(topic).lower() not in clean(answer).lower():
+            answer = f'در مورد «{topic}»: {answer}'
+            try:
+                self.state.references['latest'] = topic
+                self.state._push_topic(topic)
+                self.state.last_assistant_answer = clean(answer)
+                self.state.last_assistant = clean(answer)
+                self.state.save(self.state_path)
+            except Exception:
+                pass
+    return answer
+LocalDialogueEngine.handle = _chain_context_handle_v2

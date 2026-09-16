@@ -1,6 +1,6 @@
 # ایران — Personal General Intelligence Research Platform
 
-نسخه فعلی: **0.28.0**
+نسخه فعلی: **0.53.0**
 
 ایران یک هسته شخصی برای ساخت یک سیستم هوشمند عمومی‌گراست؛ معماری آن از چت، حافظه، برنامه‌ریزی، ابزار، ارزیابی، امنیت و sandbox تشکیل شده است.
 
@@ -157,3 +157,29 @@ Task C safety remains local and policy-gated: `safe_mode=true`, `allow_shell=fal
 - decision summaries are persisted without private chain-of-thought
 - stalled goals trigger bounded evidence reassessment instead of blind repetition
 - every autonomous cycle remains permission-aware, read-only and auditable
+
+
+## Symbolic Reasoning 0.52
+- `core/chain_reasoner.py` adds a first-class retrieve -> infer -> verify -> realize path.
+- Queries are decomposed into independent units before reasoning, so compound questions are not collapsed into one intent.
+- Knowledge-graph facts can be traversed for multi-hop inference with confidence propagation.
+- Contradicted facts are down-weighted instead of silently treated as truth.
+- Reasoning episodes are persisted in `data/reasoning_episodes.json` and feed future reasoning-depth selection.
+- A retrieved fact is never exposed as proof until the confidence threshold is met.
+- The conversational state machine remains canonical; symbolic reasoning only replaces the final prose when it has an independently grounded result.
+
+### مسیر توسعه بعدی
+1. چندمرحله‌ای‌کردن استدلال علّی با evidence مثبت/منفی و assumptions صریح.
+2. تبدیل تجربه‌های تأییدشده به procedure و سپس skill، با benchmark قبل/بعد.
+3. یادگیری از شکست در سطح strategy و re-planning، بدون تغییر خودکار policy یا source code.
+4. گسترش Knowledge Graph و world model برای inference طولانی‌تر.
+5. benchmark سخت‌تر برای چندنوبتی، contradiction، transfer و long-horizon reasoning.
+
+
+## Grounded Answer Synthesis 0.53
+- `core/grounded_synthesizer.py` is the final evidence-first realization layer.
+- It ranks local KnowledgeGraph evidence before memory and never promotes missing evidence to fact.
+- Conversation memory can ground recall, while internal cognitive telemetry is excluded from visible answers.
+- Learned strategy preferences from `LearningEngine` are retrieved as a decision signal, not as fabricated knowledge.
+- The canonical dialogue path remains unchanged; synthesis is allowed to replace only weak/UNKNOWN prose when grounded evidence exists.
+- New regression coverage checks local factual grounding, memory retrieval, UNKNOWN behavior and learned strategy retrieval.
