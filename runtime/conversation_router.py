@@ -13,8 +13,24 @@ class ConversationRouter:
         else:
             facts = []
         if facts:
+            if self._asks_name(t):
+                rows = [f for f in facts if f.get('predicate') == 'name']
+                if rows:
+                    return f"اسمت «{rows[0].get('object')}» است."
+            if self._asks_likes(t):
+                rows = [f for f in facts if f.get('predicate') == 'likes']
+                if rows:
+                    return 'چیزهایی که گفتی دوست داری: ' + '، '.join(f"«{f.get('object')}»" for f in rows) + '.'
             return self._format_facts(facts)
-        return 'هنوز واقعیت صریح و پایداری درباره شما در حافظه ندارم.'
+        return 'هنوز اطلاعات مشخصی درباره خودت به من نگفتی.'
+
+    @staticmethod
+    def _asks_name(text):
+        return any(x in text for x in ('اسم من چی بود', 'نام من چی بود', 'اسمم چی بود', 'نامم چی بود'))
+
+    @staticmethod
+    def _asks_likes(text):
+        return any(x in text for x in ('چه چیزی دوست داشتم', 'چی دوست داشتم', 'چه چیزهایی دوست دارم', 'من چی دوست دارم', 'علایق من چیه', 'علاقه من چیه'))
 
     @staticmethod
     def _asks_about_user(text):

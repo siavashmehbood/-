@@ -1,4 +1,4 @@
-﻿from pathlib import Path
+from pathlib import Path
 import json
 from core.agent import Agent
 from core.brain import Brain
@@ -1478,7 +1478,9 @@ IranRuntime.autonomy_snapshot = lambda self: self.autonomous_supervisor.snapshot
 
 # v0.38b: keep autonomous supervision lazy so normal dialogue does not scan the repository.
 _lazy_runtime_init_base = _supervisor_base_init
-def _init_supervisor_lazy(self, root):
+def _init_supervisor_lazy(self, root=None):
+    if root is None:
+        root = Path(__file__).resolve().parents[1]
     _lazy_runtime_init_base(self, root)
     self.autonomous_supervisor = None
     self.events.emit('autonomous_supervisor_ready', {'offline': True, 'bounded': True, 'lazy': True})
