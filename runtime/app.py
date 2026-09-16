@@ -1629,7 +1629,7 @@ def _execute_composed_goal_43(self, goal, composition, final_expected, kwargs):
             self.events.emit('skill_composition_failed', {'task_id':task['task_id'],'composition_id':composition['composition_id'],'failed_step':step['order']})
             return {'task':self.tasks.get(task['task_id']),'composition':composition,'steps':results,'success':False}
     self.tasks.transition(task['task_id'], TaskStatus.SUCCESS.value, 'all composed steps independently verified')
-    self.events.emit('skill_composition_completed', {'task_id':task['task_id'],'composition_id':composition['composition_id'],'steps':len(results),'success':True})
+    self.events.emit('sskill_composition_completed', {'task_id':task['task_id'],'composition_id':composition['composition_id'],'steps':len(results),'success':True})
     return {'task':self.tasks.get(task['task_id']),'composition':composition,'steps':results,'success':True,'plan_strategy':'skill-composition'}
 IranRuntime._execute_composed_goal_43 = _execute_composed_goal_43
 
@@ -1677,12 +1677,21 @@ def _execute_composed_goal_44(self, goal, composition, final_expected, kwargs):
     self.tasks.transition(task['task_id'], TaskStatus.SUCCESS.value,
         'all composed steps independently verified')
     persisted = self.skills.promote_composition(composition, verified=True)
+    higher_order = self.skills.promote_composition_as_skill(persisted, domain='task') if persisted else None
+    if higher_order:
+        composition['status'] = 'verified'
+        composition['higher_order_skill_id'] = higher_order.get('skill_id')
+        composition['composition_level'] = int(higher_order.get('composition_level', 1))
+        self.events.emit('hierarchical_skill_promoted', {
+            'task_id': task['task_id'], 'composition_id': composition['composition_id'],
+            'skill_id': higher_order.get('skill_id'), 'level': composition['composition_level']})
     self.events.emit('skill_composition_completed', {'task_id':task['task_id'],
         'composition_id':composition['composition_id'], 'steps':len(results), 'success':True,
-        'persisted':bool(persisted)})
+        'persisted':bool(persisted), 'higher_order_skill':bool(higher_order)})
     return {'task':self.tasks.get(task['task_id']), 'composition':composition,
             'steps':results, 'success':True, 'plan':plan,
-            'plan_strategy':'skill-composition', 'persisted_composition':persisted}
+            'plan_strategy':'skill-composition', 'persisted_composition':persisted,
+            'higher_order_skill':higher_order}
 
 IranRuntime.execute_verified_goal = _execute_verified_goal_44
 IranRuntime._execute_composed_goal_44 = _execute_composed_goal_44

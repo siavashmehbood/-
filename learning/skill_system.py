@@ -173,3 +173,43 @@ class SkillSystem:
         row=next((x for x in self.skills if x.get('skill_id')==skill_id),None)
         if not row:return None
         row['enabled']=bool(enabled); row['updated_at']=datetime.now().isoformat(timespec='seconds'); row['status_reason']=reason; self._save(); return row
+
+# v0.45: verified compositions can become higher-order skills.
+def _promote_composition_as_skill(self, composition, domain="task"):
+    if not composition or composition.get("status") not in ("candidate", "verified"):
+        return None
+    steps = list(composition.get("steps") or [])
+    if len(steps) < 2:
+        return None
+    level = 1
+    for x in self.skills:
+        if x.get("is_composite"):
+            level = max(level, int(x.get("composition_level", 0)) + 1)
+    name = "composed:" + str(composition.get("composition_id"))
+    procedure = {
+        "steps": [dict(x) for x in steps],
+        "expected_outcome": str(composition.get("goal", "")),
+        "kind": "hierarchical-composition",
+        "composition_id": composition.get("composition_id"),
+    }
+    skill = self.upsert(
+        name=name,
+        description="Verified higher-order skill derived from composition " + str(composition.get("composition_id")),
+        domain=domain,
+        goal_patterns=[str(composition.get("goal", ""))],
+        procedure=procedure,
+        preconditions=[],
+        required_capabilities=[],
+        risk="low",
+        confidence=float(composition.get("confidence", .5)),
+        skill_id="skill_composition_" + str(composition.get("composition_id", "")).replace("composition_", ""),
+    )
+    skill["is_composite"] = True
+    skill["composition_level"] = level
+    skill["source_composition_id"] = composition.get("composition_id")
+    skill["source_skill_ids"] = list(composition.get("skill_ids") or [])
+    skill["updated_at"] = datetime.now().isoformat(timespec="seconds")
+    self._save()
+    return skill
+
+SkillSystem.promote_composition_as_skill = _promote_composition_as_skill
