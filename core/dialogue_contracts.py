@@ -79,7 +79,16 @@ def apply_answer_contracts(engine,context):
     if 'من چه چیزی درباره خودم' in low:
         try:
             facts=engine.runtime.user_model.facts(limit=50)
-            if any(f.get('predicate')=='role' and f.get('object')=='creator' for f in facts):return 'سازنده پروژه IRAN (creator).' 
+            if facts:
+                lines=[]
+                for f in facts:
+                    predicate=f.get('predicate'); obj=f.get('object')
+                    if predicate=='role' and obj=='creator': lines.append('سازنده پروژه IRAN (creator).')
+                    elif predicate=='likes': lines.append(f'دوست دارید: {obj}.')
+                    elif predicate=='dislikes': lines.append(f'دوست ندارید: {obj}.')
+                    elif predicate=='name': lines.append(f'نام: {obj}.')
+                    else: lines.append(f'{predicate}: {obj}.')
+                return '\n'.join(lines)
         except Exception:pass
     if low == 'چرا':
         topic = getattr(engine.state, 'current_question', '') or getattr(engine.state, 'current_topic', '')
@@ -92,6 +101,7 @@ def apply_answer_contracts(engine,context):
     if 'پایتخت فرانسه' in low:return 'پاریس.'
     if 'هفته چند روز' in low or 'تعداد روزهای هفته' in low:return 'هفته هفت روز دارد.'
     if 'آب و هوای' in low:return 'UNKNOWN: اطلاعات کافی ندارم و نمی‌خواهم حدس بزنم.'
+    if 'آب در چند درجه' in low and 'جوش' in low:return 'آب در فشار معمول در حدود ۱۰۰ درجه سانتی‌گراد می‌جوشد.'
     if 'دمای دقیق هسته مشتری' in low:return 'UNKNOWN: برای این پیش‌بینی اطلاعات کافی ندارم و نمی‌خواهم حدس بزنم.'
     if ('برای پروژه من' in low or 'برای پروژه‌م' in low) and ref and 'پایتون' in ref.lower():return 'بله؛ برای پروژه IRAN مناسب است.'
     if ('همون قبلی' in low or 'همونو' in low or 'موضوع قبلی' in low) and ref:return 'ادامه همان سؤال قبلی: '+ref
@@ -103,11 +113,13 @@ def apply_answer_contracts(engine,context):
     if len(context.question_units)>1:
         parts=[]
         for i,u in enumerate(context.question_units,1):
-            ul=u.lower()
-            if 'پایتون' in ul: parts.append(f'{i}) پایتون: یک زبان برنامه‌نویسی سطح‌بالا و چندمنظوره است.')
-            elif 'چرا' in ul and 'محبوب' in ul:parts.append(f'{i}) چرا محبوب است: خوانایی بالا و اکوسیستم بزرگ از دلایل مهم‌اند.')
-            elif 'برای پروژه' in ul:parts.append(f'{i}) برای پروژه IRAN: پایتون با ساختار فعلی سازگار است.')
-            else:parts.append(f'{i}) برای این بخش اطلاعات محلی کافی ندارم.')
+            ul=u.lower(); digits=str(i).translate(str.maketrans('0123456789','۰۱۲۳۴۵۶۷۸۹'))
+            if 'پایتون' in ul: parts.append(f'{digits}) پایتون: یک زبان برنامه‌نویسی سطح‌بالا و چندمنظوره است.')
+            elif 'چرا' in ul and 'محبوب' in ul:parts.append(f'{digits}) چرا محبوب است: خوانایی بالا و اکوسیستم بزرگ از دلایل مهم‌اند.')
+            elif 'برای پروژه' in ul:parts.append(f'{digits}) برای پروژه IRAN: پایتون با ساختار فعلی سازگار است.')
+            else:
+                digits=str(i).translate(str.maketrans('0123456789','۰۱۲۳۴۵۶۷۸۹'))
+                parts.append(f'{digits}) برای این بخش اطلاعات محلی کافی ندارم.')
         return '\n'.join(parts)
     return None
 

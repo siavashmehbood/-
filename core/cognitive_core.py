@@ -40,6 +40,7 @@ class CognitiveState:
     plan: list = field(default_factory=list)
     confidence: float = 0.0
     status: str = "understanding"
+    executive: dict = field(default_factory=dict)
     created_at: str = field(default_factory=lambda: datetime.now().isoformat(timespec="seconds"))
 
     def snapshot(self):
@@ -57,6 +58,8 @@ class AdvancedCognitiveCore:
         self.causal = CausalGraph()
         self.analogy = AnalogicalReasoner()
         self.production = ProductionSystem()
+        self.production.add("respond_to_intent", ("intent:{intent}",), "respond:{intent}", priority=10, confidence=.95)
+        self.production.add("verify_with_evidence", ("evidence_available",), "verify_answer", priority=20, confidence=.99)
         self.goals = GoalStack()
         self.decision_cycle = DecisionCycle(self.production, self.goals)
 
@@ -140,6 +143,14 @@ class AdvancedCognitiveCore:
             hypotheses=[x.get("name", "") for x in parsed.get("alternatives", [])],
             contradictions=contradictions, unresolved=unresolved,
             plan=self._plan(parsed), confidence=round(confidence, 3), status="planned")
+        self.goals.clear()
+        self.decision_cycle.reset()
+        self.goals.push(state.goal or text, steps=["respond"])
+        executive_facts = [f"intent:{state.intent}"]
+        if evidence:
+            executive_facts.append("evidence_available")
+        executive = self.executive_cycle(executive_facts)
+        state.executive = executive.__dict__.copy()
         meta = self.metacognition.assess(confidence, len(evidence), len(contradictions), len(unresolved))
         state.unresolved.extend(meta.issues)
         state.confidence = round(max(0.05, state.confidence - 0.10 * len(meta.issues)), 3)
@@ -153,6 +164,13 @@ class AdvancedCognitiveCore:
         if goal and self.goals.current() is None:
             self.goals.push(goal, steps=steps or [])
         return self.decision_cycle.step(facts, result=result)
+
+    def complete_executive(self, answer):
+        facts = ["evidence_available"] if str(answer).strip() else []
+        result = self.executive_cycle(facts, result=str(answer))
+        if self.last_state is not None:
+            self.last_state.executive["verification_cycle"] = result.__dict__.copy()
+        return result
 
     def verify(self, state, answer):
         answer = str(answer or "").strip()

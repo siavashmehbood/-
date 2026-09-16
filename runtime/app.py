@@ -1514,3 +1514,27 @@ try:
     _install_chat_upgrade_v8()
 except Exception as _chat_upgrade_v8_error:
     IranRuntime._chat_upgrade_v8_error = type(_chat_upgrade_v8_error).__name__
+
+
+# v2.3: one canonical natural-language boundary for the complete local stack.
+# This final binding supersedes the historical compatibility wrappers above;
+# slash commands keep their explicit tool/goal contracts.
+from core.unified_pipeline import UnifiedCognitivePipeline
+
+_runtime_unified_init_base = IranRuntime.__init__
+def _runtime_unified_init(self, root):
+    _runtime_unified_init_base(self, root)
+    self.unified_pipeline = UnifiedCognitivePipeline(self)
+    self.events.emit('unified_pipeline_ready', {'canonical': True, 'single_turn_path': True})
+
+IranRuntime.__init__ = _runtime_unified_init
+
+_runtime_unified_handle_base = IranRuntime.handle
+def _runtime_unified_handle(self, text):
+    clean = str(text or '').strip()
+    if clean.startswith('/'):
+        return _runtime_unified_handle_base(self, clean)
+    return self.unified_pipeline.handle(clean)
+
+IranRuntime.handle = _runtime_unified_handle
+IranRuntime.unified_snapshot = lambda self: self.unified_pipeline.snapshot()
