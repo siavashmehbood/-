@@ -215,6 +215,7 @@ class SkillSystem:
         row=next((x for x in self.skills if x.get('skill_id')==skill_id),None)
         if not row: return None
         row['execution_count']=int(row.get('execution_count',0))+1
+        row['usage_count']=int(row.get('usage_count',0))+1
         if verified:
             row['verified_execution_count']=int(row.get('verified_execution_count',0))+1
         if success:

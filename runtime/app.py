@@ -871,13 +871,13 @@ def _unified_handle_v3(self, text):
         mode = self.answer_generator.mode(answer) if hasattr(self, 'answer_generator') else route
         self.events.emit('response_generated', {'goal': clean, 'route': route, 'mode': mode, 'confidence': .75, 'elapsed_ms': round(elapsed*1000, 2), 'verified': True})
         return answer
-    feedback_terms = ('درست بود', 'درسته', 'عالی بود', 'خوبه', 'اشتباه', 'غلط بود', 'بد بود', 'ضعیف بود')
+    feedback_terms = ('\u062f\u0631\u0633\u062a \u0628\u0648\u062f', '\u062f\u0631\u0633\u062a\u0647', '\u0639\u0627\u0644\u06cc \u0628\u0648\u062f', '\u0627\u0634\u062a\u0628\u0627\u0647', '\u063a\u0644\u0637 \u0628\u0648\u062f', '\u0628\u062f \u0628\u0648\u062f', '\u0636\u0639\u06cc\u0641 \u0628\u0648\u062f')
     if any(term in clean.lower() for term in feedback_terms) and hasattr(self, 'learning'):
         target = getattr(self.provider, 'frame', {}).get('topic') or getattr(self.provider, 'frame', {}).get('goal') or 'آخرین پاسخ'
         learned = self.learning.update_from_feedback(target, clean, 'feedback', 'conversation')
         self.events.emit('learning_update', {'feedback': clean, 'target': target, 'learned': bool(learned.get('learned', True)), 'canonical': True})
         answer = 'بازخورد شما ثبت شد و برای انتخاب راهبرد پاسخ‌های بعدی استفاده می‌شود.'
-        self.memory.add('user', clean, .75); self.memory.add('assistant', answer, .7)
+        answer = '\u0628\u0627\u0632\u062e\u0648\u0631\u062f \u0634\u0645\u0627 \u062b\u0628\u062a \u0634\u062f \u0648 \u0628\u0631\u0627\u06cc \u0627\u0646\u062a\u062e\u0627\u0628 \u0631\u0627\u0647\u0628\u0631\u062f \u067e\u0627\u0633\u062e\u200c\u0647\u0627\u06cc \u0628\u0639\u062f\u06cc \u0627\u0633\u062a\u0641\u0627\u062f\u0647 \u0645\u06cc\u200c\u0634\u0648\u062f.'
         return finish(answer, 'explicit_feedback')
     special = self.provider._special(clean) if hasattr(self.provider, '_special') else ''
     if special: return finish(special, 'grounded_special')
@@ -1560,6 +1560,19 @@ _IranRuntime_terminal_handle = IranRuntime.handle
 def _terminal_conversation_boundary(self, text):
     clean = str(text).strip()
     low = clean.lower()
+    # Terminal boundary handles explicit feedback before the legacy dialogue adapter.
+    feedback_terms = ('\u062f\u0631\u0633\u062a \u0628\u0648\u062f', '\u062f\u0631\u0633\u062a\u0647', '\u0639\u0627\u0644\u06cc \u0628\u0648\u062f', '\u0627\u0634\u062a\u0628\u0627\u0647', '\u063a\u0644\u0637 \u0628\u0648\u062f')
+    if any(term in low for term in feedback_terms) and hasattr(self, 'learning'):
+        target = getattr(self.provider, 'frame', {}).get('topic') or getattr(self.provider, 'frame', {}).get('goal') or '\u0622\u062e\u0631\u06cc\u0646 \u067e\u0627\u0633\u062e'
+        learned = self.learning.update_from_feedback(target, clean, 'feedback', 'conversation')
+        answer = '\u0628\u0627\u0632\u062e\u0648\u0631\u062f \u0634\u0645\u0627 \u062b\u0628\u062a \u0634\u062f \u0648 \u0628\u0631\u0627\u06cc \u0627\u0646\u062a\u062e\u0627\u0628 \u0631\u0627\u0647\u0628\u0631\u062f \u067e\u0627\u0633\u062e\u200c\u0647\u0627\u06cc \u0628\u0639\u062f\u06cc \u0627\u0633\u062a\u0641\u0627\u062f\u0647 \u0645\u06cc\u200c\u0634\u0648\u062f.'
+        self.events.emit('learning_update', {'feedback': clean, 'target': target, 'learned': bool(learned.get('learned', True)), 'canonical': True})
+        try:
+            self.dialogue.state.update(clean, answer, 'explicit_feedback', {}, .95)
+            self.dialogue.state.save(self.dialogue.state_path)
+        except Exception:
+            pass
+        return answer
     # Resolve an explicit backward reference only when a topic actually exists.
     # Do this before compatibility adapters so the previous message is not mistaken for a topic.
     unresolved_previous = ('\u0647\u0645\u0648\u0646 \u0642\u0628\u0644\u06cc' in low and
@@ -1614,6 +1627,7 @@ def _execute_verified_goal_43(self, goal, primary, alternative=None, expected_ef
 IranRuntime.execute_verified_goal = _execute_verified_goal_43
 
 def _execute_composed_goal_43(self, goal, composition, final_expected, kwargs):
+    goal = composition.get('goal', '')
     task = self.create_task(goal)
     results=[]
     for step in composition['steps']:
@@ -1638,14 +1652,35 @@ IranRuntime._execute_composed_goal_43 = _execute_composed_goal_43
 _prev_execute_verified_goal_44 = IranRuntime.execute_verified_goal
 
 def _execute_verified_goal_44(self, goal, primary, alternative=None, expected_effect='', kwargs=None):
-    candidates = self.skills.discover(goal, 'task', 8) if hasattr(self, 'skills') else []
-    composition = self.skills.compose(goal, candidates, {'evidence': True}, 8) if hasattr(self, 'skills') else None
-    if composition and len(composition.get('skill_ids', [])) >= 2:
-        return self._execute_composed_goal_44(goal, composition, expected_effect, kwargs or {})
+    kwargs = kwargs or {}
+    if hasattr(self, 'skills'):
+        candidates = self.skills.discover(goal, 'task', 8)
+        composition = self.skills.compose(goal, candidates, {'evidence': True}, 8)
+        if composition and len(composition.get('skill_ids', [])) >= 2:
+            return self._execute_composed_goal_44(composition, expected_effect, kwargs, promote=True)
+        hierarchical = self.skills.retrieve_hierarchical(goal, 'task', 3, 8)
+        trusted = next((s for s in hierarchical if self.skills.execution_policy(s).get('allowed')), None)
+        if trusted:
+            expanded = self.skills.expand_skill(trusted.get('skill_id'), 8)
+            steps = []
+            for i, raw in enumerate(expanded, 1):
+                action = raw.get('action') if isinstance(raw, dict) else str(raw)
+                if action:
+                    steps.append({'order': i, 'action': action,
+                                  'expected_effect': str((raw.get('expected_effect') if isinstance(raw, dict) else '') or expected_effect),
+                                  'skill_id': raw.get('origin_skill_id', trusted.get('skill_id')) if isinstance(raw, dict) else trusted.get('skill_id'),
+                                  'skill_name': trusted.get('name')})
+            if steps:
+                composition = {'composition_id': 'reuse_' + str(trusted.get('skill_id')),
+                               'goal': str(goal), 'skill_ids': [trusted.get('skill_id')],
+                               'steps': steps, 'confidence': float(trusted.get('confidence', 0)),
+                               'status': 'reused-hierarchical', 'source_skill_id': trusted.get('skill_id')}
+                return self._execute_composed_goal_44(composition, expected_effect, kwargs, promote=False)
     return _base_execute_verified_goal_43(self, goal, primary, alternative, expected_effect, kwargs)
 
 
-def _execute_composed_goal_44(self, goal, composition, final_expected, kwargs):
+def _execute_composed_goal_44(self, composition, final_expected, kwargs, promote=True):
+    goal = composition.get('goal', '')
     task = self.create_task(goal)
     plan = self.orchestrator.planner.build(goal)
     plan.strategy = 'skill-composition'
@@ -1663,8 +1698,11 @@ def _execute_composed_goal_44(self, goal, composition, final_expected, kwargs):
         verification = self.verifier.verify(observation,
             predicate=lambda item, exp=expected: _matches_expected(item.actual, exp))
         results.append({'step':step, 'action':action, 'verification':verification})
-        for sid in [step.get('skill_id')]:
-            if sid: self.skills.update_outcome(sid, bool(verification.success))
+        sid = step.get('skill_id')
+        if sid:
+            skill = next((x for x in self.skills.skills if x.get('skill_id') == sid), None)
+            if skill:
+                self.skills.record_execution(sid, bool(verification.success), verified=True, reason=str(verification.reason or ''))
         self.events.emit('skill_composition_step', {'task_id':task['task_id'],
             'composition_id':composition['composition_id'], 'order':step['order'],
             'action':step['action'], 'success':verification.success})
@@ -1676,7 +1714,7 @@ def _execute_composed_goal_44(self, goal, composition, final_expected, kwargs):
                     'steps':results, 'success':False, 'plan':plan, 'plan_strategy':plan.strategy}
     self.tasks.transition(task['task_id'], TaskStatus.SUCCESS.value,
         'all composed steps independently verified')
-    persisted = self.skills.promote_composition(composition, verified=True)
+    persisted = self.skills.promote_composition(composition, verified=True) if promote else None
     higher_order = self.skills.promote_composition_as_skill(persisted, domain='task') if persisted else None
     if higher_order:
         composition['status'] = 'verified'
