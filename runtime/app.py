@@ -1,4 +1,4 @@
-from pathlib import Path
+﻿from pathlib import Path
 import json
 from core.agent import Agent
 from core.brain import Brain
@@ -37,20 +37,20 @@ class IranRuntime:
         self.knowledge=KnowledgeGraph(self.root/'data/knowledge.json');self.learning=LearningEngine(self.root/'data/experiences.json');self.prediction=PredictionEngine(self.root/'data/predictions.json');self.anomaly=AnomalyDetector();self.kernel=CognitiveKernel(self.memory,self.world,self.knowledge,self.prediction,self.anomaly,self.learning)
         self._seed_local_knowledge()
         self.rules=SymbolicRuleEngine()
-        self.rules.add('پروژه ایران', 'معماری شناختی', .95, 'project_definition')
-        self.rules.add('معماری شناختی', 'نیازمند حافظه و استدلال', .9, 'architecture_principle')
+        self.rules.add('Ù¾Ø±ÙˆÚ˜Ù‡ Ø§ÛŒØ±Ø§Ù†', 'Ù…Ø¹Ù…Ø§Ø±ÛŒ Ø´Ù†Ø§Ø®ØªÛŒ', .95, 'project_definition')
+        self.rules.add('Ù…Ø¹Ù…Ø§Ø±ÛŒ Ø´Ù†Ø§Ø®ØªÛŒ', 'Ù†ÛŒØ§Ø²Ù…Ù†Ø¯ Ø­Ø§ÙØ¸Ù‡ Ùˆ Ø§Ø³ØªØ¯Ù„Ø§Ù„', .9, 'architecture_principle')
         self.answer_generator=AnswerGenerator(getattr(self.provider,'response_engine',None) or LocalResponseEngine(), self.knowledge)
         self.reflector=ReflectionEngine();self.orchestrator=Orchestrator(self.agent,self.memory,self.events,self.registry,self.policy,self.goals,self.evaluator);self.scheduler=Scheduler(self.root/'data/schedule.json');self.runner=BackgroundRunner(self.scheduler,self.events)
         self.events.emit('runtime_ready',{'provider':self.provider.name,'version':self.config['version'],'cognitive':True,'offline':True,'network_model':False})
     def _seed_local_knowledge(self):
         facts = (
-            ('ایران', 'پایتخت', 'تهران', .99),
-            ('فرانسه', 'پایتخت', 'پاریس', .99),
-            ('ایران', 'نام', 'ایران', .99),
+            ("ایران", "پایتخت", "تهران", .99),
+            ("آب", "دمای_جوش", "۱۰۰ درجه سانتی‌گراد", .99),
+            ("IRAN", "نوع", "معماری شناختی مستقل و آفلاین", .99),
         )
         for subject, predicate, object_, confidence in facts:
             if not self.knowledge.best_fact(subject, predicate):
-                self.knowledge.add_fact(subject, predicate, object_, confidence, 'verified_local_seed')
+                self.knowledge.add_fact(subject, predicate, object_, confidence, "verified_local_seed")
     def handle(self,text):
         language=self.brain.analyze(text);cycle=self.kernel.cycle(text)
         self.events.emit('language_analysis',{'intent':language.intent,'confidence':language.confidence,'entities':language.entities,'constraints':language.constraints,'ambiguity':language.ambiguity})
@@ -65,7 +65,7 @@ class IranRuntime:
     def metrics(self):return self.orchestrator.metrics.snapshot()
     def cognitive_snapshot(self,text):
         state=self.cognition_engine.analyze(text);cycle=self.kernel.cycle(text)
-        rule_result=self.rules.explain([str(text)], 'نیازمند حافظه و استدلال')
+        rule_result=self.rules.explain([str(text)], 'Ù†ÛŒØ§Ø²Ù…Ù†Ø¯ Ø­Ø§ÙØ¸Ù‡ Ùˆ Ø§Ø³ØªØ¯Ù„Ø§Ù„')
         return {'state':state.__dict__,'cycle':cycle.__dict__,'rules':rule_result,'world':self.world.snapshot(),'knowledge':self.knowledge.stats(),'learning':self.learning.stats(),'memory':self.memory.stats(),'prediction':self.prediction.calibration()}
     def benchmark_run(self):return self.benchmark.run(self.brain.language,self.provider,self.brain,self.orchestrator.planner,self.kernel).__dict__
     def roadmap_benchmark(self):
@@ -565,18 +565,18 @@ def _respond_um_identity(self, text, parsed, cycle, history, frame):
     um = getattr(self, '_user_model', None)
     q = str(text)
     reference = self.resolve_reference(q, history, frame)
-    if not reference and any(marker in q for marker in ('همونو', 'همون قبلی', 'ادامه بده', 'بیشتر توضیح بده')):
+    if not reference and any(marker in q for marker in ('Ù‡Ù…ÙˆÙ†Ùˆ', 'Ù‡Ù…ÙˆÙ† Ù‚Ø¨Ù„ÛŒ', 'Ø§Ø¯Ø§Ù…Ù‡ Ø¨Ø¯Ù‡', 'Ø¨ÛŒØ´ØªØ± ØªÙˆØ¶ÛŒØ­ Ø¨Ø¯Ù‡')):
         current = str(frame.get('topic') or frame.get('goal') or '') if isinstance(frame, dict) else ''
-        if current and not any(marker in current for marker in ('همونو', 'همون قبلی', 'ادامه بده', 'بیشتر توضیح بده')):
+        if current and not any(marker in current for marker in ('Ù‡Ù…ÙˆÙ†Ùˆ', 'Ù‡Ù…ÙˆÙ† Ù‚Ø¨Ù„ÛŒ', 'Ø§Ø¯Ø§Ù…Ù‡ Ø¨Ø¯Ù‡', 'Ø¨ÛŒØ´ØªØ± ØªÙˆØ¶ÛŒØ­ Ø¨Ø¯Ù‡')):
             reference = current
         else:
             for item in reversed(history):
                 value = item[1] if isinstance(item, (tuple, list)) and len(item) > 1 else str(item)
-                if not any(marker in value for marker in ('همونو', 'همون قبلی', 'ادامه بده', 'بیشتر توضیح بده')):
+                if not any(marker in value for marker in ('Ù‡Ù…ÙˆÙ†Ùˆ', 'Ù‡Ù…ÙˆÙ† Ù‚Ø¨Ù„ÛŒ', 'Ø§Ø¯Ø§Ù…Ù‡ Ø¨Ø¯Ù‡', 'Ø¨ÛŒØ´ØªØ± ØªÙˆØ¶ÛŒØ­ Ø¨Ø¯Ù‡')):
                     reference = value
                     break
-    if reference and any(marker in q for marker in ('همونو', 'همون قبلی', 'ادامه بده', 'بیشتر توضیح بده')):
-        return f'مرجع «{q.strip()}» را به «{self.clean(reference)[:240]}» وصل کردم. حالا همین موضوع را مبنای پاسخ قرار می‌دهم.'
+    if reference and any(marker in q for marker in ('Ù‡Ù…ÙˆÙ†Ùˆ', 'Ù‡Ù…ÙˆÙ† Ù‚Ø¨Ù„ÛŒ', 'Ø§Ø¯Ø§Ù…Ù‡ Ø¨Ø¯Ù‡', 'Ø¨ÛŒØ´ØªØ± ØªÙˆØ¶ÛŒØ­ Ø¨Ø¯Ù‡')):
+        return f'Ù…Ø±Ø¬Ø¹ Â«{q.strip()}Â» Ø±Ø§ Ø¨Ù‡ Â«{self.clean(reference)[:240]}Â» ÙˆØµÙ„ Ú©Ø±Ø¯Ù…. Ø­Ø§Ù„Ø§ Ù‡Ù…ÛŒÙ† Ù…ÙˆØ¶ÙˆØ¹ Ø±Ø§ Ù…Ø¨Ù†Ø§ÛŒ Ù¾Ø§Ø³Ø® Ù‚Ø±Ø§Ø± Ù…ÛŒâ€ŒØ¯Ù‡Ù….'
     markers = (
         chr(1606)+chr(1602)+chr(1588),
         chr(1605)+chr(1606)+chr(1608)+chr(32)+chr(1605)+chr(1740)+chr(1588)+chr(1606)+chr(1575)+chr(1587)+chr(1740),
@@ -603,15 +603,15 @@ _base_provider_generate_um = IranProvider._iran_user_model_generate_base
 def _provider_generate_um(self, messages, **kwargs):
     um = getattr(self, '_user_model', None)
     text = self._last_user(messages)
-    if any(marker in text for marker in ('همونو', 'همون قبلی', 'ادامه بده', 'بیشتر توضیح بده')):
+    if any(marker in text for marker in ('Ù‡Ù…ÙˆÙ†Ùˆ', 'Ù‡Ù…ÙˆÙ† Ù‚Ø¨Ù„ÛŒ', 'Ø§Ø¯Ø§Ù…Ù‡ Ø¨Ø¯Ù‡', 'Ø¨ÛŒØ´ØªØ± ØªÙˆØ¶ÛŒØ­ Ø¨Ø¯Ù‡')):
         topic = str(getattr(self, 'frame', {}).get('topic', ''))
-        if not topic or any(marker in topic for marker in ('همونو', 'همون قبلی', 'ادامه بده', 'بیشتر توضیح بده')):
+        if not topic or any(marker in topic for marker in ('Ù‡Ù…ÙˆÙ†Ùˆ', 'Ù‡Ù…ÙˆÙ† Ù‚Ø¨Ù„ÛŒ', 'Ø§Ø¯Ø§Ù…Ù‡ Ø¨Ø¯Ù‡', 'Ø¨ÛŒØ´ØªØ± ØªÙˆØ¶ÛŒØ­ Ø¨Ø¯Ù‡')):
             for item in reversed(self._context(messages)):
-                if not any(marker in item for marker in ('همونو', 'همون قبلی', 'ادامه بده', 'بیشتر توضیح بده')):
+                if not any(marker in item for marker in ('Ù‡Ù…ÙˆÙ†Ùˆ', 'Ù‡Ù…ÙˆÙ† Ù‚Ø¨Ù„ÛŒ', 'Ø§Ø¯Ø§Ù…Ù‡ Ø¨Ø¯Ù‡', 'Ø¨ÛŒØ´ØªØ± ØªÙˆØ¶ÛŒØ­ Ø¨Ø¯Ù‡')):
                     topic = item
                     break
         if topic:
-            answer = f'مرجع «{text.strip()}» را به «{topic[:240]}» وصل کردم. حالا همین موضوع را مبنای پاسخ قرار می‌دهم.'
+            answer = f'Ù…Ø±Ø¬Ø¹ Â«{text.strip()}Â» Ø±Ø§ Ø¨Ù‡ Â«{topic[:240]}Â» ÙˆØµÙ„ Ú©Ø±Ø¯Ù…. Ø­Ø§Ù„Ø§ Ù‡Ù…ÛŒÙ† Ù…ÙˆØ¶ÙˆØ¹ Ø±Ø§ Ù…Ø¨Ù†Ø§ÛŒ Ù¾Ø§Ø³Ø® Ù‚Ø±Ø§Ø± Ù…ÛŒâ€ŒØ¯Ù‡Ù….'
             self.frame = {'topic': topic, 'goal': topic, 'intent': 'general'}
             return answer
     if um:
@@ -662,25 +662,25 @@ _base_v32_user_record = IranRuntime._iran_v32_user_record_base
 def _handle_v32_user_record(self, text):
     try:
         extracted = self.user_model.record(text)
-        if any(x in str(text) for x in ('درباره خودم','در مورد خودم','راجع به خودم','چی درباره خودم','چه چیزی درباره خودم')):
+        if any(x in str(text) for x in ('Ø¯Ø±Ø¨Ø§Ø±Ù‡ Ø®ÙˆØ¯Ù…','Ø¯Ø± Ù…ÙˆØ±Ø¯ Ø®ÙˆØ¯Ù…','Ø±Ø§Ø¬Ø¹ Ø¨Ù‡ Ø®ÙˆØ¯Ù…','Ú†ÛŒ Ø¯Ø±Ø¨Ø§Ø±Ù‡ Ø®ÙˆØ¯Ù…','Ú†Ù‡ Ú†ÛŒØ²ÛŒ Ø¯Ø±Ø¨Ø§Ø±Ù‡ Ø®ÙˆØ¯Ù…')):
             facts = self.user_model.facts(limit=20)
             if facts:
                 lines=[]
                 for f in facts:
                     if f.get('predicate') == 'role' and f.get('object') == 'creator':
-                        lines.append('• شما سازنده پروژه IRAN هستید.')
+                        lines.append('â€¢ Ø´Ù…Ø§ Ø³Ø§Ø²Ù†Ø¯Ù‡ Ù¾Ø±ÙˆÚ˜Ù‡ IRAN Ù‡Ø³ØªÛŒØ¯.')
                     elif f.get('predicate') == 'goal':
-                        lines.append(f"• هدفی که خودتان صریحاً گفتید: {f.get('object')}")
+                        lines.append(f"â€¢ Ù‡Ø¯ÙÛŒ Ú©Ù‡ Ø®ÙˆØ¯ØªØ§Ù† ØµØ±ÛŒØ­Ø§Ù‹ Ú¯ÙØªÛŒØ¯: {f.get('object')}")
                     else:
-                        lines.append(f"• {f.get('predicate')}: {f.get('object')}")
-                answer='تا این لحظه این اطلاعات صریح را از خودتان دارم:\n'+'\n'.join(lines)
+                        lines.append(f"â€¢ {f.get('predicate')}: {f.get('object')}")
+                answer='ØªØ§ Ø§ÛŒÙ† Ù„Ø­Ø¸Ù‡ Ø§ÛŒÙ† Ø§Ø·Ù„Ø§Ø¹Ø§Øª ØµØ±ÛŒØ­ Ø±Ø§ Ø§Ø² Ø®ÙˆØ¯ØªØ§Ù† Ø¯Ø§Ø±Ù…:\n'+'\n'.join(lines)
                 self.memory.add('user', text, .7); self.memory.add('assistant', answer, .6)
                 return answer
         self._last_user_facts = extracted
         if extracted and any(f.get('predicate') == 'name' for f in extracted):
             name = next(f.get('object') for f in extracted if f.get('predicate') == 'name')
             self.memory.add('user', text, .7)
-            answer = f'متوجه شدم. نام شما «{name}» است و آن را به‌عنوان یک واقعیت صریح در حافظه ثبت کردم.'
+            answer = f'Ù…ØªÙˆØ¬Ù‡ Ø´Ø¯Ù…. Ù†Ø§Ù… Ø´Ù…Ø§ Â«{name}Â» Ø§Ø³Øª Ùˆ Ø¢Ù† Ø±Ø§ Ø¨Ù‡â€ŒØ¹Ù†ÙˆØ§Ù† ÛŒÚ© ÙˆØ§Ù‚Ø¹ÛŒØª ØµØ±ÛŒØ­ Ø¯Ø± Ø­Ø§ÙØ¸Ù‡ Ø«Ø¨Øª Ú©Ø±Ø¯Ù….'
             self.memory.add('assistant', answer, .6)
             self.events.emit('response_generated', {'goal': text, 'route': 'user_model_identity'})
             return answer
@@ -711,7 +711,7 @@ def _unified_handle(self, text):
     started = _time.perf_counter()
     clean = str(text).strip()
     if not clean:
-        return 'چیزی برای پردازش دریافت نکردم.'
+        return 'Ú†ÛŒØ²ÛŒ Ø¨Ø±Ø§ÛŒ Ù¾Ø±Ø¯Ø§Ø²Ø´ Ø¯Ø±ÛŒØ§ÙØª Ù†Ú©Ø±Ø¯Ù….'
 
     # 1) Explicit facts are learned before interpretation, but never inferred.
     extracted = self.user_model.record(clean) if hasattr(self, 'user_model') else []
@@ -730,7 +730,7 @@ def _unified_handle(self, text):
     # 3) Explicit identity statements are direct observable facts.
     if extracted and any(f.get('predicate') == 'name' for f in extracted):
         name = next(f.get('object') for f in extracted if f.get('predicate') == 'name')
-        answer = f'متوجه شدم. نام شما «{name}» است و آن را به‌عنوان یک واقعیت صریح در حافظه ثبت کردم.'
+        answer = f'Ù…ØªÙˆØ¬Ù‡ Ø´Ø¯Ù…. Ù†Ø§Ù… Ø´Ù…Ø§ Â«{name}Â» Ø§Ø³Øª Ùˆ Ø¢Ù† Ø±Ø§ Ø¨Ù‡â€ŒØ¹Ù†ÙˆØ§Ù† ÛŒÚ© ÙˆØ§Ù‚Ø¹ÛŒØª ØµØ±ÛŒØ­ Ø¯Ø± Ø­Ø§ÙØ¸Ù‡ Ø«Ø¨Øª Ú©Ø±Ø¯Ù….'
         self.memory.add('user', clean, .72); self.memory.add('assistant', answer, .68)
         self.events.emit('response_generated', {'goal': clean, 'route': 'explicit_identity', 'verified': True})
         return answer
@@ -794,7 +794,7 @@ IranRuntime.handle = _unified_handle
 def _unified_handle_v2(self, text):
     import time as _time
     started = _time.perf_counter(); clean = str(text).strip()
-    if not clean: return 'چیزی برای پردازش دریافت نکردم.'
+    if not clean: return 'Ú†ÛŒØ²ÛŒ Ø¨Ø±Ø§ÛŒ Ù¾Ø±Ø¯Ø§Ø²Ø´ Ø¯Ø±ÛŒØ§ÙØª Ù†Ú©Ø±Ø¯Ù….'
     extracted = self.user_model.record(clean) if hasattr(self, 'user_model') else []
     self._last_user_facts = extracted
     if extracted: self.events.emit('user_model_update', {'extracted': extracted, 'count': len(extracted), 'source': 'unified_boundary'})
@@ -810,7 +810,7 @@ def _unified_handle_v2(self, text):
         return routed
     if extracted and any(f.get('predicate') == 'name' for f in extracted):
         name = next(f.get('object') for f in extracted if f.get('predicate') == 'name')
-        answer = f'متوجه شدم. نام شما «{name}» است و آن را به‌عنوان یک واقعیت صریح در حافظه ثبت کردم.'
+        answer = f'Ù…ØªÙˆØ¬Ù‡ Ø´Ø¯Ù…. Ù†Ø§Ù… Ø´Ù…Ø§ Â«{name}Â» Ø§Ø³Øª Ùˆ Ø¢Ù† Ø±Ø§ Ø¨Ù‡â€ŒØ¹Ù†ÙˆØ§Ù† ÛŒÚ© ÙˆØ§Ù‚Ø¹ÛŒØª ØµØ±ÛŒØ­ Ø¯Ø± Ø­Ø§ÙØ¸Ù‡ Ø«Ø¨Øª Ú©Ø±Ø¯Ù….'
         self.memory.add('user', clean, .72); self.memory.add('assistant', answer, .68)
         return answer
     auto = self.orchestrator._auto_tool(clean)
@@ -841,7 +841,7 @@ IranRuntime.handle = _unified_handle_v2
 def _unified_handle_v3(self, text):
     import time as _time
     started = _time.perf_counter(); clean = str(text).strip()
-    if not clean: return 'چیزی برای پردازش دریافت نکردم.'
+    if not clean: return 'Ú†ÛŒØ²ÛŒ Ø¨Ø±Ø§ÛŒ Ù¾Ø±Ø¯Ø§Ø²Ø´ Ø¯Ø±ÛŒØ§ÙØª Ù†Ú©Ø±Ø¯Ù….'
     self.events.begin_turn()
     extracted = self.user_model.record(clean) if hasattr(self, 'user_model') else []
     self._last_user_facts = extracted
@@ -853,26 +853,26 @@ def _unified_handle_v3(self, text):
         mode = self.answer_generator.mode(answer) if hasattr(self, 'answer_generator') else route
         self.events.emit('response_generated', {'goal': clean, 'route': route, 'mode': mode, 'confidence': .75, 'elapsed_ms': round(elapsed*1000, 2), 'verified': True})
         return answer
-    feedback_terms = ('درست بود', 'درسته', 'عالی بود', 'خوبه', 'اشتباه', 'غلط بود', 'بد بود', 'ضعیف بود')
+    feedback_terms = ('Ø¯Ø±Ø³Øª Ø¨ÙˆØ¯', 'Ø¯Ø±Ø³ØªÙ‡', 'Ø¹Ø§Ù„ÛŒ Ø¨ÙˆØ¯', 'Ø®ÙˆØ¨Ù‡', 'Ø§Ø´ØªØ¨Ø§Ù‡', 'ØºÙ„Ø· Ø¨ÙˆØ¯', 'Ø¨Ø¯ Ø¨ÙˆØ¯', 'Ø¶Ø¹ÛŒÙ Ø¨ÙˆØ¯')
     if any(term in clean.lower() for term in feedback_terms) and hasattr(self, 'learning'):
-        target = getattr(self.provider, 'frame', {}).get('topic') or getattr(self.provider, 'frame', {}).get('goal') or 'آخرین پاسخ'
+        target = getattr(self.provider, 'frame', {}).get('topic') or getattr(self.provider, 'frame', {}).get('goal') or 'Ø¢Ø®Ø±ÛŒÙ† Ù¾Ø§Ø³Ø®'
         learned = self.learning.update_from_feedback(target, clean, 'feedback', 'conversation')
         self.events.emit('learning_update', {'feedback': clean, 'target': target, 'learned': bool(learned.get('learned', True)), 'canonical': True})
-        answer = 'بازخورد شما ثبت شد و برای انتخاب راهبرد پاسخ‌های بعدی استفاده می‌شود.'
+        answer = 'Ø¨Ø§Ø²Ø®ÙˆØ±Ø¯ Ø´Ù…Ø§ Ø«Ø¨Øª Ø´Ø¯ Ùˆ Ø¨Ø±Ø§ÛŒ Ø§Ù†ØªØ®Ø§Ø¨ Ø±Ø§Ù‡Ø¨Ø±Ø¯ Ù¾Ø§Ø³Ø®â€ŒÙ‡Ø§ÛŒ Ø¨Ø¹Ø¯ÛŒ Ø§Ø³ØªÙØ§Ø¯Ù‡ Ù…ÛŒâ€ŒØ´ÙˆØ¯.'
         self.memory.add('user', clean, .75); self.memory.add('assistant', answer, .7)
         return finish(answer, 'explicit_feedback')
     special = self.provider._special(clean) if hasattr(self.provider, '_special') else ''
     if special: return finish(special, 'grounded_special')
     facts = self.user_model.facts(limit=12) if hasattr(self, 'user_model') else []
     low = clean.lower()
-    if any(x in low for x in ('چه نقشی در پروژه','نقشم در پروژه','نقش من در پروژه','سمت من در پروژه')):
+    if any(x in low for x in ('Ú†Ù‡ Ù†Ù‚Ø´ÛŒ Ø¯Ø± Ù¾Ø±ÙˆÚ˜Ù‡','Ù†Ù‚Ø´Ù… Ø¯Ø± Ù¾Ø±ÙˆÚ˜Ù‡','Ù†Ù‚Ø´ Ù…Ù† Ø¯Ø± Ù¾Ø±ÙˆÚ˜Ù‡','Ø³Ù…Øª Ù…Ù† Ø¯Ø± Ù¾Ø±ÙˆÚ˜Ù‡')):
         creator = any(f.get('predicate') == 'role' and f.get('object') == 'creator' for f in facts)
-        if creator: return finish('نقش شما در پروژه IRAN: سازنده پروژه هستید؛ این نتیجه از یک واقعیت صریح ذخیره‌شده در User Model به دست آمده است.', 'user_model_role')
+        if creator: return finish('Ù†Ù‚Ø´ Ø´Ù…Ø§ Ø¯Ø± Ù¾Ø±ÙˆÚ˜Ù‡ IRAN: Ø³Ø§Ø²Ù†Ø¯Ù‡ Ù¾Ø±ÙˆÚ˜Ù‡ Ù‡Ø³ØªÛŒØ¯Ø› Ø§ÛŒÙ† Ù†ØªÛŒØ¬Ù‡ Ø§Ø² ÛŒÚ© ÙˆØ§Ù‚Ø¹ÛŒØª ØµØ±ÛŒØ­ Ø°Ø®ÛŒØ±Ù‡â€ŒØ´Ø¯Ù‡ Ø¯Ø± User Model Ø¨Ù‡ Ø¯Ø³Øª Ø¢Ù…Ø¯Ù‡ Ø§Ø³Øª.', 'user_model_role')
     routed = self.conversation_router.answer(clean) if hasattr(self, 'conversation_router') else None
     if routed is not None: return finish(routed, 'conversation_router')
     if extracted and any(f.get('predicate') == 'name' for f in extracted):
         name = next(f.get('object') for f in extracted if f.get('predicate') == 'name')
-        answer = f'متوجه شدم. نام شما «{name}» است و آن را به‌عنوان یک واقعیت صریح در حافظه ثبت کردم.'
+        answer = f'Ù…ØªÙˆØ¬Ù‡ Ø´Ø¯Ù…. Ù†Ø§Ù… Ø´Ù…Ø§ Â«{name}Â» Ø§Ø³Øª Ùˆ Ø¢Ù† Ø±Ø§ Ø¨Ù‡â€ŒØ¹Ù†ÙˆØ§Ù† ÛŒÚ© ÙˆØ§Ù‚Ø¹ÛŒØª ØµØ±ÛŒØ­ Ø¯Ø± Ø­Ø§ÙØ¸Ù‡ Ø«Ø¨Øª Ú©Ø±Ø¯Ù….'
         self.memory.add('user', clean, .72); self.memory.add('assistant', answer, .68)
         return finish(answer, 'explicit_identity')
     auto = self.orchestrator._auto_tool(clean)
@@ -920,10 +920,10 @@ IranRuntime.handle = _unified_handle_v3
 _prev_unified_handle = IranRuntime.handle
 def _unified_handle_v4(self, text):
     low = str(text).strip().lower()
-    if any(x in low for x in ('چه نقشی در پروژه','نقشم در پروژه','نقش من در پروژه','سمت من در پروژه')):
+    if any(x in low for x in ('Ú†Ù‡ Ù†Ù‚Ø´ÛŒ Ø¯Ø± Ù¾Ø±ÙˆÚ˜Ù‡','Ù†Ù‚Ø´Ù… Ø¯Ø± Ù¾Ø±ÙˆÚ˜Ù‡','Ù†Ù‚Ø´ Ù…Ù† Ø¯Ø± Ù¾Ø±ÙˆÚ˜Ù‡','Ø³Ù…Øª Ù…Ù† Ø¯Ø± Ù¾Ø±ÙˆÚ˜Ù‡')):
         facts = self.user_model.facts(limit=12) if hasattr(self,'user_model') else []
         if any(f.get('predicate')=='role' and f.get('object')=='creator' for f in facts):
-            answer='نقش شما در پروژه IRAN: creator (سازنده پروژه). این پاسخ مستقیماً از User Model و واقعیت صریح ذخیره‌شده بازیابی شد.'
+            answer='Ù†Ù‚Ø´ Ø´Ù…Ø§ Ø¯Ø± Ù¾Ø±ÙˆÚ˜Ù‡ IRAN: creator (Ø³Ø§Ø²Ù†Ø¯Ù‡ Ù¾Ø±ÙˆÚ˜Ù‡). Ø§ÛŒÙ† Ù¾Ø§Ø³Ø® Ù…Ø³ØªÙ‚ÛŒÙ…Ø§Ù‹ Ø§Ø² User Model Ùˆ ÙˆØ§Ù‚Ø¹ÛŒØª ØµØ±ÛŒØ­ Ø°Ø®ÛŒØ±Ù‡â€ŒØ´Ø¯Ù‡ Ø¨Ø§Ø²ÛŒØ§Ø¨ÛŒ Ø´Ø¯.'
             self.memory.add('user',str(text).strip(),.72); self.memory.add('assistant',answer,.68)
             try:self.orchestrator.metrics.record('response',0.0)
             except Exception:pass
@@ -941,9 +941,9 @@ def _unified_handle_v5(self, text):
     if prefs and not any(f.get('predicate')=='name' for f in facts):
         lines=[]
         for f in prefs:
-            verb='دوست دارید' if f.get('predicate')=='likes' else 'دوست ندارید'
-            lines.append(f'«{f.get("object")}» را {verb}.')
-        answer='متوجه شدم و این ترجیح صریح را در حافظه ثبت کردم: '+' '.join(lines)
+            verb='Ø¯ÙˆØ³Øª Ø¯Ø§Ø±ÛŒØ¯' if f.get('predicate')=='likes' else 'Ø¯ÙˆØ³Øª Ù†Ø¯Ø§Ø±ÛŒØ¯'
+            lines.append(f'Â«{f.get("object")}Â» Ø±Ø§ {verb}.')
+        answer='Ù…ØªÙˆØ¬Ù‡ Ø´Ø¯Ù… Ùˆ Ø§ÛŒÙ† ØªØ±Ø¬ÛŒØ­ ØµØ±ÛŒØ­ Ø±Ø§ Ø¯Ø± Ø­Ø§ÙØ¸Ù‡ Ø«Ø¨Øª Ú©Ø±Ø¯Ù…: '+' '.join(lines)
         self.user_model.record(clean); self.memory.add('user',clean,.72); self.memory.add('assistant',answer,.68)
         try:self.orchestrator.metrics.record('response',0.0)
         except Exception:pass
@@ -1013,16 +1013,16 @@ _prev_unified_handle_goals = IranRuntime.handle
 def _unified_handle_goals(self, text):
     clean=str(text).strip(); result=_prev_unified_handle_goals(self,text)
     if clean.startswith('/'): return result
-    markers=('می‌خواهم ','میخوام ','می خواهم ','میخواهم ','می‌خوام ','میخوام ','هدفم ')
+    markers=('Ù…ÛŒâ€ŒØ®ÙˆØ§Ù‡Ù… ','Ù…ÛŒØ®ÙˆØ§Ù… ','Ù…ÛŒ Ø®ÙˆØ§Ù‡Ù… ','Ù…ÛŒØ®ÙˆØ§Ù‡Ù… ','Ù…ÛŒâ€ŒØ®ÙˆØ§Ù… ','Ù…ÛŒØ®ÙˆØ§Ù… ','Ù‡Ø¯ÙÙ… ')
     goal=''
     for marker in markers:
         if marker in clean:
-            goal=clean.split(marker,1)[1].strip(' :،؛')
+            goal=clean.split(marker,1)[1].strip(' :ØŒØ›')
             break
-    if goal and len(goal)>2 and not clean.endswith('؟') and not any(x.get('title')==goal for x in self.goals.list(status='active')):
+    if goal and len(goal)>2 and not clean.endswith('ØŸ') and not any(x.get('title')==goal for x in self.goals.list(status='active')):
         item=self.goals.add(goal)
         self.events.emit('goal_persisted',{'goal_id':item['id'],'title':goal,'source':'explicit_user_goal'})
-        return result+'\n\nهدف صریح شما نیز ثبت شد: «'+goal+'».'
+        return result+'\n\nÙ‡Ø¯Ù ØµØ±ÛŒØ­ Ø´Ù…Ø§ Ù†ÛŒØ² Ø«Ø¨Øª Ø´Ø¯: Â«'+goal+'Â».'
     return result
 IranRuntime.handle=_unified_handle_goals
 
@@ -1163,16 +1163,16 @@ _prev_unified_handle_role = IranRuntime.handle
 def _unified_handle_role(self, text):
     clean = str(text).strip().lower()
     raw = str(text).strip()
-    if any(marker in raw for marker in ('همونو', 'همون قبلی', 'ادامه بده', 'بیشتر توضیح بده')):
+    if any(marker in raw for marker in ('Ù‡Ù…ÙˆÙ†Ùˆ', 'Ù‡Ù…ÙˆÙ† Ù‚Ø¨Ù„ÛŒ', 'Ø§Ø¯Ø§Ù…Ù‡ Ø¨Ø¯Ù‡', 'Ø¨ÛŒØ´ØªØ± ØªÙˆØ¶ÛŒØ­ Ø¨Ø¯Ù‡')):
         topic = str(getattr(self.provider, 'frame', {}).get('topic', ''))
-        if not topic or any(marker in topic for marker in ('همونو', 'همون قبلی', 'ادامه بده', 'بیشتر توضیح بده')):
+        if not topic or any(marker in topic for marker in ('Ù‡Ù…ÙˆÙ†Ùˆ', 'Ù‡Ù…ÙˆÙ† Ù‚Ø¨Ù„ÛŒ', 'Ø§Ø¯Ø§Ù…Ù‡ Ø¨Ø¯Ù‡', 'Ø¨ÛŒØ´ØªØ± ØªÙˆØ¶ÛŒØ­ Ø¨Ø¯Ù‡')):
             for _, content, _ in reversed(self.memory.recent(24)):
                 content = str(content)
-                if not any(marker in content for marker in ('همونو', 'همون قبلی', 'ادامه بده', 'بیشتر توضیح بده')):
+                if not any(marker in content for marker in ('Ù‡Ù…ÙˆÙ†Ùˆ', 'Ù‡Ù…ÙˆÙ† Ù‚Ø¨Ù„ÛŒ', 'Ø§Ø¯Ø§Ù…Ù‡ Ø¨Ø¯Ù‡', 'Ø¨ÛŒØ´ØªØ± ØªÙˆØ¶ÛŒØ­ Ø¨Ø¯Ù‡')):
                     topic = content
                     break
         if topic:
-            answer = f'مرجع «{raw}» را به «{topic[:240]}» وصل کردم. حالا همین موضوع را مبنای پاسخ قرار می‌دهم.'
+            answer = f'Ù…Ø±Ø¬Ø¹ Â«{raw}Â» Ø±Ø§ Ø¨Ù‡ Â«{topic[:240]}Â» ÙˆØµÙ„ Ú©Ø±Ø¯Ù…. Ø­Ø§Ù„Ø§ Ù‡Ù…ÛŒÙ† Ù…ÙˆØ¶ÙˆØ¹ Ø±Ø§ Ù…Ø¨Ù†Ø§ÛŒ Ù¾Ø§Ø³Ø® Ù‚Ø±Ø§Ø± Ù…ÛŒâ€ŒØ¯Ù‡Ù….'
             self.provider.frame = {'topic': topic, 'goal': topic, 'intent': 'general'}
             self.memory.add('user', raw, .72)
             self.memory.add('assistant', answer, .68)
@@ -1182,7 +1182,7 @@ def _unified_handle_role(self, text):
     if role_word in clean and project_word in clean:
         facts = self.user_model.facts(limit=20) if hasattr(self, 'user_model') else []
         if any(f.get('predicate') == 'role' and f.get('object') == 'creator' for f in facts):
-            answer = 'role=creator (سازنده پروژه IRAN)'
+            answer = 'role=creator (Ø³Ø§Ø²Ù†Ø¯Ù‡ Ù¾Ø±ÙˆÚ˜Ù‡ IRAN)'
             self.memory.add('user', str(text).strip(), .72)
             self.memory.add('assistant', answer, .68)
             return answer
@@ -1308,233 +1308,48 @@ IranRuntime.start_autonomous_daemon = _start_autonomous_daemon
 IranRuntime.stop_autonomous_daemon = _stop_autonomous_daemon
 
 
-# v0.40: canonical local conversational boundary.
-# All ordinary natural-language turns now use one dialogue pipeline. Legacy
-# executive/tool methods remain available for explicit command contracts.
+"""Canonical runtime boundary for IRAN."""
 from core.dialogue import LocalDialogueEngine
-
-_IranRuntime_dialogue_base_init = IranRuntime.__init__
-def _init_dialogue_engine(self, root):
-    _IranRuntime_dialogue_base_init(self, root)
-    self.dialogue = LocalDialogueEngine(self)
-    self.events.emit('conversation_engine_ready', {
-        'canonical': True,
-        'offline': True,
-        'persistent_state': True,
-        'reference_resolution': True,
-        'answer_verification': True,
-        'answer_repair': True,
-    })
-IranRuntime.__init__ = _init_dialogue_engine
-
-_IranRuntime_dialogue_base_handle = IranRuntime.handle
-def _canonical_dialogue_handle(self, text):
-    clean_text = str(text).strip()
-    if clean_text.startswith('/'):
-        return _IranRuntime_dialogue_base_handle(self, text)
-    return self.dialogue.handle(clean_text)
-IranRuntime.handle = _canonical_dialogue_handle
-
-IranRuntime.conversation_snapshot = lambda self: self.dialogue.snapshot()
-IranRuntime.conversation_trace = lambda self: self.dialogue.trace()
-
-
-# v0.40h: preserve existing observable contracts at the canonical dialogue boundary.
-# This is still one natural-language path; compatibility work only records the same
-# turn for legacy metrics and handles explicit local tool/special requests first.
-_prev_canonical_handle = IranRuntime.handle
-
-def _canonical_dialogue_handle_v2(self, text):
-    import time as _time
-    clean_text = str(text).strip()
-    if clean_text.startswith('/'):
-        return _prev_canonical_handle(self, text)
-    started=_time.perf_counter()
-    try:
-        self.events.begin_turn()
-    except Exception:
-        pass
-    extracted=[]
-    try:
-        if hasattr(self,'user_model'):
-            extracted=self.user_model.record(clean_text)
-            if extracted:
-                self.events.emit('user_model_update', {'extracted':extracted,'count':len(extracted),'source':'canonical_dialogue'})
-    except Exception:
-        pass
-    # Explicit local specials remain grounded and deterministic.
-    special=self.provider._special(clean_text) if hasattr(self.provider,'_special') else ''
-    if special:
-        self.memory.add('user',clean_text,.72); self.memory.add('assistant',special,.68)
-        self.events.emit('language_analysis', {'intent':'special','confidence':.99,'canonical':True})
-        self.events.emit('cognitive_cycle', {'intent':'special','confidence':.99,'unified':True})
-        self.events.emit('response_generated', {'goal':clean_text,'route':'grounded_special','mode':'DIRECT','confidence':.99,'verified':True})
-        try:self.orchestrator.metrics.record('response',_time.perf_counter()-started)
-        except Exception:pass
-        return special
-    # Safe local tools retain their existing explicit routing contract.
-    try:
-        auto=self.orchestrator._auto_tool(clean_text)
-    except Exception:
-        auto=None
-    if auto is not None:
-        self.memory.add('tool_result',auto,.78)
-        self.events.emit('response_generated', {'goal':clean_text,'route':'tool','mode':'TOOL','confidence':.99,'verified':True})
-        return auto
-    answer=self.dialogue.handle(clean_text)
-    # Final user-facing contract guards live at the runtime boundary.
-    def _fa(*xs): return ''.join(chr(x) for x in xs)
-    _low = clean_text.replace(chr(0x061f), '?').strip()
-    _about = _fa(1583,1585,1576,1575,1585,1607,32,1582,1608,1583,1605)
-    _python = _fa(1662,1575,1740,1578,1608,1606)
-    _project = _fa(1576,1585,1575,1740,32,1662,1585,1608,1688,1607,32,1605,1606)
-    _water = _fa(1570,1576)
-    _boil = _fa(1580,1608,1588)
-    if _about in _low:
-        try:
-            facts=self.user_model.facts(limit=50)
-            liked=[f.get('object','') for f in facts if f.get('predicate')=='likes']
-            if liked: answer=liked[-1]
-            elif _python in str(self.memory.recent(80)): answer=_fa(1576,1585,1606,1575,1605,1607,32,1606,1608,1740,1587,1740)
-        except Exception: pass
-    if _python in _low and _low.count(' '+chr(1608)+' ') >= 2:
-        answer=_fa(0x06f1)+') '+_python+' '+_fa(1670,1740,1607,46)+'\n'+_fa(0x06f2)+') '+_fa(1670,1585,1575,32,1605,1581,1576,1608,1576,1607,46)+'\n'+_fa(0x06f3)+') '+_project+' '+_fa(1670,1607,32,1601,1575,1740,1583,1607,1575,1740,32,1583,1575,1585,1583,46)
-    if _water in _low and _boil in _low:
-        answer=_water+' '+_fa(1583,1585,32,1601,1588,1575,1585,32,1605,1593,1605,1608,1604,32,1583,1585,32,1583,1585,1580,1607,32,0x06f1,0x06f0,0x06f0)+' '+_fa(1583,1585,1580,1607,32,1587,1575,1606,1578,1740,1711,1585,1575,1583,32,1605,1740,1588,1608,1583,46)
-    try:
-        parsed_obj=self.brain.language.analyze(clean_text)
-        parsed = vars(parsed_obj) if hasattr(parsed_obj,'__dict__') else (parsed_obj if isinstance(parsed_obj,dict) else {})
-        self.events.emit('language_analysis', {'intent':parsed.get('intent','general'),'confidence':parsed.get('confidence',parsed.get('intent_score',.5)),
-            'entities':parsed.get('entities',[]),'constraints':parsed.get('constraints',[]),'ambiguity':parsed.get('ambiguity',0),'canonical':True})
-        self.events.emit('cognitive_cycle', {'intent':parsed.get('intent','general'),'confidence':parsed.get('confidence',parsed.get('intent_score',.5)),
-            'decision':{'chosen':'respond'},'unified':True})
-        if True:
-            self.events.emit('plan_created', {'goal':parsed.get('goal',clean_text),'version':1,'steps':['understand','retrieve','reason','verify'],'canonical':True})
-        score=self.evaluator.score(clean_text,answer)
-        strategy='conversation'
-        self.events.emit('reflection', {'score':score,'canonical':True})
-        self.events.emit('learning_update', {'score':score,'strategy':strategy,'canonical':True})
-        mode=self.answer_generator.mode(answer) if hasattr(self,'answer_generator') else 'DIRECT'
-        if mode == 'UNKNOWN' and not str(answer).startswith('UNKNOWN:'): mode='DIRECT_FACT'
-        self.events.emit('response_generated', {'goal':clean_text,'route':'unified_cognitive_response','mode':mode,
-            'score':score,'elapsed_ms':round((_time.perf_counter()-started)*1000,2),'verified':score>=.55})
-        try:self.orchestrator.metrics.record('response',_time.perf_counter()-started)
-        except Exception:pass
-    except Exception as exc:
-        try:self.events.emit('dialogue_telemetry_error',{'error':type(exc).__name__})
-        except Exception:pass
-    return answer
-IranRuntime.handle=_canonical_dialogue_handle_v2
-
-# v0.41: Advanced Cognitive Core v2 -- typed pre-answer cognition + post-answer verification.
 from core.cognitive_core import AdvancedCognitiveCore
-
-_IranRuntime_v41_init_base = IranRuntime.__init__
-def _init_v41(self, root):
-    _IranRuntime_v41_init_base(self, root)
-    self.cognitive_core = AdvancedCognitiveCore(self)
-IranRuntime.__init__ = _init_v41
-
-_IranRuntime_v41_handle_base = IranRuntime.handle
-def _handle_v41(self, text):
-    state = self.cognitive_core.begin(str(text))
-    answer = _IranRuntime_v41_handle_base(self, text)
-    verification = self.cognitive_core.verify(state, answer)
-    self.events.emit('cognitive_verification', verification)
-    self.cognitive_core.learn(answer, verification.get('score', 0.0))
-    return answer
-IranRuntime.handle = _handle_v41
-
-IranRuntime.advanced_cognitive_snapshot = lambda self: (
-    self.cognitive_core.last_state.snapshot() if getattr(self, 'cognitive_core', None) and self.cognitive_core.last_state else None
-)
-
-
-# v2.1: install the natural local conversation layer after all dialogue compatibility patches.
-try:
-    from core.chat_upgrade import install as _install_chat_upgrade
-    _install_chat_upgrade()
-except Exception as _chat_upgrade_error:
-    # Keep runtime importable; diagnostics can inspect this flag.
-    IranRuntime._chat_upgrade_error = type(_chat_upgrade_error).__name__
-
-try:
-    from core.chat_upgrade import install_v2 as _install_chat_upgrade_v2
-    _install_chat_upgrade_v2()
-except Exception as _chat_upgrade_v2_error:
-    IranRuntime._chat_upgrade_v2_error = type(_chat_upgrade_v2_error).__name__
-
-try:
-    from core.chat_upgrade import install_v3 as _install_chat_upgrade_v3
-    _install_chat_upgrade_v3()
-except Exception as _chat_upgrade_v3_error:
-    IranRuntime._chat_upgrade_v3_error = type(_chat_upgrade_v3_error).__name__
-
-try:
-    from core.chat_upgrade import install_v4 as _install_chat_upgrade_v4
-    _install_chat_upgrade_v4()
-except Exception as _chat_upgrade_v4_error:
-    IranRuntime._chat_upgrade_v4_error = type(_chat_upgrade_v4_error).__name__
-
-try:
-    from core.chat_upgrade import install_v5 as _install_chat_upgrade_v5
-    _install_chat_upgrade_v5()
-except Exception as _chat_upgrade_v5_error:
-    IranRuntime._chat_upgrade_v5_error = type(_chat_upgrade_v5_error).__name__
-
-try:
-    from core.chat_upgrade import install_v6 as _install_chat_upgrade_v6
-    _install_chat_upgrade_v6()
-except Exception as _chat_upgrade_v6_error:
-    IranRuntime._chat_upgrade_v6_error = type(_chat_upgrade_v6_error).__name__
-
-try:
-    from core.chat_upgrade import install_v7 as _install_chat_upgrade_v7
-    _install_chat_upgrade_v7()
-except Exception as _chat_upgrade_v7_error:
-    IranRuntime._chat_upgrade_v7_error = type(_chat_upgrade_v7_error).__name__
-
-
-# v2.2: greetings belong to the conversational channel, not the analytical special-response channel.
-_chat_final_runtime_base = IranRuntime.handle
-
-def _chat_final_runtime_handle(self, text):
-    low = str(text or '').strip().replace('ي','ی').replace('ك','ک').rstrip('؟?!').strip().lower()
-    if low in {'سلام','درود','سلام ایران','هی','hello','hi'}:
-        # Preserve the canonical runtime telemetry/metrics path, then replace only the
-        # analytical greeting with the natural conversational answer.
-        _chat_final_runtime_base(self, text)
-        return self.dialogue.handle(str(text).strip())
-    return _chat_final_runtime_base(self, text)
-
-IranRuntime.handle = _chat_final_runtime_handle
-
-try:
-    from core.chat_upgrade import install_v8 as _install_chat_upgrade_v8
-    _install_chat_upgrade_v8()
-except Exception as _chat_upgrade_v8_error:
-    IranRuntime._chat_upgrade_v8_error = type(_chat_upgrade_v8_error).__name__
-
-
-# v2.3: one canonical natural-language boundary for the complete local stack.
-# This final binding supersedes the historical compatibility wrappers above;
-# slash commands keep their explicit tool/goal contracts.
 from core.unified_pipeline import UnifiedCognitivePipeline
 
-_runtime_unified_init_base = IranRuntime.__init__
-def _runtime_unified_init(self, root):
-    _runtime_unified_init_base(self, root)
+_runtime_base_init = IranRuntime.__init__
+
+
+def _canonical_runtime_init(self, root):
+    _runtime_base_init(self, root)
+    self.dialogue = LocalDialogueEngine(self)
+    self.cognitive_core = AdvancedCognitiveCore(self)
     self.unified_pipeline = UnifiedCognitivePipeline(self)
-    self.events.emit('unified_pipeline_ready', {'canonical': True, 'single_turn_path': True})
+    self.events.emit("conversation_engine_ready", {
+        "canonical": True,
+        "offline": True,
+        "persistent_state": True,
+        "reference_resolution": True,
+        "answer_verification": True,
+    })
+    self.events.emit("unified_pipeline_ready", {
+        "canonical": True,
+        "single_turn_path": True,
+    })
 
-IranRuntime.__init__ = _runtime_unified_init
 
-_runtime_unified_handle_base = IranRuntime.handle
-def _runtime_unified_handle(self, text):
-    clean = str(text or '').strip()
-    if clean.startswith('/'):
-        return _runtime_unified_handle_base(self, clean)
+IranRuntime.__init__ = _canonical_runtime_init
+
+
+def _canonical_runtime_handle(self, text):
+    clean = str(text or "").strip()
+    if clean.startswith("/"):
+        return self.orchestrator.handle(clean) if hasattr(self.orchestrator, "handle") else self.unified_pipeline.handle(clean)
     return self.unified_pipeline.handle(clean)
 
-IranRuntime.handle = _runtime_unified_handle
+
+IranRuntime.handle = _canonical_runtime_handle
+IranRuntime.conversation_snapshot = lambda self: self.dialogue.snapshot()
+IranRuntime.conversation_trace = lambda self: self.dialogue.trace()
+IranRuntime.advanced_cognitive_snapshot = lambda self: (
+    self.cognitive_core.last_state.snapshot()
+    if getattr(self, "cognitive_core", None) and self.cognitive_core.last_state
+    else None
+)
 IranRuntime.unified_snapshot = lambda self: self.unified_pipeline.snapshot()
