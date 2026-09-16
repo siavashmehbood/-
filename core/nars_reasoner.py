@@ -146,10 +146,22 @@ class NarsInspiredReasoner:
         return ReasoningAnswer("", 0.0, status="goal")
 
 
+_FACT_SOURCES = {
+    "verified_local_seed", "explicit_user_statement", "user", "test",
+    "imported", "local", "knowledge", "manual",
+}
+
 def _ingest_graph(self, graph):
     for fact in getattr(graph, "facts", []):
-        if "subject" in fact and "predicate" in fact and "object" in fact:
-            self.observe(fact["subject"], fact["predicate"], fact["object"], fact.get("confidence", .5), fact.get("source", "knowledge"))
+        if not {"subject", "predicate", "object"}.issubset(fact):
+            continue
+        source = str(fact.get("source", "knowledge"))
+        # Learning/procedure nodes are control knowledge, not world facts.
+        # They stay in the graph for learning, but must not contaminate belief retrieval.
+        if source not in _FACT_SOURCES:
+            continue
+        self.observe(fact["subject"], fact["predicate"], fact["object"],
+                     fact.get("confidence", .5), source)
 
 
 def _answer_text(self, text):

@@ -79,6 +79,28 @@ def _resolve(self,subject,predicate):
 KnowledgeGraph.query=_query_v2
 KnowledgeGraph.resolve=_resolve
 
+def _query_factual(self, term, limit=20, sources=None, exclude_sources=None):
+    """Retrieve semantic world/user facts without procedural learning records."""
+    allowed = {str(x) for x in sources} if sources is not None else None
+    excluded = {str(x) for x in (exclude_sources or ())}
+    t = str(term).lower()
+    rows = []
+    for fact in self.facts:
+        source = str(fact.get("source", ""))
+        if allowed is not None and source not in allowed:
+            continue
+        if source in excluded:
+            continue
+        text = " ".join(str(fact.get(k, "")) for k in ("subject", "predicate", "object"))
+        if t in text.lower():
+            score = float(fact.get("confidence", 0.0))
+            if "contradicted_by" in fact:
+                score -= .20
+            rows.append((score, fact))
+    return [fact for _, fact in sorted(rows, key=lambda x: x[0], reverse=True)[:int(limit)]]
+
+KnowledgeGraph.query_factual = _query_factual
+
 
 # v0.29 Task C: typed memory graph over the existing durable fact graph.
 def _add_node(self, node_id, node_type, data=None, confidence=1.0, source='internal'):

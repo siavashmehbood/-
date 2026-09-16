@@ -67,7 +67,10 @@ class CognitiveRealizer:
         if graph is None:
             return None
         try:
-            rows = graph.query(text, 20)
+            if hasattr(graph, "query_factual"):
+                rows = graph.query_factual(text, 20, sources={"verified_local_seed", "explicit_user_statement", "user", "test", "imported", "local", "knowledge", "manual"})
+            else:
+                rows = graph.query(text, 20)
         except Exception:
             return None
         if not rows:
@@ -129,22 +132,24 @@ class CognitiveRealizer:
         return f'بر اساس استدلال محلی، «{raw}» است.' if raw else ""
 
     def _question_from_memory(self, text: str, cycle: dict, evidence: list[RealizationEvidence]):
-        q = self.clean(text).rstrip("؟?")
-        low = q.lower()
-        if any(x in low for x in ("اسم", "نام")):
-            facts = [x for x in cycle.get("user_model", {}).get("facts", []) if x.get("predicate") == "name"]
-            if facts:
-                value = self.clean(facts[-1].get("object"))
+        low = self.clean(text).rstrip("؟?").lower()
+        profile = cycle.get("user_model") or {}
+        facts = profile.get("facts") if isinstance(profile, dict) else []
+        facts = [fact for fact in (facts or []) if isinstance(fact, dict)]
+        if ("اسم" in low or "نام" in low) and "من" in low:
+            names = [fact for fact in facts if fact.get("predicate") == "name" and fact.get("object")]
+            if names:
+                value = self.clean(names[-1]["object"])
                 return f'بر اساس واقعیتی که خودت ثبت کردی، نامت «{value}» است.'
-        if any(x in low for x in ("دوست دارم", "دوست داشتم", "علایق", "علاقه")):
-            facts = [x for x in cycle.get("user_model", {}).get("facts", []) if x.get("predicate") == "likes"]
-            if facts:
-                values = []
-                for fact in facts:
-                    value = self.clean(fact.get("object"))
-                    if value and value not in values:
-                        values.append(value)
-                return "بر اساس ترجیحات ثبت‌شده، گفتی «" + "»، «".join(values) + "» را دوست داری."
+        if any(marker in low for marker in ("دوست دارم", "دوست داشتم", "علایق", "علاقه من")):
+            likes = [fact for fact in facts if fact.get("predicate") == "likes" and fact.get("object")]
+            values = []
+            for fact in likes:
+                value = self.clean(fact["object"])
+                if value and value not in values:
+                    values.append(value)
+            if values:
+                return "بر اساس چیزهایی که خودت ثبت کرده‌ای، «" + "»، «".join(values) + "» را دوست داری."
         return ""
 
     def _reference(self, text: str, frame: dict, evidence: list[RealizationEvidence]) -> str:
@@ -176,17 +181,30 @@ class CognitiveRealizer:
         return Realization(" ".join(lines), "EXPLANATION", confidence, evidence[:3])
 
     def _how(self, cycle: dict) -> Realization:
-        reasoning = cycle.get("reasoning", {}) or {}
+        reasoning = cycle.get("reasoning", {})
         if isinstance(reasoning, dict):
             reasoning = reasoning.get("reasoning", reasoning)
         actions = [self.clean(x) for x in reasoning.get("next_actions", []) if self.clean(x)]
         plan = [self.clean(x) for x in cycle.get("plan", []) if self.clean(x)]
         steps = actions[:6] or plan[:6]
-        if not steps:
-            steps = ["فهم هدف", "بررسی زمینه و شواهد", "ساخت گزینه‌ها", "انتخاب اقدام", "آزمون نتیجه"]
-        return Realization("برای این کار، مسیر فعلی هسته این است: " + " → ".join(steps) + ".",
-                           "PROCEDURE", float(cycle.get("confidence", .5) or .5))
-
+        translations = {
+            "understand": "فهم هدف",
+            "retrieve": "بازیابی حافظه و شواهد",
+            "compare evidence": "مقایسه شواهد",
+            "answer": "ساخت پاسخ",
+            "verify": "راستی‌آزمایی نتیجه",
+            "perceive": "دریافت مشاهده تازه",
+            "increase_confidence": "افزایش اطمینان",
+            "reassess": "ارزیابی دوباره",
+            "respond": "انتخاب پاسخ",
+            "replan": "بازطراحی برنامه",
+        }
+        rendered = [translations.get(step, step) for step in steps]
+        if not rendered:
+            rendered = ["فهم هدف", "بازیابی زمینه", "بررسی شواهد", "ساخت پاسخ", "راستی‌آزمایی"]
+        return Realization(
+            "برای این کار، مسیر فعلی هسته این است: " + " → ".join(rendered) + ".",
+            "PROCEDURE", float(cycle.get("confidence", .5) or .5))
     def _compare(self, text: str, cycle: dict, evidence: list[RealizationEvidence]) -> Realization:
         parts = re.split(r"\s+(?:یا|و)\s+", self.clean(text).rstrip("؟?"), maxsplit=1)
         if len(parts) != 2:
