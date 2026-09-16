@@ -189,6 +189,11 @@ class AdvancedCognitiveCore:
             return
         self.last_state.status = "learned"
         try:
+            if hasattr(self, "offline_agent"):
+                self.offline_agent.learn_outcome(answer, score)
+        except Exception:
+            pass
+        try:
             self.runtime.events.emit("advanced_cognition", {
                 "turn": self.last_state.turn_id,
                 "intent": self.last_state.intent,

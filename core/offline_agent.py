@@ -294,7 +294,11 @@ class OfflineAgentKernel:
         relevant_external = [f for f in external if len(query_tokens & self.reasoner._tokens(self.reasoner._fact_text(f))) / max(1, len(query_tokens)) >= .12]
         imp = self.impasse.resolve(confidence, len(relevant_external) + len(recalled), contradictions, hypothesis_count)
         skill = self.skills.select(percept.intent)
-        action = skill.action if skill and skill.success >= .55 else self._default_action(percept, imp)
+        persistent_skill = self._persistent_skill(percept.text, percept.intent)
+        if persistent_skill and float(persistent_skill.get('confidence', 0.0)) >= .55 and bool(persistent_skill.get('enabled', True)):
+            action = str(persistent_skill.get('name') or persistent_skill.get('skill_id') or self._default_action(percept, imp))
+        else:
+            action = skill.action if skill and skill.success >= .55 else self._default_action(percept, imp)
         plan = self._plan(percept, imp, action)
         observation = {"provided": answer is not None, "non_empty": bool(str(answer or "").strip()), "action": action}
         if execute is not None:
@@ -304,15 +308,76 @@ class OfflineAgentKernel:
                 observation.update({"success": False, "error": type(exc).__name__})
         verification = self._verify(percept, answer, confidence, observation)
         reward = self._reward(verification)
+        if not verification.get('passed'):
+            plan = list(plan) + ['reassess', 'replan', 'verify']
         learned = []
         learned.append(asdict(self.skills.reinforce(percept.intent, action, reward)))
+        self._update_persistent_skill(persistent_skill, percept, action, reward)
         self.memory.decay()
         self.skills.decay()
         if reward >= .75:
             self._consolidate(percept, action)
+        self._persist_cognitive_trace(percept, action, verification, reward)
         result = AgentResult(asdict(percept), recalled, chain, [{"name": x, "score": round(confidence, 3)} for x in imp["reasons"]], imp, imp["subgoals"], plan, action, observation, verification, reward, learned)
         self.last = result
         return result
+
+    def learn_outcome(self, answer, score):
+        """Close the runtime response loop without re-running perception."""
+        if not self.last:
+            return None
+        reward = max(0.0, min(1.0, float(score)))
+        action = self.last.action
+        intent = self.last.percept.get('intent', 'general')
+        skill = self._persistent_skill(self.last.percept.get('text', ''), intent)
+        if skill:
+            self.runtime.skills.update_outcome(skill.get('skill_id'), reward >= .75)
+        elif reward >= .75 and hasattr(self.runtime, 'learn_procedure_skill'):
+            try:
+                self.runtime.learn_procedure_skill(self.last.percept.get('text', ''), action, domain=intent)
+            except Exception:
+                pass
+        self.last.observation['answer'] = str(answer)[:1000]
+        self.last.verification['runtime_score'] = round(reward, 3)
+        self.last.reward = reward
+        if reward >= .75:
+            self._consolidate(self._percept_from_dict(self.last.percept), action)
+        return self.last.reward
+
+    @staticmethod
+    def _percept_from_dict(data):
+        return SymbolicPercept(**data)
+
+    def _persistent_skill(self, goal, intent):
+        try:
+            rows = self.runtime.skills.retrieve(goal, None, 5)
+            return next((r for r in rows if r.get('enabled', True)), None)
+        except Exception:
+            return None
+
+    def _update_persistent_skill(self, skill, percept, action, reward):
+        try:
+            if skill:
+                self.runtime.skills.update_outcome(skill.get('skill_id'), reward >= .75)
+            elif reward >= .75 and hasattr(self.runtime, 'learn_procedure_skill'):
+                self.runtime.learn_procedure_skill(percept.text, action, domain=percept.intent)
+        except Exception:
+            pass
+
+    def _persist_cognitive_trace(self, percept, action, verification, reward):
+        payload = {
+            'intent': percept.intent, 'action': action, 'reward': round(float(reward), 3),
+            'verified': bool(verification.get('passed')), 'question': percept.question,
+        }
+        try:
+            self.runtime.memory.add('offline_agent', payload, max(.45, float(reward)), float(reward), 'offline-agent')
+        except Exception:
+            pass
+        try:
+            from memory.semantic import SemanticMemory
+            SemanticMemory(self.runtime.memory).consolidate_experience(percept.text, reward, action)
+        except Exception:
+            pass
 
     def _default_action(self, percept, imp):
         if imp["active"]:
