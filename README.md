@@ -1,6 +1,6 @@
 # ایران — Personal General Intelligence Research Platform
 
-نسخه فعلی: **0.53.0**
+نسخه فعلی: **0.54.0**
 
 ایران یک هسته شخصی برای ساخت یک سیستم هوشمند عمومی‌گراست؛ معماری آن از چت، حافظه، برنامه‌ریزی، ابزار، ارزیابی، امنیت و sandbox تشکیل شده است.
 
@@ -183,3 +183,12 @@ Task C safety remains local and policy-gated: `safe_mode=true`, `allow_shell=fal
 - Learned strategy preferences from `LearningEngine` are retrieved as a decision signal, not as fabricated knowledge.
 - The canonical dialogue path remains unchanged; synthesis is allowed to replace only weak/UNKNOWN prose when grounded evidence exists.
 - New regression coverage checks local factual grounding, memory retrieval, UNKNOWN behavior and learned strategy retrieval.
+
+
+## Cognitive Pipeline 0.54
+- `core/cognitive_pipeline.py` is now the single ordinary-turn orchestration path.
+- The turn flow is explicit: perception -> reference resolution -> memory/knowledge retrieval -> symbolic reasoning -> grounded synthesis -> verification/repair -> state commit -> learning.
+- Legacy dialogue adapters remain for historical compatibility, but the runtime restores the canonical pipeline after compatibility installation.
+- Safe local tools, explicit User Model facts, feedback learning and deterministic project facts are resolved inside the same pipeline rather than through parallel natural-language handlers.
+- Every canonical turn emits the existing event contract (`language_analysis`, `cognitive_cycle`, `plan_created`, `reflection`, `learning_update`, `response_generated`) with one turn context.
+- Dedicated regression tests cover pipeline activation, reasoning/verification trace and explicit UNKNOWN behavior.

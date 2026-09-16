@@ -1431,3 +1431,20 @@ def _chain_context_handle_v2(self, text):
                 pass
     return answer
 LocalDialogueEngine.handle = _chain_context_handle_v2
+
+
+# v0.54: single explicit cognitive pipeline. All older compatibility adapters
+# remain in this module for historical contracts, but ordinary turns now enter
+# exactly one implementation of the cognitive flow below.
+from core.cognitive_pipeline import CognitivePipeline
+
+_LOCAL_PIPELINE_HANDLE = LocalDialogueEngine.handle
+
+def _canonical_pipeline_handle(self, text):
+    pipeline = getattr(self, "cognitive_pipeline", None)
+    if pipeline is None:
+        pipeline = CognitivePipeline(self)
+        self.cognitive_pipeline = pipeline
+    return pipeline.run(text)
+
+LocalDialogueEngine.handle = _canonical_pipeline_handle

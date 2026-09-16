@@ -1549,6 +1549,18 @@ IranRuntime.advanced_cognitive_snapshot = lambda self: (
 try:
     from core.chat_upgrade import install as _install_chat_upgrade
     _install_chat_upgrade()
+    # v0.54: chat_upgrade is legacy compatibility code. The canonical runtime
+    # always restores the single CognitivePipeline after that optional install.
+    from core.cognitive_pipeline import CognitivePipeline
+    from core.dialogue import LocalDialogueEngine
+    def _canonical_pipeline_after_compat(self, text):
+        pipeline = getattr(self, "cognitive_pipeline", None)
+        if pipeline is None:
+            pipeline = CognitivePipeline(self)
+            self.cognitive_pipeline = pipeline
+        return pipeline.run(text)
+    LocalDialogueEngine.handle = _canonical_pipeline_after_compat
+    LocalDialogueEngine._canonical_pipeline = True
 except Exception as _chat_upgrade_error:
     IranRuntime._chat_upgrade_error = type(_chat_upgrade_error).__name__
 
@@ -1873,3 +1885,21 @@ def _iran_quality_v4(self, text):
     return answer
 
 IranRuntime.handle=_iran_quality_v4
+
+
+# v0.54-final: the runtime now has one natural-language entry point.
+# Legacy adapters above remain available in source history but are not part of
+# the ordinary turn path. Slash commands keep their explicit executive routing.
+from core.cognitive_pipeline import CognitivePipeline as _CanonicalCognitivePipeline
+
+def _final_canonical_runtime_handle(self, text):
+    clean_text = str(text or '').strip()
+    if clean_text.startswith('/'):
+        return _IranRuntime_dialogue_base_handle(self, clean_text)
+    pipeline = getattr(self.dialogue, 'cognitive_pipeline', None)
+    if pipeline is None or not isinstance(pipeline, _CanonicalCognitivePipeline):
+        pipeline = _CanonicalCognitivePipeline(self.dialogue)
+        self.dialogue.cognitive_pipeline = pipeline
+    return pipeline.run(clean_text)
+
+IranRuntime.handle = _final_canonical_runtime_handle
