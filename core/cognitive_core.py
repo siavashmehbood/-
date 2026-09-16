@@ -200,3 +200,33 @@ class AdvancedCognitiveCore:
         except Exception:
             pass
 
+
+
+# v2.5: integrate the independent offline-agent substrate inspired by
+# Soar/BrainStem/humind/el/Shodh capabilities without importing their stacks.
+from core.offline_agent import OfflineAgentKernel
+
+if not hasattr(AdvancedCognitiveCore, '_offline_agent_init_base'):
+    AdvancedCognitiveCore._offline_agent_init_base = AdvancedCognitiveCore.__init__
+    _offline_agent_init_base = AdvancedCognitiveCore._offline_agent_init_base
+
+    def _offline_agent_init(self, runtime):
+        _offline_agent_init_base(self, runtime)
+        self.offline_agent = OfflineAgentKernel(runtime)
+
+    AdvancedCognitiveCore.__init__ = _offline_agent_init
+
+    AdvancedCognitiveCore._offline_agent_begin_base = AdvancedCognitiveCore.begin
+    _offline_agent_begin_base = AdvancedCognitiveCore._offline_agent_begin_base
+
+    def _offline_agent_begin(self, text):
+        state = _offline_agent_begin_base(self, text)
+        result = self.offline_agent.cycle(text)
+        state.executive['offline_agent'] = result.__dict__
+        state.plan = list(dict.fromkeys(state.plan + result.plan))
+        state.unresolved = list(dict.fromkeys(state.unresolved + result.impasse.get('reasons', [])))
+        state.confidence = round(max(.05, min(.99, (state.confidence + result.verification.get('confidence', state.confidence)) / 2)), 3)
+        return state
+
+    AdvancedCognitiveCore.begin = _offline_agent_begin
+    AdvancedCognitiveCore.offline_snapshot = lambda self: self.offline_agent.snapshot()
