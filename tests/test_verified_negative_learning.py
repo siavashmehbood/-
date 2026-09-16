@@ -8,6 +8,33 @@ from tools.registry import Tool
 
 
 class VerifiedNegativeLearningTests(unittest.TestCase):
+
+    def test_decision_engine_consumes_verified_experience(self):
+        from core.decision import DecisionEngine
+        from core.prediction import Prediction
+        engine = DecisionEngine()
+        predictions = [
+            Prediction('a', 'ok', .2, .7, .55, 1, .9, []),
+            Prediction('b', 'ok', .2, .7, .55, 1, .9, []),
+        ]
+        evidence = {'ranked': [
+            {'action': 'a', 'score': .0, 'verified_samples': 3},
+            {'action': 'b', 'score': 1.0, 'verified_samples': 3},
+        ]}
+        decision = engine.choose(['a', 'b'], predictions, 0.0, evidence)
+        self.assertEqual(decision.chosen, 'b')
+        self.assertTrue(any('verified experience=1.00' in r for r in decision.options[0].rationale))
+
+    def test_planner_receives_verified_experience_as_strategy(self):
+        from planning.planner import Planner
+        plan = Planner().build('repeat task', experience={
+            'selected': 'good_action',
+            'ranked': [{'action': 'good_action', 'verified_samples': 3, 'score': 1.0}],
+        })
+        self.assertEqual(plan.strategy, 'experience-guided:good_action')
+        self.assertIn('verified-experience-selected=good_action', plan.assumptions)
+        self.assertIn('good_action', plan.steps[0].success_criteria)
+
     def test_verified_failure_becomes_negative_evidence_for_next_decision(self):
         source = Path(__file__).resolve().parents[1] / 'config.json'
         data = json.loads(source.read_text(encoding='utf-8-sig'))

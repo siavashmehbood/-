@@ -16,7 +16,7 @@ class CognitiveKernel:
     """Full local cognition loop with semantic parsing, evidence, prediction, decision and metacognition."""
     def __init__(self,memory,world,knowledge,prediction,anomaly,learning=None):
         self.memory=memory;self.world=world;self.knowledge=knowledge;self.prediction=prediction;self.anomaly=anomaly;self.learning=learning
-        self.cognition=CognitiveEngine();self.reasoner=Reasoner();self.evidence=EvidenceReasoner();self.decider=DecisionEngine();self.reflector=ReflectionEngine()
+        self.cognition=CognitiveEngine();self.reasoner=Reasoner();self.evidence=EvidenceReasoner();self.decider=DecisionEngine();self.reflector=ReflectionEngine();self.outcome_learning=None
         self.language=AdvancedLanguage();self.causal=CausalGraph();self.strategies=StrategyMemory()
     def cycle(self,text):
         started=perf_counter();understanding=self.language.parse(text);state=self.cognition.analyze(text)
@@ -31,7 +31,15 @@ class CognitiveKernel:
         known=self.knowledge.query(state.goal,8)
         if known: inference.chain.append(f'knowledge_matches:{len(known)}')
         predictions=self.prediction.predict(reasoning.next_actions,context,state.goal)
-        decision=self.decider.choose(reasoning.next_actions,predictions,len(evidence)/10)
+        learned_choice = {}
+        if self.outcome_learning:
+            try:
+                learned_choice=self.outcome_learning.recommend_action(state.goal, reasoning.next_actions, domain)
+            except Exception:
+                learned_choice={}
+        decision=self.decider.choose(reasoning.next_actions,predictions,len(evidence)/10,learned_choice)
+        if learned_choice:
+            strategy['verified_experience'] = learned_choice
         causal=self.causal.counterfactual(state.intent,decision.chosen,'inspect evidence') if decision.chosen else {}
         self.world.record_observation('intent',state.intent,state.confidence);self.world.record_event('cognitive_cycle',{'goal':state.goal,'intent':state.intent,'confidence':state.confidence,'inference':inference.conclusion,'uncertainty':inference.uncertainty})
         if decision.chosen:self.world.transition(state.intent,decision.chosen,'pending-observation',decision.confidence)

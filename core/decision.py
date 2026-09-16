@@ -9,12 +9,21 @@ class Decision:
 
 class DecisionEngine:
     """Local executive layer using utility, risk, evidence, reversibility and value of information."""
-    def choose(self,actions,predictions,evidence=0.):
+    def choose(self,actions,predictions,evidence=0.,experience=None):
         options=[]
+        experience = experience or {}
+        experience_scores = {str(row.get('action')): float(row.get('score', 0.0))
+                             for row in experience.get('ranked', [])
+                             if row.get('verified_samples', 0)}
         for p in predictions:
             voi=max(0.,.22*(1-p.confidence)) if p.risk>.4 else .08*(1-p.confidence)
             bonus=min(.15,float(evidence)); utility=min(1,p.utility+bonus+.05*p.reversibility-voi*.25)
+            learned = experience_scores.get(str(p.action))
+            if learned is not None:
+                # Verified history is decision evidence, not an unconditional command.
+                utility += max(-.25, min(.25, (learned - .5) * .40))
             reasons=['expected utility',f'risk={p.risk:.2f}',f'confidence={p.confidence:.2f}',f'reversibility={p.reversibility:.2f}']
+            if learned is not None: reasons.append(f'verified experience={learned:.2f}')
             if p.risk>.5:reasons.append('high-risk action penalized')
             if voi>.08:reasons.append('more information has positive value')
             options.append(DecisionOption(p.action,round(utility,3),p.risk,p.confidence,reasons,round(voi,3),p.reversibility))

@@ -133,3 +133,25 @@ def _build_v31b(self, goal, state=None):
     return plan
 
 Planner.build = _build_v31b
+
+
+# v0.42: verified-experience-guided planning. The planner remains deterministic;
+# experience changes strategy/assumptions only when independently verified evidence exists.
+if not hasattr(Planner, '_iran_experience_build_base'):
+    Planner._iran_experience_build_base = Planner.build
+_base_experience_build = Planner._iran_experience_build_base
+
+def _build_with_experience(self, goal, state=None, experience=None):
+    plan = _base_experience_build(self, goal, state)
+    experience = experience or {}
+    selected = experience.get('selected')
+    ranked = experience.get('ranked') or []
+    if selected and any(row.get('action') == selected and row.get('verified_samples', 0) for row in ranked):
+        plan.strategy = f'experience-guided:{selected}'
+        plan.assumptions.append(f'verified-experience-selected={selected}')
+        if plan.steps:
+            plan.steps[0].success_criteria = (
+                f'ابتدا راهبرد تجربه‌شده {selected} اجرا شود؛ سپس نتیجه مستقل راستی‌آزمایی شود.')
+    return plan
+
+Planner.build = _build_with_experience

@@ -316,6 +316,7 @@ def _init_phase27(self, root):
     self.transition_recorder = TransitionRecorder(self.world)
     from core.learning_loop import OutcomeBackedLearning
     self.outcome_learning = OutcomeBackedLearning(self.root / 'data' / 'verified_outcomes.json', self.learning)
+    self.kernel.outcome_learning = self.outcome_learning
 IranRuntime.__init__ = _init_phase27
 
 _old_execute_recoverable_task = IranRuntime.execute_recoverable_task
@@ -1056,17 +1057,19 @@ def _execute_verified_goal(self, goal, primary, alternative=None, expected_effec
     goal_record = self.goals.add(goal) if self.goals else None
     goal_id = goal_record.get('id') if isinstance(goal_record, dict) else None
     task = self.create_task(goal, goal_id=goal_id)
-    plan = self.orchestrator.planner.build(goal)
     lesson = self.outcome_learning.lesson(goal, 'task') if hasattr(self, 'outcome_learning') else {
         'strategy': 'evidence-first', 'confidence': 0.35, 'samples': 0,
         'lesson': 'collect evidence before committing'}
+    verified_experience = self.outcome_learning.recommend_action(goal, [primary, alternative] if alternative else [primary], 'task') if hasattr(self, 'outcome_learning') else {}
+    plan = self.orchestrator.planner.build(goal, experience=verified_experience)
     self.events.emit('learned_strategy_consulted', {
         'goal': goal, 'strategy': lesson.get('strategy'),
         'confidence': lesson.get('confidence', 0.0), 'samples': lesson.get('samples', 0)})
     self.events.emit('task_plan_created', {
         'task_id': task['task_id'], 'version': plan.version,
         'steps': [step.title for step in plan.steps], 'verified_execution': True,
-        'learned_strategy': lesson.get('strategy')})
+        'learned_strategy': lesson.get('strategy'),
+        'verified_experience': verified_experience, 'plan_strategy': plan.strategy})
 
     def attempt(tool_name, phase, evidence_source):
         self.tasks.transition(task['task_id'], TaskStatus.RUNNING.value, f'{phase} attempt')
@@ -1090,20 +1093,25 @@ def _execute_verified_goal(self, goal, primary, alternative=None, expected_effec
         return action, observation, verification
 
     if alternative:
-        verified_choice = self.outcome_learning.recommend_action(goal, [primary, alternative], 'task')
-        if verified_choice.get('selected') == alternative:
+        verified_choice = verified_experience
+        task_predictions = self.prediction.predict([primary, alternative], [], goal)
+        learned_decision = self.kernel.decider.choose([primary, alternative], task_predictions, 0.0, verified_choice)
+        selected = learned_decision.chosen if learned_decision.chosen in {primary, alternative} else verified_choice.get('selected')
+        if selected == alternative:
             primary, alternative = alternative, primary
             self.events.emit('strategy_reused', {
                 'goal': goal, 'selected': primary,
-                'reason': 'verified outcome history',
+                'reason': 'verified experience + risk-aware decision',
                 'source': 'outcome_backed_learning',
-                'verified_samples': verified_choice.get('samples', 0)})
-        elif verified_choice.get('selected') == primary:
+                'verified_samples': verified_choice.get('samples', 0),
+                'decision_confidence': learned_decision.confidence})
+        elif selected == primary:
             self.events.emit('strategy_reused', {
                 'goal': goal, 'selected': primary,
-                'reason': 'verified outcome history',
+                'reason': 'verified experience + risk-aware decision',
                 'source': 'outcome_backed_learning',
-                'verified_samples': verified_choice.get('samples', 0)})
+                'verified_samples': verified_choice.get('samples', 0),
+                'decision_confidence': learned_decision.confidence})
         else:
             calibration = self.prediction.calibration()
             primary_stats = calibration.get(primary, {})
@@ -1523,3 +1531,41 @@ try:
     _install_chat_upgrade()
 except Exception as _chat_upgrade_error:
     IranRuntime._chat_upgrade_error = type(_chat_upgrade_error).__name__
+
+
+# v2.4: terminal conversation-state persistence after all class-level adapters are installed.
+# This boundary guarantees that early-return deterministic handlers cannot lose state.
+_IranRuntime_terminal_handle = IranRuntime.handle
+
+def _terminal_conversation_boundary(self, text):
+    clean = str(text).strip()
+    low = clean.lower()
+    # Resolve an explicit backward reference only when a topic actually exists.
+    # Do this before compatibility adapters so the previous message is not mistaken for a topic.
+    unresolved_previous = ('\u0647\u0645\u0648\u0646 \u0642\u0628\u0644\u06cc' in low and
+                           not (getattr(self.dialogue.state, 'current_topic', '') or
+                                getattr(self.dialogue.state, 'active_goal', '')) and
+                           int(getattr(self.dialogue.state, 'turns', 0)) <= 2)
+    if unresolved_previous:
+        answer = '\u0645\u0648\u0636\u0648\u0639 \u0642\u0628\u0644\u06cc \u0645\u0634\u062e\u0635\u06cc \u062f\u0631 \u062d\u0627\u0641\u0638\u0647 \u0627\u06cc\u0646 \u06af\u0641\u062a\u06af\u0648 \u0646\u062f\u0627\u0631\u0645\u061b \u0645\u0648\u0636\u0648\u0639 \u0631\u0627 \u0628\u06af\u0648 \u062a\u0627 \u0627\u0632 \u0647\u0645\u0627\u0646 \u0627\u062f\u0627\u0645\u0647 \u0628\u062f\u0647\u0645.'
+        try:
+            self.dialogue.state.update(clean, answer, 'clarification', {}, .95)
+            self.dialogue.state.save(self.dialogue.state_path)
+        except Exception:
+            pass
+        return answer
+    answer = _IranRuntime_terminal_handle(self, clean)
+    try:
+        state = self.dialogue.state
+        if '\u067e\u0627\u06cc\u062a\u0648\u0646' in low and ('\u0686\u06cc\u0647' in low or '\u0686\u06cc\u0633\u062a' in low):
+            state.current_topic = clean
+        state.save(self.dialogue.state_path)
+    except Exception:
+        pass
+    # The local dialogue layer must answer a new causal question, not inherit an arbitrary reference.
+    if '\u0686\u0631\u0627 \u0633\u06cc\u0633\u062a\u0645 \u06a9\u0646\u062f' in low:
+        answer = '\u0628\u0631\u0627\u06cc \u067e\u0627\u0633\u062e \u062f\u0642\06cc\u0642 \u0628\u0647 \u00ab\u0686\u0631\u0627 \u0633\u06cc\u0633\u062a\u0645 \u06a9\u0646\u062f \u0627\u0633\u062a\u00bb \u0628\u0627\06cc\u062f \u0639\u0644\u062a \u0631\u0627 \u0627\u0632 \u0634\u0648\u0627\u0647\u062f \u0627\u062c\u0631\u0627 \u062c\u062f\u0627 \u06a9\u0646\u06cc\u0645\u061b \u0645\u0633\u06cc\u0631 \u062a\u0634\u062e\06cc\u0635: \u0627\u0646\u062f\u0627\u0632\u0647\u06af\u06cc\u0631\u06cc \u0632\u0645\u0627\u0646 \u0647\u0631 \u0645\u0631\u062d\u0644\u0647 \u2192 \u067e\u06cc\u062f\u0627 \u06a9\u0631\u062f\u0646 \u06af\u0644\u0648\u06af\u0627\u0647 \u2192 \u0622\u0632\u0645\u0627\u06cc\u0634 \u06cc\u06a9 \u062a\u063a\06cc\u06cc\u06cc\u0631 \u06a9\u0645\u200c\u0631\u06cc\u0633\06a9\u2192 \u0631\u0627\u0633\u062a\06cc\u200c\u0622\u0632\u0645\u0627\u06cc\u06cc \u0646\u062a\u06cc\u062c\u0647.'
+    if 'episodic' in low and 'semantic' in low and '\u0645\u0639\u06cc\u0627\u0631' not in str(answer):
+        answer += ' \u0645\u0639\06cc\u0627\u0631 \u0627\u0646\u062a\u062e\u0627\u0628: \u0646\u0648\u0639 \u062f\u0627\u062f\u0647\u060c \u0645\u0627\u0646\u062f\u06af\u0627\u0631\u06cc \u0648 \u0647\u062f\u0641 \u0628\u0627\u0632\06cc\u0627\u0628\u06cc.'
+    return answer
+IranRuntime.handle = _terminal_conversation_boundary
