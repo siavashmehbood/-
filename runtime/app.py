@@ -1384,3 +1384,46 @@ def _pipeline_nars_handle(self, text):
     return answer
 
 UnifiedCognitivePipeline.handle = _pipeline_nars_handle
+
+
+# v0.36: AtomSpace-inspired typed knowledge bridge.
+# Keeps one durable source of truth while exposing typed atoms/links to reasoning.
+from core.atomspace_graph import AtomSpace
+
+_runtime_atomspace_base_init = IranRuntime.__init__
+def _init_atomspace(self, root):
+    _runtime_atomspace_base_init(self, root)
+    self.atomspace = AtomSpace(self.knowledge)
+    self.events.emit("atomspace_ready", {"offline": True, **self.atomspace.snapshot()})
+IranRuntime.__init__ = _init_atomspace
+
+_pipeline_atomspace_base_handle = UnifiedCognitivePipeline.handle
+def _pipeline_atomspace_handle(self, text):
+    runtime = self.runtime
+    # Refresh typed view from durable facts before each cognitive turn.
+    runtime.atomspace = AtomSpace(runtime.knowledge)
+    result = _pipeline_atomspace_base_handle(self, text)
+    runtime.events.emit("atomspace_cycle", {
+        "query": str(text),
+        "graph": runtime.atomspace.snapshot(),
+    })
+    return result
+UnifiedCognitivePipeline.handle = _pipeline_atomspace_handle
+
+IranRuntime.atomspace_snapshot = lambda self: self.atomspace.snapshot()
+
+
+# v0.36b: keep the typed layer synchronized with durable knowledge before reasoning.
+_atomspace_sync_base_init = IranRuntime.__init__
+def _init_atomspace_sync(self, root):
+    _atomspace_sync_base_init(self, root)
+    self.atomspace.sync()
+    self.events.emit("atomspace_synced", self.atomspace.snapshot())
+IranRuntime.__init__ = _init_atomspace_sync
+
+_atomspace_sync_base_handle = UnifiedCognitivePipeline.handle
+def _atomspace_sync_handle(self, text):
+    runtime = self.runtime
+    runtime.atomspace.sync()
+    return _atomspace_sync_base_handle(self, text)
+UnifiedCognitivePipeline.handle = _atomspace_sync_handle
