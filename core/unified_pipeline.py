@@ -70,7 +70,7 @@ class UnifiedCognitivePipeline:
         engine = getattr(runtime.provider, "response_engine", None) or LocalResponseEngine()
         generator = getattr(runtime, "answer_generator", None)
         if generator is None:
-            generator = AnswerGenerator(engine, getattr(runtime, "knowledge", None))
+            generator = AnswerGenerator(engine, getattr(runtime, "knowledge", None), runtime=runtime)
         generator.engine = engine
         cycle = state.__dict__.copy() if hasattr(state, "__dict__") else dict(state)
         cycle["user_model"] = runtime.user_model.profile(clean, 12) if hasattr(runtime, "user_model") else {}

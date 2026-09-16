@@ -154,20 +154,53 @@ def _ingest_graph(self, graph):
 
 def _answer_text(self, text):
     t=self._norm(text).rstrip("؟?")
+    # Persian questions frequently put the predicate before the subject:
+    # «پایتخت ایران چیست؟» means (ایران, پایتخت), not (پایتخت ایران, ...).
     patterns=(
-        r"^(.+?)\s+(?:چیست|چیه)$",
-        r"^(.+?)\s+کجاست$",
-        r"^(.+?)\s+چند است$",
-        r"^(.+?)\s+چند(?:ه|تا) دارد$",
+        (r"^(.+?)\s+چیست$", None),
+        (r"^(.+?)\s+چیه$", None),
+        (r"^(.+?)\s+کجاست$", None),
+        (r"^(.+?)\s+چند است$", None),
+        (r"^(.+?)\s+چند(?:ه|تا) دارد$", None),
     )
-    for pattern in patterns:
+    for pattern, _ in patterns:
         m=re.search(pattern,t)
         if not m: continue
-        subject=m.group(1).strip()
-        candidates=[b for b in self.beliefs if b.subject==subject]
-        if not candidates: continue
-        best=max(candidates,key=lambda b:b.strength)
-        return ReasoningAnswer(best.value,best.strength,[self._format(best)],["knowledge-retrieval"],"derived")
+        phrase=m.group(1).strip()
+        direct=[b for b in self.beliefs if b.subject==phrase]
+        if direct:
+            best=max(direct,key=lambda b:b.strength)
+            return ReasoningAnswer(best.value,best.strength,[self._format(best)],["knowledge-retrieval"],"derived")
+        # Predicate-subject inversion for common local beliefs.
+        candidates=[]
+        for belief in self.beliefs:
+            predicate=self._norm(belief.predicate).replace("_", " ")
+            if predicate and (phrase == predicate or phrase.startswith(predicate + " ")):
+                subject=phrase[len(predicate):].strip()
+                if subject == belief.subject:
+                    candidates.append(belief)
+        if candidates:
+            best=max(candidates,key=lambda b:b.strength)
+            return ReasoningAnswer(best.value,best.strength,[self._format(best)],["predicate-subject-reversal","knowledge-retrieval"],"derived")
+    # Yes/no questions can be grounded against a predicate-value belief even
+    # when Persian surface syntax does not match the canonical triple exactly.
+    if t.startswith("آیا"):
+        body = t[3:].strip()
+        candidates = []
+        for belief in self.beliefs:
+            surface = self._norm(f"{belief.subject} {belief.predicate} {belief.value}").replace("_", " ")
+            tokens = set(re.findall(r"[آ-یA-Za-z0-9‌]+", body.lower()))
+            subject_tokens = set(re.findall(r"[آ-یA-Za-z0-9‌]+", self._norm(belief.subject).lower()))
+            surface_tokens = set(re.findall(r"[آ-یA-Za-z0-9‌]+", surface.lower()))
+            overlap = len(tokens & surface_tokens)
+            # A factual belief must anchor to the entity explicitly mentioned by
+            # the user; this blocks unrelated procedural/experience records.
+            if subject_tokens and (tokens & subject_tokens) and overlap >= 1:
+                candidates.append((overlap, belief))
+        if candidates:
+            best=max(candidates,key=lambda x:(x[0],x[1].strength))[1]
+            return ReasoningAnswer(f"بله؛ {best.subject} با {best.predicate} برابر با «{best.value}» ثبت شده است.",
+                                   best.strength,[self._format(best)],["yes-no-grounding"],"derived")
     return ReasoningAnswer("",0.0,status="unknown")
 
 NarsInspiredReasoner.ingest_graph=_ingest_graph

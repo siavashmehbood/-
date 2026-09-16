@@ -39,7 +39,7 @@ class IranRuntime:
         self.rules=SymbolicRuleEngine()
         self.rules.add('Ù¾Ø±ÙˆÚ˜Ù‡ Ø§ÛŒØ±Ø§Ù†', 'Ù…Ø¹Ù…Ø§Ø±ÛŒ Ø´Ù†Ø§Ø®ØªÛŒ', .95, 'project_definition')
         self.rules.add('Ù…Ø¹Ù…Ø§Ø±ÛŒ Ø´Ù†Ø§Ø®ØªÛŒ', 'Ù†ÛŒØ§Ø²Ù…Ù†Ø¯ Ø­Ø§ÙØ¸Ù‡ Ùˆ Ø§Ø³ØªØ¯Ù„Ø§Ù„', .9, 'architecture_principle')
-        self.answer_generator=AnswerGenerator(getattr(self.provider,'response_engine',None) or LocalResponseEngine(), self.knowledge)
+        self.answer_generator=AnswerGenerator(getattr(self.provider,'response_engine',None) or LocalResponseEngine(), self.knowledge, runtime=self)
         self.reflector=ReflectionEngine();self.orchestrator=Orchestrator(self.agent,self.memory,self.events,self.registry,self.policy,self.goals,self.evaluator);self.scheduler=Scheduler(self.root/'data/schedule.json');self.runner=BackgroundRunner(self.scheduler,self.events)
         self.events.emit('runtime_ready',{'provider':self.provider.name,'version':self.config['version'],'cognitive':True,'offline':True,'network_model':False})
     def _seed_local_knowledge(self):
@@ -1370,17 +1370,18 @@ IranRuntime.__init__ = _init_nars
 _pipeline_nars_base = UnifiedCognitivePipeline.handle
 
 def _pipeline_nars_handle(self, text):
+    # NARS participates in cognition as an evidence source. It must never
+    # replace the language realizer with a post-hoc canned answer.
     runtime = self.runtime
     runtime.nars.beliefs.clear()
     runtime.nars.ingest_graph(runtime.knowledge)
     answer = _pipeline_nars_base(self, text)
     result = runtime.nars.answer_text(text)
-    placeholder = "????? ???" in answer or "??? ????" in answer or answer.startswith("UNKNOWN:")
-    if result.answer and result.confidence >= .70 and placeholder:
-        answer = result.answer + "."
-        runtime.events.emit("nars_reasoning", {"status": result.status, "confidence": result.confidence, "evidence": result.evidence, "derivation": result.derivation})
-    elif placeholder and any(x in str(text) for x in ("ادامه", "همون قبلی", "همان قبلی", "بیشتر بگو", "بیشتر توضیح بده")):
-        answer = "منظورت کدام موضوع یا مرجع است؟ اگر موضوع قبلی را می‌خواهی ادامه بدهم، نام موضوع را بگو."
+    if result.answer:
+        runtime.events.emit("nars_reasoning", {
+            "status": result.status, "confidence": result.confidence,
+            "evidence": result.evidence, "derivation": result.derivation,
+        })
     return answer
 
 UnifiedCognitivePipeline.handle = _pipeline_nars_handle
