@@ -40,6 +40,13 @@ class ConversationState:
         entity = clean(entities[0].get('text', '')) if entities and isinstance(entities[0], dict) else ''
         if goal:
             self.goal = goal
+        # A follow-up carries no new goal of its own. Keeping the previous goal here
+        # is intentional, but it must not be overwritten by the follow-up text, and a
+        # real topic change must be able to move the goal forward. Previously the goal
+        # was set once and then froze for the rest of the conversation, so a later
+        # topic switch still reported the first question as `active_goal`.
+        elif entity and substantive(entity):
+            self.goal = entity
         if entity and substantive(entity):
             self.topic = entity
         elif self._is_follow_up(user_text):

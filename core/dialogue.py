@@ -9,6 +9,11 @@ import json
 import re
 from datetime import datetime
 
+# Single definition of text normalization. These were byte-identical local copies of
+# the functions in core/conversation_state.py, so a normalization fix applied to one
+# module silently missed the other.
+from core.conversation_state import clean, substantive
+
 
 REF_MARKERS = (
     "این", "اون", "آن", "همین", "همون", "همونو", "قبلی", "قبلیش",
@@ -23,20 +28,12 @@ FOLLOW_UPS = {
 CORRECTION_PREFIXES = ("نه", "منظورم", "اشتباهه", "اشتباه است", "اشتباه بود")
 
 
-def clean(text):
-    return re.sub(r"\s+", " ", str(text).strip().replace("ي", "ی").replace("ك", "ک"))
-
-
 def bare(text):
     return clean(text).rstrip("؟?!.").strip()
 
 
 def words(text):
     return re.findall(r"[آ-یA-Za-z][آ-یA-Za-z0-9‌_-]*", clean(text).lower())
-
-
-def substantive(text):
-    return len(re.sub(r"[^آ-یA-Za-z0-9]", "", clean(text))) >= 2
 
 
 def is_follow_up(text):

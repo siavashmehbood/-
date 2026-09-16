@@ -99,7 +99,10 @@ def install():
             elif low in {"چطور", "چگونه"} and ref:
                 answer = f"اگر منظورت «{ref}» است، مرحله‌به‌مرحله توضیحش می‌دهم و از ساده‌ترین بخش شروع می‌کنیم."
             elif ref and len(t) < 30:
-                answer = f"حتماً، ادامه می‌دیم از «{ref}». {answer.splitlines()[-1] if answer else ''}".strip()
+                # Continue the referenced topic. The old wording appended the last
+                # line of the rejected answer, which was often the internal
+                # "missing units" notice, leaking pipeline wording to the user.
+                answer = f"حتماً، ادامه می‌دیم از «{ref}». دقیق‌تر توضیحش بدم، مثال بزنم یا بررسی عمیق‌تری انجام بدم؟"
         return answer
 
     LocalDialogueEngine.handle = handle
