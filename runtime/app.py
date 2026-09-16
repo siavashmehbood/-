@@ -1090,18 +1090,44 @@ def _execute_verified_goal(self, goal, primary, alternative=None, expected_effec
         return action, observation, verification
 
     if alternative:
-        calibration = self.prediction.calibration()
-        primary_stats = calibration.get(primary, {})
-        alternative_stats = calibration.get(alternative, {})
-        if (alternative_stats.get('samples', 0) > 0 and
-                primary_stats.get('samples', 0) > 0 and
-                alternative_stats.get('success_rate', 0) > primary_stats.get('success_rate', 0)):
+        verified_choice = self.outcome_learning.recommend_action(goal, [primary, alternative], 'task')
+        if verified_choice.get('selected') == alternative:
             primary, alternative = alternative, primary
             self.events.emit('strategy_reused', {
                 'goal': goal, 'selected': primary,
-                'reason': 'verified historical success rate'})
+                'reason': 'verified outcome history',
+                'source': 'outcome_backed_learning',
+                'verified_samples': verified_choice.get('samples', 0)})
+        elif verified_choice.get('selected') == primary:
+            self.events.emit('strategy_reused', {
+                'goal': goal, 'selected': primary,
+                'reason': 'verified outcome history',
+                'source': 'outcome_backed_learning',
+                'verified_samples': verified_choice.get('samples', 0)})
+        else:
+            calibration = self.prediction.calibration()
+            primary_stats = calibration.get(primary, {})
+            alternative_stats = calibration.get(alternative, {})
+            if (alternative_stats.get('samples', 0) > 0 and
+                    primary_stats.get('samples', 0) > 0 and
+                    alternative_stats.get('success_rate', 0) > primary_stats.get('success_rate', 0)):
+                primary, alternative = alternative, primary
+                self.events.emit('strategy_reused', {
+                    'goal': goal, 'selected': primary,
+                    'reason': 'verified predictive history',
+                    'source': 'prediction_engine'})
 
     primary_action, _, primary_verification = attempt(primary, 'primary', 'primary-observation')
+    if not primary_verification.success:
+        # A failed verification is itself verified evidence. Persist it so the
+        # next decision can actively avoid a strategy that demonstrably failed.
+        failed_learning = self.outcome_learning.record_outcome(
+            goal, primary, str(primary_action.result), expected_effect,
+            {'verified': True, 'source': 'task_verifier', 'score': 0.0},
+            strategy=lesson.get('strategy', 'evidence-first'), domain='task')
+        self.events.emit('verified_learning', {
+            'task_id': task['task_id'], 'phase': 'primary', 'kind': 'verified_failure',
+            **failed_learning})
     if primary_verification.success:
         self.tasks.transition(task['task_id'], TaskStatus.SUCCESS.value, primary_verification.reason)
         if plan.steps:

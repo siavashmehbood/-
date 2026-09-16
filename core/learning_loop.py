@@ -171,6 +171,51 @@ class OutcomeBackedLearning:
             "lesson": self.lesson(outcome.goal, outcome.domain),
         }
 
+    def recommend_action(self, goal, actions, domain="task"):
+        """Rank candidate actions using only previously verified outcomes."""
+        candidates = list(dict.fromkeys(str(a) for a in actions if str(a).strip()))
+        if not candidates:
+            return {"selected": None, "ranked": [], "samples": 0, "source": "verified_outcomes"}
+        rows = self.retrieve_context(goal, domain, 50)
+        ranked = []
+        for index, action in enumerate(candidates):
+            matches = [r for r in rows if str(r.get("action", "")) == action and r.get("verified")]
+            if matches:
+                scores = [max(0.0, min(1.0, float(r.get("score", 0.0)))) for r in matches]
+                mean = sum(scores) / len(scores)
+                successes = sum(score >= 0.75 for score in scores)
+                failures = sum(score < 0.55 for score in scores)
+                # Verified failures are durable negative evidence. Penalize them
+                # instead of treating any verified sample as a reason to select.
+                failure_penalty = min(0.35, failures * 0.10)
+                success_bonus = min(0.15, successes * 0.03)
+                confidence = min(1.0, len(matches) / 5.0)
+                rank = mean + success_bonus - failure_penalty
+            else:
+                mean = 0.0
+                successes = failures = 0
+                confidence = 0.0
+                rank = 0.0
+            ranked.append({
+                "action": action, "score": round(rank, 4),
+                "mean_verified_score": round(mean, 4),
+                "verified_samples": len(matches),
+                "verified_successes": successes,
+                "verified_failures": failures,
+                "confidence": round(confidence, 3),
+                "first_seen": index,
+            })
+        ranked.sort(key=lambda x: (x["score"], x["verified_successes"], x["verified_samples"], -x["first_seen"]), reverse=True)
+        evidence_samples = sum(x["verified_samples"] for x in ranked)
+        # A learned choice needs positive evidence; unknown actions remain eligible
+        # as exploration candidates instead of being falsely declared successful.
+        selected = None
+        for item in ranked:
+            if item["verified_samples"] and item["mean_verified_score"] >= 0.55 and item["score"] > 0.0:
+                selected = item["action"]
+                break
+        return {"selected": selected, "ranked": ranked, "samples": evidence_samples, "source": "verified_outcomes"}
+
     def recommend(self, goal, domain="general"):
         """Return a strategy recommendation without claiming success."""
         lesson = self.lesson(goal, domain)
