@@ -192,3 +192,47 @@ class UnifiedCognitivePipeline:
         if self.last_result is None:
             return {"turns": self.turns, "last": None}
         return {"turns": self.turns, "last": asdict(self.last_result)}
+
+
+# v0.39b: deterministic low-cost paths for greetings and explicit user facts.
+# These inputs do not require a full cognitive/learning cycle; skipping it prevents
+# needless durable writes while preserving the explicit fact-learning contract.
+_iran_pipeline_handle_base = UnifiedCognitivePipeline.handle
+
+def _handle_fast_explicit(self, text):
+    clean = str(text or '').strip()
+    runtime = self.runtime
+    if UnifiedCognitivePipeline._is_greeting(clean):
+        answer = 'سلام 👋 من ایران هستم؛ خوشحالم می‌بینمت. امروز درباره چی حرف بزنیم؟'
+        runtime.memory.add('user', clean, .72)
+        runtime.memory.add('assistant', answer, .68)
+        runtime.events.emit('response_generated', {'goal': clean, 'route': 'greeting', 'mode': 'GREETING', 'verified': True, 'score': 1.0})
+        self.turns += 1
+        return answer
+    extracted = runtime.user_model.extract_explicit_facts(clean) if hasattr(runtime, 'user_model') else []
+    if extracted and not self._is_question(clean):
+        runtime.user_model.record(clean)
+        lines = []
+        for fact in extracted:
+            predicate, obj = fact.get('predicate'), str(fact.get('object', '')).strip()
+            if predicate == 'role' and obj == 'creator':
+                lines.append('متوجه شدم؛ تو سازنده پروژه IRAN هستی.')
+            elif predicate == 'likes' and obj:
+                lines.append(f'متوجه شدم؛ تو {obj} را دوست داری.')
+            elif predicate == 'dislikes' and obj:
+                lines.append(f'متوجه شدم؛ تو {obj} را دوست نداری.')
+            elif predicate == 'name' and obj:
+                lines.append(f'متوجه شدم؛ اسمت {obj} است.')
+            elif predicate == 'goal' and obj:
+                lines.append(f'متوجه شدم؛ هدفت این است: {obj}.')
+        if lines:
+            answer = ' '.join(lines)
+            runtime.memory.add('user', clean, .72)
+            runtime.memory.add('assistant', answer, .68)
+            runtime.events.emit('user_model_update', {'extracted': extracted, 'count': len(extracted), 'source': 'fast_explicit'})
+            runtime.events.emit('response_generated', {'goal': clean, 'route': 'explicit_fact', 'mode': 'USER_FACT', 'verified': True, 'score': 1.0})
+            self.turns += 1
+            return answer
+    return _iran_pipeline_handle_base(self, clean)
+
+UnifiedCognitivePipeline.handle = _handle_fast_explicit

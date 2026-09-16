@@ -140,3 +140,12 @@ class AtomSpace:
                 continue
             self.observe_fact(subject, predicate, target, float(fact.get("confidence", .5)), fact.get("source", "knowledge"))
         return self.snapshot()
+
+
+# v0.39: sync is a read-only view refresh. Durable KnowledgeGraph facts are already
+# the source of truth; rebuilding them through add_fact would rewrite the whole JSON
+# graph once per atom and make every dialogue turn unnecessarily expensive.
+def _sync_read_only(self):
+    return self.snapshot()
+
+AtomSpace.sync = _sync_read_only
