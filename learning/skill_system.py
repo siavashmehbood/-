@@ -210,6 +210,34 @@ class SkillSystem:
         if not success and row['failure_count']>=3 and row['success_rate']<.35: row['enabled']=False
         row['updated_at']=datetime.now().isoformat(timespec='seconds'); self._save(); return row
 
+    def record_execution(self, skill_id, success, verified=True, reason=''):
+        """Record a verified execution and update trust without bypassing policy."""
+        row=next((x for x in self.skills if x.get('skill_id')==skill_id),None)
+        if not row: return None
+        row['execution_count']=int(row.get('execution_count',0))+1
+        if verified:
+            row['verified_execution_count']=int(row.get('verified_execution_count',0))+1
+        if success:
+            row['successful_execution_count']=int(row.get('successful_execution_count',0))+1
+        else:
+            row['failed_execution_count']=int(row.get('failed_execution_count',0))+1
+        self.update_outcome(skill_id, bool(success))
+        row=next((x for x in self.skills if x.get('skill_id')==skill_id),row)
+        row['last_execution_success']=bool(success)
+        if reason: row['last_execution_reason']=str(reason)
+        row['updated_at']=datetime.now().isoformat(timespec='seconds')
+        self._save()
+        return row
+
+    def execution_policy(self, skill, min_confidence=.35, max_failures=3):
+        """Return whether a skill is trusted enough for autonomous reuse."""
+        if not skill or not skill.get('enabled',True): return {'allowed':False,'reason':'disabled'}
+        confidence=float(skill.get('confidence',0))
+        failures=int(skill.get('failure_count',0))
+        if confidence < float(min_confidence): return {'allowed':False,'reason':'low_confidence'}
+        if failures >= int(max_failures) and float(skill.get('success_rate',0)) < .5:
+            return {'allowed':False,'reason':'repeated_failures'}
+        return {'allowed':True,'reason':'trusted'}
     def disable(self, skill_id, reason='manual'): return self._set_enabled(skill_id,False,reason)
     def enable(self, skill_id): return self._set_enabled(skill_id,True,'re-enabled')
     def _set_enabled(self, skill_id, enabled, reason):
