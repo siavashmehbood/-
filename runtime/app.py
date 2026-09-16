@@ -1353,3 +1353,34 @@ IranRuntime.advanced_cognitive_snapshot = lambda self: (
     else None
 )
 IranRuntime.unified_snapshot = lambda self: self.unified_pipeline.snapshot()
+
+
+# v0.35: NARS/ONA-inspired symbolic reasoning bridge.
+# Clean-room adaptation of public task/belief/revision ideas; fully offline and model-free.
+from core.nars_reasoner import NarsInspiredReasoner
+
+_runtime_nars_init = IranRuntime.__init__
+def _init_nars(self, root):
+    _runtime_nars_init(self, root)
+    self.nars = NarsInspiredReasoner()
+    self.nars.ingest_graph(self.knowledge)
+    self.events.emit("nars_reasoner_ready", {"offline": True, "beliefs": len(self.nars.beliefs), "revision": True})
+IranRuntime.__init__ = _init_nars
+
+_pipeline_nars_base = UnifiedCognitivePipeline.handle
+
+def _pipeline_nars_handle(self, text):
+    runtime = self.runtime
+    runtime.nars.beliefs.clear()
+    runtime.nars.ingest_graph(runtime.knowledge)
+    answer = _pipeline_nars_base(self, text)
+    result = runtime.nars.answer_text(text)
+    placeholder = "????? ???" in answer or "??? ????" in answer or answer.startswith("UNKNOWN:")
+    if result.answer and result.confidence >= .70 and placeholder:
+        answer = result.answer + "."
+        runtime.events.emit("nars_reasoning", {"status": result.status, "confidence": result.confidence, "evidence": result.evidence, "derivation": result.derivation})
+    elif placeholder and any(x in str(text) for x in ("ادامه", "همون قبلی", "همان قبلی", "بیشتر بگو", "بیشتر توضیح بده")):
+        answer = "منظورت کدام موضوع یا مرجع است؟ اگر موضوع قبلی را می‌خواهی ادامه بدهم، نام موضوع را بگو."
+    return answer
+
+UnifiedCognitivePipeline.handle = _pipeline_nars_handle
