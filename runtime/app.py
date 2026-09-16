@@ -1459,3 +1459,61 @@ def _controller_handle(self, text):
 UnifiedCognitivePipeline.handle = _controller_handle
 
 IranRuntime.cognitive_controller_snapshot = lambda self: self.cognitive_controller.snapshot()
+
+
+# v0.38: expose the existing bounded autonomous supervisor as the final closed-loop endpoint.
+from core.autonomous_supervisor import AutonomousSupervisor
+
+_supervisor_base_init = IranRuntime.__init__
+def _init_supervisor(self, root):
+    _supervisor_base_init(self, root)
+    self.autonomous_supervisor = AutonomousSupervisor(self)
+    self.events.emit('autonomous_supervisor_ready', {'offline': True, 'bounded': True, 'read_only_actions': True})
+IranRuntime.__init__ = _init_supervisor
+
+IranRuntime.autonomy_step = lambda self: self.autonomous_supervisor.step()
+IranRuntime.autonomy_run = lambda self, cycles=1: self.autonomous_supervisor.run(cycles)
+IranRuntime.autonomy_snapshot = lambda self: self.autonomous_supervisor.snapshot()
+
+
+# v0.38b: keep autonomous supervision lazy so normal dialogue does not scan the repository.
+_lazy_runtime_init_base = _supervisor_base_init
+def _init_supervisor_lazy(self, root):
+    _lazy_runtime_init_base(self, root)
+    self.autonomous_supervisor = None
+    self.events.emit('autonomous_supervisor_ready', {'offline': True, 'bounded': True, 'lazy': True})
+IranRuntime.__init__ = _init_supervisor_lazy
+
+def _ensure_autonomous_supervisor(self):
+    if self.autonomous_supervisor is None:
+        self.autonomous_supervisor = AutonomousSupervisor(self)
+    return self.autonomous_supervisor
+IranRuntime._ensure_autonomous_supervisor = _ensure_autonomous_supervisor
+IranRuntime.autonomy_step = lambda self: self._ensure_autonomous_supervisor().step()
+IranRuntime.autonomy_run = lambda self, cycles=1: self._ensure_autonomous_supervisor().run(cycles)
+IranRuntime.autonomy_snapshot = lambda self: self._ensure_autonomous_supervisor().snapshot()
+
+
+# v0.38c: compatibility for legacy autonomy entry points after lazy supervisor initialization.
+def _legacy_autonomous_supervisor(self):
+    return self._ensure_autonomous_supervisor()
+IranRuntime.autonomous_supervisor_step = lambda self: _legacy_autonomous_supervisor(self).step()
+IranRuntime.autonomous_supervisor_run = lambda self, cycles=1: _legacy_autonomous_supervisor(self).run(cycles)
+IranRuntime.autonomous_supervisor_snapshot = lambda self: _legacy_autonomous_supervisor(self).snapshot()
+IranRuntime.autonomous_benchmark = lambda self: AutonomousBenchmark().run(_legacy_autonomous_supervisor(self))
+
+_base_runtime_close_lazy = IranRuntime.close
+def _runtime_close_lazy(self):
+    supervisor = getattr(self, 'autonomous_supervisor', None)
+    if supervisor is not None:
+        supervisor.stop()
+    return _base_runtime_close_lazy(self)
+IranRuntime.close = _runtime_close_lazy
+
+
+# v0.38d: close remains compatible with the legacy wrapper chain.
+def _runtime_close_compat(self):
+    if getattr(self, 'autonomous_supervisor', None) is None:
+        self.autonomous_supervisor = AutonomousSupervisor(self)
+    return _base_runtime_close_lazy(self)
+IranRuntime.close = _runtime_close_compat
