@@ -1,4 +1,4 @@
-﻿"""IRAN v2 cognitive core.
+"""IRAN v2 cognitive core.
 
 A deterministic, fully-local orchestration layer. It does not generate text itself;
 it builds a typed cognitive state from the existing language, memory, graph,
@@ -8,6 +8,8 @@ from dataclasses import dataclass, field, asdict
 from datetime import datetime
 from typing import Any
 import re
+
+from core.learning_loop import OutcomeBackedLearning
 
 @dataclass
 class CognitiveEvidence:
@@ -45,6 +47,9 @@ class AdvancedCognitiveCore:
         self.turn = 0
         self.last_state = None
         self.history = []
+        learning_engine = getattr(runtime, "learning", None)
+        learning_path = getattr(runtime, "learning_path", "data/learning_experiences.json")
+        self.outcome_learning = OutcomeBackedLearning(learning_path, learning_engine)
 
     def _parse(self, text):
         parser = getattr(self.runtime, "dialogue", None)
@@ -69,7 +74,14 @@ class AdvancedCognitiveCore:
                      for r in self.runtime.memory.semantic_search(text, 6)]
         except Exception:
             pass
-        return rows[:12]
+        try:
+            from memory.episodic import EpisodicMemory
+            episodic = EpisodicMemory(self.runtime.memory)
+            rows += [{"source":"episodic", "content":r["content"], "confidence":float(r.get("confidence",.5)), "kind":"episode"}
+                     for r in episodic.retrieve(text, 6)]
+        except Exception:
+            pass
+        return rows[:16]
 
     def _graph(self, text):
         try:
@@ -141,6 +153,30 @@ class AdvancedCognitiveCore:
         state.status = "verified" if score >= .90 else "repair_required"
         return {"passed": score >= .90, "score": round(score, 3), "checks": checks}
 
+    def record_verified_outcome(self, goal, action, result, expected, verification, strategy="default", domain="general"):
+        """Close the cognition -> experience -> learning loop with independent verification."""
+        outcome = self.outcome_learning.record_outcome(
+            goal, action, result, expected, verification,
+            strategy=strategy, domain=domain,
+        )
+        try:
+            self.runtime.events.emit("verified_learning", {
+                "goal": str(goal), "verified": bool(outcome["verified"]),
+                "learned": bool(outcome["learned"]),
+                "verification_source": outcome["verification_source"],
+                "score": outcome["score"],
+            })
+        except Exception:
+            pass
+        return outcome
+
+    def recommend_from_experience(self, goal, domain="general"):
+        """Retrieve prior verified experience without treating retrieval as proof."""
+        return self.outcome_learning.recommend(goal, domain)
+
+    def learning_stats(self):
+        return self.outcome_learning.stats()
+
     def learn(self, answer, score):
         if not self.last_state:
             return
@@ -156,4 +192,3 @@ class AdvancedCognitiveCore:
             })
         except Exception:
             pass
-
