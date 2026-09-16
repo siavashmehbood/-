@@ -1,6 +1,13 @@
-﻿"""Single offline natural-language execution path for IRAN."""
+"""Single cognitive turn boundary for IRAN.
+
+Every natural-language turn follows perception -> memory -> reasoning -> planning
+-> realization -> verification -> learning. No question/answer response cache is
+used as a conversational shortcut.
+"""
 from dataclasses import dataclass, asdict
 from time import perf_counter
+from .answer_generator import AnswerGenerator
+from .response_engine import LocalResponseEngine
 
 
 @dataclass
@@ -13,7 +20,7 @@ class PipelineResult:
 
 
 class UnifiedCognitivePipeline:
-    """One user-turn boundary joining perception, cognition, dialogue and learning."""
+    """One deterministic symbolic cognitive path for every natural-language turn."""
 
     def __init__(self, runtime):
         self.runtime = runtime
@@ -24,215 +31,76 @@ class UnifiedCognitivePipeline:
         started = perf_counter()
         clean = str(text or "").strip()
         if not clean:
-            return "لطفاً یک پیام وارد کن."
-
+            return "چیزی برای پردازش دریافت نکردم."
         self.turns += 1
         runtime = self.runtime
         runtime.events.begin_turn()
 
+        # Observation only: explicit user facts become evidence, never an answer.
         extracted = runtime.user_model.record(clean) if hasattr(runtime, "user_model") else []
         if extracted:
-            runtime.events.emit("user_model_update", {
-                "extracted": extracted,
-                "count": len(extracted),
-                "source": "unified_pipeline",
-            })
+            runtime.events.emit("user_model_update", {"extracted": extracted, "count": len(extracted), "source": "cognition"})
 
-        # Route explicit personal-memory questions before generic dialogue.
-        try:
-            routed = runtime.conversation_router.answer(clean) if hasattr(runtime, 'conversation_router') else None
-        except Exception:
-            routed = None
-        if routed is not None:
-            runtime.memory.add('user', clean, .72)
-            runtime.memory.add('assistant', routed, .68)
-            runtime.events.emit('response_generated', {'goal': clean, 'route': 'conversation_router', 'mode': 'USER_MEMORY', 'verified': True, 'score': 1.0})
-            return routed
-
+        # Tool execution is reserved for explicit command semantics; normal dialogue
+        # never exits through a question-specific response route.
         try:
             auto = runtime.orchestrator._auto_tool(clean)
         except Exception:
             auto = None
         if auto is not None:
             runtime.memory.add("tool_result", auto, .78)
-            runtime.events.emit("response_generated", {
-                "goal": clean,
-                "route": "tool",
-                "mode": "TOOL",
-                "verified": True,
-                "score": 1.0,
-            })
-            return auto
+            runtime.events.emit("tool_observation", {"goal": clean, "result": str(auto)[:500], "cognitive": True})
 
         state = runtime.cognitive_core.begin(clean)
         runtime.events.emit("language_analysis", {
-            "intent": state.intent,
-            "confidence": state.intent_confidence,
-            "entities": state.entities,
-            "constraints": state.references,
-            "ambiguity": len(state.unresolved),
-            "canonical": True,
+            "intent": state.intent, "confidence": state.intent_confidence,
+            "entities": state.entities, "constraints": state.references,
+            "ambiguity": len(state.unresolved), "canonical": True,
         })
         runtime.events.emit("cognitive_cycle", {
-            "intent": state.intent,
-            "confidence": state.confidence,
-            "decision": state.executive,
-            "unified": True,
+            "intent": state.intent, "confidence": state.confidence,
+            "decision": state.executive, "unified": True,
         })
         runtime.events.emit("plan_created", {
-            "goal": state.goal,
-            "version": 1,
-            "steps": state.plan,
-            "canonical": True,
+            "goal": state.goal, "version": 1, "steps": state.plan, "canonical": True,
         })
 
-        answer = runtime.dialogue.handle(clean)
-        if self._is_greeting(clean):
-            answer = "سلام 👋 من ایران هستم؛ خوشحالم می‌بینمت. امروز درباره چی حرف بزنیم؟"
-        elif self._needs_clarification(clean, runtime):
-            answer = "منظورت کدام موضوع یا مرجع است؟ اگر موضوع قبلی را می‌خواهی ادامه بدهم، نام موضوع را بگو."
-
-        # Explicit personal facts should be reflected immediately and deterministically.
-        if extracted and not self._is_question(clean):
-            facts = []
-            for fact in extracted:
-                predicate = fact.get("predicate")
-                obj = str(fact.get("object", "")).strip()
-                if predicate == "role" and obj == "creator":
-                    facts.append("متوجه شدم؛ تو سازنده پروژه IRAN هستی.")
-                elif predicate == "likes" and obj:
-                    facts.append(f"متوجه شدم؛ تو {obj} را دوست داری.")
-                elif predicate == "dislikes" and obj:
-                    facts.append(f"متوجه شدم؛ تو {obj} را دوست نداری.")
-                elif predicate == "name" and obj:
-                    facts.append(f"متوجه شدم؛ اسمت {obj} است.")
-            if facts:
-                answer = " ".join(facts)
+        # The answer is synthesized from the current cognitive state and local
+        # evidence. The engine is not given a question->answer lookup table.
+        engine = getattr(runtime.provider, "response_engine", None) or LocalResponseEngine()
+        generator = getattr(runtime, "answer_generator", None)
+        if generator is None:
+            generator = AnswerGenerator(engine, getattr(runtime, "knowledge", None))
+        generator.engine = engine
+        cycle = state.__dict__.copy() if hasattr(state, "__dict__") else dict(state)
+        cycle["user_model"] = runtime.user_model.profile(clean, 12) if hasattr(runtime, "user_model") else {}
+        cycle["current_observations"] = extracted
+        cycle["memory_context"] = runtime.memory.working_context(clean, 12)
+        history = [item for item in runtime.memory.recent(runtime.config["memory"].get("max_history", 16))
+                   if isinstance(item, (tuple, list)) and len(item) >= 3 and item[0] in {"user", "fact", "goal", "lesson"}]
+        parsed = runtime.language_intelligence.analyze(clean, getattr(runtime.brain, "frame", {})) if hasattr(runtime, "language_intelligence") else runtime.brain.language.parse(clean)
+        answer_result = generator.generate(clean, parsed, cycle, history, getattr(runtime.provider, "frame", {}))
+        answer = str(answer_result.text)
 
         verification = runtime.cognitive_core.verify(state, answer)
         executive = runtime.cognitive_core.complete_executive(answer)
         runtime.cognitive_core.learn(answer, verification.get("score", 0.0))
-
         elapsed = round((perf_counter() - started) * 1000, 2)
-        try:
-            runtime.orchestrator.metrics.record("response", perf_counter() - started)
-        except Exception:
-            pass
-
-        result = PipelineResult(
-            text=clean,
-            answer=str(answer),
-            verification=verification,
-            executive=executive.__dict__.copy(),
-            elapsed_ms=elapsed,
-        )
+        result = PipelineResult(clean, answer, verification, executive.__dict__.copy(), elapsed)
         self.last_result = result
 
-        try:
-            mode = runtime.answer_generator.mode(result.answer) if hasattr(runtime, "answer_generator") else "DIRECT"
-            if state.evidence and result.answer.strip() and mode == "UNKNOWN":
-                mode = "DIRECT_FACT"
-            score = verification.get("score", 0.0)
-            runtime.events.emit("evaluation_completed", {
-                "score": score,
-                "mode": mode,
-                "canonical": True,
-            })
-            runtime.events.emit("reflection", {
-                "score": score,
-                "executive_status": executive.status,
-                "canonical": True,
-            })
-            runtime.events.emit("learning_update", {
-                "score": score,
-                "strategy": "conversation",
-                "canonical": True,
-            })
-            runtime.events.emit("unified_pipeline", {
-                "turn": self.turns,
-                "verification": verification,
-                "executive": result.executive,
-                "elapsed_ms": elapsed,
-            })
-            runtime.events.emit("response_generated", {
-                "goal": clean,
-                "route": "unified_pipeline",
-                "mode": mode,
-                "verified": bool(verification.get("passed")),
-                "score": score,
-                "elapsed_ms": elapsed,
-            })
-        except Exception:
-            pass
-        return result.answer
-
-    @staticmethod
-    def _is_greeting(text):
-        normalized = text.strip().lower()
-        return normalized in {"سلام", "سلام!", "سلام؟", "hello", "hi", "درود"}
-
-    @staticmethod
-    def _needs_clarification(text, runtime):
-        markers = ("همون قبلی", "همان قبلی", "ادامه بده", "ادامه‌ش بده", "ادامه اش بده")
-        if not any(marker in text for marker in markers):
-            return False
-        dialogue = getattr(runtime, "dialogue", None)
-        state = getattr(dialogue, "state", None)
-        current = str(getattr(state, "current_topic", "") or "")
-        goal = str(getattr(state, "active_goal", "") or "")
-        if any(marker in current for marker in markers) or any(marker in goal for marker in markers):
-            return True
-        return not bool(current or goal)
-
-    @staticmethod
-    def _is_question(text):
-        return "؟" in text or "?" in text or text.strip().startswith(("چرا", "چی", "چه", "کجا", "کی", "چطور", "چگونه", "آیا"))
+        score = verification.get("score", 0.0)
+        runtime.events.emit("evaluation_completed", {"score": score, "mode": answer_result.mode, "canonical": True})
+        runtime.events.emit("reflection", {"score": score, "executive_status": executive.status, "canonical": True})
+        runtime.events.emit("learning_update", {"score": score, "strategy": "cognitive_turn", "canonical": True})
+        runtime.events.emit("unified_pipeline", {"turn": self.turns, "verification": verification, "executive": result.executive, "elapsed_ms": elapsed})
+        runtime.events.emit("response_generated", {
+            "goal": clean, "route": "unified_cognitive_response", "mode": answer_result.mode,
+            "verified": bool(verification.get("passed")), "score": score, "elapsed_ms": elapsed,
+        })
+        return answer
 
     def snapshot(self):
         if self.last_result is None:
             return {"turns": self.turns, "last": None}
         return {"turns": self.turns, "last": asdict(self.last_result)}
-
-
-# v0.39b: deterministic low-cost paths for greetings and explicit user facts.
-# These inputs do not require a full cognitive/learning cycle; skipping it prevents
-# needless durable writes while preserving the explicit fact-learning contract.
-_iran_pipeline_handle_base = UnifiedCognitivePipeline.handle
-
-def _handle_fast_explicit(self, text):
-    clean = str(text or '').strip()
-    runtime = self.runtime
-    if UnifiedCognitivePipeline._is_greeting(clean):
-        answer = 'سلام 👋 من ایران هستم؛ خوشحالم می‌بینمت. امروز درباره چی حرف بزنیم؟'
-        runtime.memory.add('user', clean, .72)
-        runtime.memory.add('assistant', answer, .68)
-        runtime.events.emit('response_generated', {'goal': clean, 'route': 'greeting', 'mode': 'GREETING', 'verified': True, 'score': 1.0})
-        self.turns += 1
-        return answer
-    extracted = runtime.user_model.extract_explicit_facts(clean) if hasattr(runtime, 'user_model') else []
-    if extracted and not self._is_question(clean):
-        runtime.user_model.record(clean)
-        lines = []
-        for fact in extracted:
-            predicate, obj = fact.get('predicate'), str(fact.get('object', '')).strip()
-            if predicate == 'role' and obj == 'creator':
-                lines.append('متوجه شدم؛ تو سازنده پروژه IRAN هستی.')
-            elif predicate == 'likes' and obj:
-                lines.append(f'متوجه شدم؛ تو {obj} را دوست داری.')
-            elif predicate == 'dislikes' and obj:
-                lines.append(f'متوجه شدم؛ تو {obj} را دوست نداری.')
-            elif predicate == 'name' and obj:
-                lines.append(f'متوجه شدم؛ اسمت {obj} است.')
-            elif predicate == 'goal' and obj:
-                lines.append(f'متوجه شدم؛ هدفت این است: {obj}.')
-        if lines:
-            answer = ' '.join(lines)
-            runtime.memory.add('user', clean, .72)
-            runtime.memory.add('assistant', answer, .68)
-            runtime.events.emit('user_model_update', {'extracted': extracted, 'count': len(extracted), 'source': 'fast_explicit'})
-            runtime.events.emit('response_generated', {'goal': clean, 'route': 'explicit_fact', 'mode': 'USER_FACT', 'verified': True, 'score': 1.0})
-            self.turns += 1
-            return answer
-    return _iran_pipeline_handle_base(self, clean)
-
-UnifiedCognitivePipeline.handle = _handle_fast_explicit

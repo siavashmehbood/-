@@ -350,9 +350,50 @@ def _action_v3(self,text,cycle):
 LocalResponseEngine.action_answer=_action_v3
 
 _old_respond_engine=LocalResponseEngine.respond
+def _user_fact_answer(self,text,parsed,cycle):
+    cycle=cycle or {}
+    profile=cycle.get('user_model',{}) if isinstance(cycle,dict) else {}
+    facts=profile.get('facts',[]) if isinstance(profile,dict) else []
+    current=cycle.get('current_observations',[]) if isinstance(cycle,dict) else []
+    if current and not self.clean(text).rstrip('؟?').startswith(('اسم','نام','چه چیزی','چی','چه چیز')):
+        rendered=[]
+        for fact in current:
+            predicate=fact.get('predicate'); value=str(fact.get('object','')).strip()
+            if predicate=='name': rendered.append(f'ثبت کردم که نامت «{value}» است.')
+            elif predicate=='likes': rendered.append(f'ثبت کردم که «{value}» را دوست داری.')
+            elif predicate=='dislikes': rendered.append(f'ثبت کردم که «{value}» را دوست نداری.')
+            elif predicate=='role': rendered.append(f'ثبت کردم که نقش تو «{value}» است.')
+            elif predicate=='goal': rendered.append(f'ثبت کردم که هدفت «{value}» است.')
+        if rendered: return ' '.join(rendered)
+    if not facts: return ''
+    q=self.clean(text).lower()
+    predicate=None
+    if any(x in q for x in ('اسم','نام')): predicate='name'
+    elif any(x in q for x in ('دوست داشتم','دوست دارم','علایق','علاقه')): predicate='likes'
+    elif any(x in q for x in ('دوست ندارم','دوست نداشتم')): predicate='dislikes'
+    elif any(x in q for x in ('نقش','سازنده','خالق')): predicate='role'
+    if not predicate: return ''
+    rows=[f for f in facts if f.get('predicate')==predicate]
+    if not rows: return ''
+    values=[]
+    for row in rows:
+        value=str(row.get('object','')).strip()
+        if value and value not in values: values.append(value)
+    if predicate=='name': return f'بر اساس واقعیت صریحی که از خودت ثبت شده، نامت «{values[0]}» است.'
+    if predicate=='likes': return 'بر اساس ترجیحات صریح ثبت‌شده، گفتی این موارد را دوست داری: ' + '، '.join(f'«{v}»' for v in values) + '.'
+    if predicate=='dislikes': return 'بر اساس ترجیحات صریح ثبت‌شده، گفتی این موارد را دوست نداری: ' + '، '.join(f'«{v}»' for v in values) + '.'
+    return 'بر اساس واقعیت صریح ثبت‌شده، نقش تو: ' + '، '.join(values) + '.'
+
+LocalResponseEngine.user_fact_answer=_user_fact_answer
+
+
 def _respond_v2(self,text,parsed,cycle,history,frame):
     self._active_cycle=cycle or {}
     try:
+        if (isinstance(parsed,dict) and parsed.get('intent') in {'greeting','salutation'}) or self.clean(text).lower() in {'سلام','درود','hello','hi'}:
+            return 'سلام 👋 من ایران هستم. بگو روی چه موضوعی کار کنیم.'
+        fact_answer=self.user_fact_answer(text,parsed,cycle)
+        if fact_answer: return fact_answer
         reference = self.resolve_reference(text, history, frame)
         if reference and any(marker in self.clean(text) for marker in ('همونو','همون قبلی','ادامه بده','بیشتر توضیح بده')):
             return f'مرجع «{text.strip()}» را به «{self.clean(reference)[:240]}» وصل کردم. حالا همین موضوع را مبنای پاسخ قرار می‌دهم.'
