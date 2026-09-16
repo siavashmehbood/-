@@ -9,7 +9,7 @@ class SkillSystem:
     def __init__(self, path, procedures=None):
         self.path = Path(path); self.path.parent.mkdir(parents=True, exist_ok=True)
         self.procedures = procedures or ProceduralMemory(self.path.with_name('procedures.json'))
-        self.skills = []; self._load()
+        self.skills = []; self.compositions = []; self._load(); self._load_compositions()
 
     def _load(self):
         if self.path.exists():
@@ -18,6 +18,20 @@ class SkillSystem:
 
     def _save(self):
         tmp=self.path.with_suffix('.tmp'); tmp.write_text(json.dumps(self.skills,ensure_ascii=False,indent=2),encoding='utf-8'); tmp.replace(self.path)
+
+    @property
+    def compositions_path(self):
+        return self.path.with_name('compositions.json')
+
+    def _load_compositions(self):
+        if self.compositions_path.exists():
+            try: self.compositions=json.loads(self.compositions_path.read_text(encoding='utf-8'))[-2000:]
+            except Exception: self.compositions=[]
+
+    def _save_compositions(self):
+        tmp=self.compositions_path.with_suffix('.tmp')
+        tmp.write_text(json.dumps(self.compositions,ensure_ascii=False,indent=2),encoding='utf-8')
+        tmp.replace(self.compositions_path)
 
     def upsert(self, name, description, domain, goal_patterns, procedure, preconditions=None,
                required_capabilities=None, risk='low', confidence=.6, skill_id=None):
@@ -69,6 +83,69 @@ class SkillSystem:
                 candidates.append((score,skill))
         candidates.sort(key=lambda item:item[0], reverse=True)
         return [skill for _,skill in candidates[:int(limit)]]
+
+    def compose(self, goal, skills, context=None, limit=8):
+        """Build a new deterministic multi-skill procedure after checking every skill."""
+        candidates=[]; rejected=[]
+        for skill in (skills or []):
+            if not skill.get('enabled', True):
+                rejected.append({'skill_id':skill.get('skill_id'),'reason':'disabled'}); continue
+            check=self.check_preconditions(skill, context or {'evidence': True})
+            if not check.get('applicable'):
+                rejected.append({'skill_id':skill.get('skill_id'),'reason':'preconditions','missing':check.get('missing',[])})
+                continue
+            candidates.append(skill)
+        steps=[]; skill_ids=[]; seen=set()
+        for skill in candidates:
+            proc=skill.get('procedure') or {}
+            raw_steps=proc.get('steps',[]) if isinstance(proc,dict) else []
+            for raw in raw_steps:
+                if isinstance(raw,dict):
+                    action=raw.get('action') or raw.get('tool')
+                    expected=raw.get('expected_effect') or proc.get('expected_outcome','')
+                else:
+                    action=str(raw).strip(); expected=proc.get('expected_outcome','')
+                if not action or action in seen: continue
+                seen.add(action)
+                steps.append({'order':len(steps)+1,'action':action,'expected_effect':str(expected),
+                              'skill_id':skill.get('skill_id'),'skill_name':skill.get('name')})
+                if skill.get('skill_id') not in skill_ids: skill_ids.append(skill.get('skill_id'))
+                if len(steps)>=int(limit): break
+            if len(steps)>=int(limit): break
+        if len(skill_ids)<2 or len(steps)<2: return None
+        import hashlib
+        cid='composition_'+hashlib.sha256((str(goal)+'|'+'|'.join(x['action'] for x in steps)).encode()).hexdigest()[:16]
+        conf=sum(float(s.get('confidence',0)) for s in candidates)/max(1,len(candidates))
+        return {'composition_id':cid,'goal':str(goal),'skill_ids':skill_ids,'steps':steps,
+                'confidence':round(conf,4),'rejected':rejected,'status':'candidate'}
+
+    def promote_composition(self, composition, verified=True):
+        """Persist a verified composition as a reusable higher-order procedure."""
+        if not composition or not verified: return None
+        now=datetime.now().isoformat(timespec='seconds')
+        existing=next((x for x in self.compositions if x.get('composition_id')==composition.get('composition_id')),None)
+        if existing:
+            existing['verification_count']=int(existing.get('verification_count',0))+1
+            existing['confidence']=round(min(.99,float(existing.get('confidence',.5))+.04),4)
+            existing['updated_at']=now
+        else:
+            existing=dict(composition)
+            existing.update({'verification_count':1,'failure_count':0,'enabled':True,'created_at':now,'updated_at':now})
+            self.compositions.append(existing)
+        self.compositions=self.compositions[-2000:]
+        self._save_compositions()
+        return existing
+
+    def retrieve_compositions(self, goal, limit=5):
+        q=set(str(goal).lower().split()); ranked=[]
+        for c in self.compositions:
+            if not c.get('enabled',True): continue
+            text=str(c.get('goal','')).lower()+' '+' '.join(str(x.get('action','')) for x in c.get('steps',[]))
+            overlap=len(q & set(text.split()))/max(1,len(q))
+            score=.65*overlap+.35*float(c.get('confidence',0))
+            if overlap: ranked.append((score,c))
+        ranked.sort(key=lambda x:x[0],reverse=True)
+        return [c for _,c in ranked[:int(limit)]]
 
     def check_preconditions(self, skill, context=None):
         return self.procedures.check_preconditions({'preconditions':skill.get('preconditions',[])},context)

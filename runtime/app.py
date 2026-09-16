@@ -1161,7 +1161,7 @@ def _execute_verified_goal(self, goal, primary, alternative=None, expected_effec
         learned_skill = None
         if promotion and hasattr(self, 'learn_procedure_skill'):
             best = promotion[0]
-            learned_skill = self.learn_procedure_skill(goal, best['strategy'], [task['task_id']], 'task')
+            learned_skill = self.learn_procedure_skill(goal, best['strategy'], [task['task_id']], 'task', expected_effect)
             self.events.emit('skill_promoted', {'task_id': task['task_id'], 'strategy': best['strategy'], 'skill_id': learned_skill['skill']['skill_id'], 'evidence': best})
         self.events.emit('verified_learning', {'task_id': task['task_id'], **learning_result, 'skill_promotion': learned_skill is not None})
         self.events.emit('verified_task_completed', {
@@ -1201,7 +1201,7 @@ def _execute_verified_goal(self, goal, primary, alternative=None, expected_effec
         learned_skill = None
         if promotion and hasattr(self, 'learn_procedure_skill'):
             best = promotion[0]
-            learned_skill = self.learn_procedure_skill(goal, best['strategy'], [task['task_id']], 'task')
+            learned_skill = self.learn_procedure_skill(goal, best['strategy'], [task['task_id']], 'task', expected_effect)
             self.events.emit('skill_promoted', {'task_id': task['task_id'], 'strategy': best['strategy'], 'skill_id': learned_skill['skill']['skill_id'], 'evidence': best})
         self.events.emit('verified_learning', {'task_id': task['task_id'], **learning_result, 'skill_promotion': learned_skill is not None})
     self.events.emit('verified_task_completed', {
@@ -1589,3 +1589,100 @@ def _terminal_conversation_boundary(self, text):
         answer += ' \u0645\u0639\06cc\u0627\u0631 \u0627\u0646\u062a\u062e\u0627\u0628: \u0646\u0648\u0639 \u062f\u0627\u062f\u0647\u060c \u0645\u0627\u0646\u062f\u06af\u0627\u0631\u06cc \u0648 \u0647\u062f\u0641 \u0628\u0627\u0632\06cc\u0627\u0628\u06cc.'
     return answer
 IranRuntime.handle = _terminal_conversation_boundary
+
+
+# v0.43: learned procedures can be composed and executed as verified multi-step behavior.
+_base_learn_procedure_skill_43 = IranRuntime.learn_procedure_skill
+def _learn_procedure_skill_43(self, goal, strategy, source_experiences=None, domain='general', expected_effect=''):
+    result = _base_learn_procedure_skill_43(self, goal, strategy, source_experiences, domain)
+    proc = result['procedure']
+    proc['steps'] = [{'order': 1, 'action': str(strategy), 'expected_effect': str(expected_effect)}]
+    proc['expected_outcome'] = str(expected_effect)
+    result['skill']['procedure'] = proc
+    self.procedural_memory._save()
+    self.skills._save()
+    return result
+IranRuntime.learn_procedure_skill = _learn_procedure_skill_43
+
+_base_execute_verified_goal_43 = IranRuntime.execute_verified_goal
+def _execute_verified_goal_43(self, goal, primary, alternative=None, expected_effect='', kwargs=None):
+    candidates = self.skills.discover(goal, 'task', 5) if hasattr(self, 'skills') else []
+    composition = self.skills.compose(goal, candidates, 8) if hasattr(self, 'skills') else None
+    if composition and len(composition.get('steps', [])) >= 2:
+        return self._execute_composed_goal_43(goal, composition, expected_effect, kwargs or {})
+    return _base_execute_verified_goal_43(self, goal, primary, alternative, expected_effect, kwargs)
+IranRuntime.execute_verified_goal = _execute_verified_goal_43
+
+def _execute_composed_goal_43(self, goal, composition, final_expected, kwargs):
+    task = self.create_task(goal)
+    results=[]
+    for step in composition['steps']:
+        expected = step.get('expected_effect') or final_expected
+        self.tasks.transition(task['task_id'], TaskStatus.RUNNING.value, f"composition step {step['order']}")
+        action = self.actions.execute(task['task_id'], step['action'], expected, **kwargs)
+        observation = self.observer.observe(action, actual=action.result, evidence=[{'source':'composed-skill-step','tool':step['action'],'actual':action.result}])
+        verification = self.verifier.verify(observation, predicate=lambda item, exp=expected: _matches_expected(item.actual, exp))
+        results.append({'step':step, 'action':action, 'verification':verification})
+        self.events.emit('skill_composition_step', {'task_id':task['task_id'],'composition_id':composition['composition_id'],'order':step['order'],'action':step['action'],'success':verification.success})
+        if not verification.success:
+            self.tasks.transition(task['task_id'], TaskStatus.FAILED.value, verification.reason)
+            self.events.emit('skill_composition_failed', {'task_id':task['task_id'],'composition_id':composition['composition_id'],'failed_step':step['order']})
+            return {'task':self.tasks.get(task['task_id']),'composition':composition,'steps':results,'success':False}
+    self.tasks.transition(task['task_id'], TaskStatus.SUCCESS.value, 'all composed steps independently verified')
+    self.events.emit('skill_composition_completed', {'task_id':task['task_id'],'composition_id':composition['composition_id'],'steps':len(results),'success':True})
+    return {'task':self.tasks.get(task['task_id']),'composition':composition,'steps':results,'success':True,'plan_strategy':'skill-composition'}
+IranRuntime._execute_composed_goal_43 = _execute_composed_goal_43
+
+
+# v0.44: stable skill-composition bridge with precondition checks, planning and persistence.
+_prev_execute_verified_goal_44 = IranRuntime.execute_verified_goal
+
+def _execute_verified_goal_44(self, goal, primary, alternative=None, expected_effect='', kwargs=None):
+    candidates = self.skills.discover(goal, 'task', 8) if hasattr(self, 'skills') else []
+    composition = self.skills.compose(goal, candidates, {'evidence': True}, 8) if hasattr(self, 'skills') else None
+    if composition and len(composition.get('skill_ids', [])) >= 2:
+        return self._execute_composed_goal_44(goal, composition, expected_effect, kwargs or {})
+    return _base_execute_verified_goal_43(self, goal, primary, alternative, expected_effect, kwargs)
+
+
+def _execute_composed_goal_44(self, goal, composition, final_expected, kwargs):
+    task = self.create_task(goal)
+    plan = self.orchestrator.planner.build(goal)
+    plan.strategy = 'skill-composition'
+    plan.assumptions.append('composition=' + str(composition['composition_id']))
+    self.events.emit('task_plan_created', {'task_id': task['task_id'], 'version': plan.version,
+        'steps': [s.title for s in plan.steps], 'verified_execution': True,
+        'plan_strategy': plan.strategy, 'composition_id': composition['composition_id']})
+    results = []
+    for step in composition['steps']:
+        expected = step.get('expected_effect') or final_expected
+        self.tasks.transition(task['task_id'], TaskStatus.RUNNING.value, f"composition step {step['order']}")
+        action = self.actions.execute(task['task_id'], step['action'], expected, **kwargs)
+        observation = self.observer.observe(action, actual=action.result,
+            evidence=[{'source':'composed-skill-step','tool':step['action'],'actual':action.result}])
+        verification = self.verifier.verify(observation,
+            predicate=lambda item, exp=expected: _matches_expected(item.actual, exp))
+        results.append({'step':step, 'action':action, 'verification':verification})
+        for sid in [step.get('skill_id')]:
+            if sid: self.skills.update_outcome(sid, bool(verification.success))
+        self.events.emit('skill_composition_step', {'task_id':task['task_id'],
+            'composition_id':composition['composition_id'], 'order':step['order'],
+            'action':step['action'], 'success':verification.success})
+        if not verification.success:
+            self.tasks.transition(task['task_id'], TaskStatus.FAILED.value, verification.reason)
+            self.events.emit('skill_composition_failed', {'task_id':task['task_id'],
+                'composition_id':composition['composition_id'], 'failed_step':step['order']})
+            return {'task':self.tasks.get(task['task_id']), 'composition':composition,
+                    'steps':results, 'success':False, 'plan':plan, 'plan_strategy':plan.strategy}
+    self.tasks.transition(task['task_id'], TaskStatus.SUCCESS.value,
+        'all composed steps independently verified')
+    persisted = self.skills.promote_composition(composition, verified=True)
+    self.events.emit('skill_composition_completed', {'task_id':task['task_id'],
+        'composition_id':composition['composition_id'], 'steps':len(results), 'success':True,
+        'persisted':bool(persisted)})
+    return {'task':self.tasks.get(task['task_id']), 'composition':composition,
+            'steps':results, 'success':True, 'plan':plan,
+            'plan_strategy':'skill-composition', 'persisted_composition':persisted}
+
+IranRuntime.execute_verified_goal = _execute_verified_goal_44
+IranRuntime._execute_composed_goal_44 = _execute_composed_goal_44
