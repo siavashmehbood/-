@@ -286,9 +286,24 @@ def _execute_recoverable_task(self, description, primary, alternative, expected_
                           alt_verification.reason)
     self.events.emit('recovery_completed', {'task_id': task['task_id'], 'success': alt_verification.success,
                                             'primary_failed': True, 'alternative': alternative})
+    final_verification = alt_verification if alt_verification.success else verification
+    final_action = alternative if alt_verification.success else primary
+    learning_result = self.outcome_learning.record_outcome(
+        goal=description,
+        action=final_action,
+        result={'primary': verification.__dict__, 'alternative': alt_verification.__dict__},
+        expected=expected_effect,
+        verification={'verified': bool(final_verification.success),
+                      'source': 'task_verifier',
+                      'score': 1.0 if final_verification.success else 0.0},
+        strategy='primary-then-replan',
+        domain='task',
+    )
+    self.events.emit('verified_learning', {'task_id': task['task_id'], **learning_result})
     return {'task': self.tasks.get(task['task_id']), 'plan': plan,
             'primary': verification.__dict__, 'diagnosis': diagnosis.__dict__,
-            'replan': decision.__dict__, 'alternative': alt_verification.__dict__}
+            'replan': decision.__dict__, 'alternative': alt_verification.__dict__,
+            'learning': learning_result}
 
 IranRuntime.execute_recoverable_task = _execute_recoverable_task
 
@@ -299,6 +314,8 @@ _old_init_phase27 = IranRuntime.__init__
 def _init_phase27(self, root):
     _old_init_phase27(self, root)
     self.transition_recorder = TransitionRecorder(self.world)
+    from core.learning_loop import OutcomeBackedLearning
+    self.outcome_learning = OutcomeBackedLearning(self.root / 'data' / 'verified_outcomes.json', self.learning)
 IranRuntime.__init__ = _init_phase27
 
 _old_execute_recoverable_task = IranRuntime.execute_recoverable_task
@@ -1040,9 +1057,16 @@ def _execute_verified_goal(self, goal, primary, alternative=None, expected_effec
     goal_id = goal_record.get('id') if isinstance(goal_record, dict) else None
     task = self.create_task(goal, goal_id=goal_id)
     plan = self.orchestrator.planner.build(goal)
+    lesson = self.outcome_learning.lesson(goal, 'task') if hasattr(self, 'outcome_learning') else {
+        'strategy': 'evidence-first', 'confidence': 0.35, 'samples': 0,
+        'lesson': 'collect evidence before committing'}
+    self.events.emit('learned_strategy_consulted', {
+        'goal': goal, 'strategy': lesson.get('strategy'),
+        'confidence': lesson.get('confidence', 0.0), 'samples': lesson.get('samples', 0)})
     self.events.emit('task_plan_created', {
         'task_id': task['task_id'], 'version': plan.version,
-        'steps': [step.title for step in plan.steps], 'verified_execution': True})
+        'steps': [step.title for step in plan.steps], 'verified_execution': True,
+        'learned_strategy': lesson.get('strategy')})
 
     def attempt(tool_name, phase, evidence_source):
         self.tasks.transition(task['task_id'], TaskStatus.RUNNING.value, f'{phase} attempt')
@@ -1077,7 +1101,7 @@ def _execute_verified_goal(self, goal, primary, alternative=None, expected_effec
                 'goal': goal, 'selected': primary,
                 'reason': 'verified historical success rate'})
 
-    _, _, primary_verification = attempt(primary, 'primary', 'primary-observation')
+    primary_action, _, primary_verification = attempt(primary, 'primary', 'primary-observation')
     if primary_verification.success:
         self.tasks.transition(task['task_id'], TaskStatus.SUCCESS.value, primary_verification.reason)
         if plan.steps:
@@ -1085,10 +1109,16 @@ def _execute_verified_goal(self, goal, primary, alternative=None, expected_effec
                                                primary_verification.reason, success=True)
         if goal_record and self.goals:
             self.goals.complete(goal_record['id'])
+        learning_result = self.outcome_learning.record_outcome(
+            goal, primary, str(primary_action.result), expected_effect,
+            {'verified': True, 'source': 'task_verifier', 'score': 1.0},
+            strategy=lesson.get('strategy', 'evidence-first'), domain='task')
+        self.events.emit('verified_learning', {'task_id': task['task_id'], **learning_result})
         self.events.emit('verified_task_completed', {
             'task_id': task['task_id'], 'phase': 'primary', 'success': True})
         return {'task': self.tasks.get(task['task_id']), 'plan': plan,
-                'primary': primary_verification.__dict__, 'alternative': None}
+                'primary': primary_verification.__dict__, 'alternative': None,
+                'learning': learning_result}
 
     if not alternative:
         self.tasks.transition(task['task_id'], TaskStatus.FAILED.value, primary_verification.reason)
@@ -1104,16 +1134,24 @@ def _execute_verified_goal(self, goal, primary, alternative=None, expected_effec
         'task_id': task['task_id'], 'version': plan.version,
         'selected': decision.selected, 'verified_execution': True})
     self.tasks.transition(task['task_id'], TaskStatus.READY.value, 'verified alternative selected')
-    _, _, alternative_verification = attempt(alternative, 'alternative', 'independent-recheck')
+    alternative_action, _, alternative_verification = attempt(alternative, 'alternative', 'independent-recheck')
     final_status = (TaskStatus.SUCCESS.value if alternative_verification.success
                     else TaskStatus.FAILED.value)
     self.tasks.transition(task['task_id'], final_status, alternative_verification.reason)
     if alternative_verification.success and goal_record and self.goals:
         self.goals.complete(goal_record['id'])
+    learning_result = None
+    if alternative_verification.success:
+        learning_result = self.outcome_learning.record_outcome(
+            goal, alternative, str(alternative_action.result), expected_effect,
+            {'verified': True, 'source': 'task_verifier', 'score': 1.0},
+            strategy=lesson.get('strategy', 'primary-then-replan'), domain='task')
+        self.events.emit('verified_learning', {'task_id': task['task_id'], **learning_result})
     self.events.emit('verified_task_completed', {
         'task_id': task['task_id'], 'phase': 'alternative',
         'success': alternative_verification.success})
     return {'task': self.tasks.get(task['task_id']), 'plan': plan,
+            'learning': learning_result,
             'primary': primary_verification.__dict__,
             'diagnosis': diagnosis.__dict__, 'replan': decision.__dict__,
             'alternative': alternative_verification.__dict__}
@@ -1450,67 +1488,9 @@ IranRuntime.advanced_cognitive_snapshot = lambda self: (
 )
 
 
-# v2.1: install the natural local conversation layer after all dialogue compatibility patches.
+# v2.3: one canonical local conversation layer.
 try:
     from core.chat_upgrade import install as _install_chat_upgrade
     _install_chat_upgrade()
 except Exception as _chat_upgrade_error:
-    # Keep runtime importable; diagnostics can inspect this flag.
     IranRuntime._chat_upgrade_error = type(_chat_upgrade_error).__name__
-
-try:
-    from core.chat_upgrade import install_v2 as _install_chat_upgrade_v2
-    _install_chat_upgrade_v2()
-except Exception as _chat_upgrade_v2_error:
-    IranRuntime._chat_upgrade_v2_error = type(_chat_upgrade_v2_error).__name__
-
-try:
-    from core.chat_upgrade import install_v3 as _install_chat_upgrade_v3
-    _install_chat_upgrade_v3()
-except Exception as _chat_upgrade_v3_error:
-    IranRuntime._chat_upgrade_v3_error = type(_chat_upgrade_v3_error).__name__
-
-try:
-    from core.chat_upgrade import install_v4 as _install_chat_upgrade_v4
-    _install_chat_upgrade_v4()
-except Exception as _chat_upgrade_v4_error:
-    IranRuntime._chat_upgrade_v4_error = type(_chat_upgrade_v4_error).__name__
-
-try:
-    from core.chat_upgrade import install_v5 as _install_chat_upgrade_v5
-    _install_chat_upgrade_v5()
-except Exception as _chat_upgrade_v5_error:
-    IranRuntime._chat_upgrade_v5_error = type(_chat_upgrade_v5_error).__name__
-
-try:
-    from core.chat_upgrade import install_v6 as _install_chat_upgrade_v6
-    _install_chat_upgrade_v6()
-except Exception as _chat_upgrade_v6_error:
-    IranRuntime._chat_upgrade_v6_error = type(_chat_upgrade_v6_error).__name__
-
-try:
-    from core.chat_upgrade import install_v7 as _install_chat_upgrade_v7
-    _install_chat_upgrade_v7()
-except Exception as _chat_upgrade_v7_error:
-    IranRuntime._chat_upgrade_v7_error = type(_chat_upgrade_v7_error).__name__
-
-
-# v2.2: greetings belong to the conversational channel, not the analytical special-response channel.
-_chat_final_runtime_base = IranRuntime.handle
-
-def _chat_final_runtime_handle(self, text):
-    low = str(text or '').strip().replace('ي','ی').replace('ك','ک').rstrip('؟?!').strip().lower()
-    if low in {'سلام','درود','سلام ایران','هی','hello','hi'}:
-        # Preserve the canonical runtime telemetry/metrics path, then replace only the
-        # analytical greeting with the natural conversational answer.
-        _chat_final_runtime_base(self, text)
-        return self.dialogue.handle(str(text).strip())
-    return _chat_final_runtime_base(self, text)
-
-IranRuntime.handle = _chat_final_runtime_handle
-
-try:
-    from core.chat_upgrade import install_v8 as _install_chat_upgrade_v8
-    _install_chat_upgrade_v8()
-except Exception as _chat_upgrade_v8_error:
-    IranRuntime._chat_upgrade_v8_error = type(_chat_upgrade_v8_error).__name__
