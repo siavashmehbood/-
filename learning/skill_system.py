@@ -50,6 +50,26 @@ class SkillSystem:
 
     def retrieve(self, goal, domain=None, limit=5): return self.discover(goal,domain,limit)
 
+    def retrieve_transfer(self, goal, domain=None, strategy=None, limit=5):
+        """Find reusable skills for a new goal, including cross-goal transfer.
+
+        Exact goal overlap is preferred, but a verified strategy can transfer
+        to a novel goal when the learned skill is enabled and in the same
+        domain (or explicitly marked as general).
+        """
+        direct = self.discover(goal, domain, limit)
+        if direct: return direct
+        candidates=[]
+        for skill in self.skills:
+            if not skill.get('enabled', True): continue
+            if domain and skill.get('domain') not in (domain, 'general'): continue
+            name=str(skill.get('name',''))
+            if strategy and name == str(strategy):
+                score=.70 + .20*float(skill.get('confidence',0)) + .10*min(1, int(skill.get('usage_count',0))/5)
+                candidates.append((score,skill))
+        candidates.sort(key=lambda item:item[0], reverse=True)
+        return [skill for _,skill in candidates[:int(limit)]]
+
     def check_preconditions(self, skill, context=None):
         return self.procedures.check_preconditions({'preconditions':skill.get('preconditions',[])},context)
 

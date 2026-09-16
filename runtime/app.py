@@ -1061,7 +1061,15 @@ def _execute_verified_goal(self, goal, primary, alternative=None, expected_effec
         'strategy': 'evidence-first', 'confidence': 0.35, 'samples': 0,
         'lesson': 'collect evidence before committing'}
     verified_experience = self.outcome_learning.recommend_action(goal, [primary, alternative] if alternative else [primary], 'task') if hasattr(self, 'outcome_learning') else {}
+    transferable = self.skills.retrieve_transfer(goal, 'task', lesson.get('strategy')) if hasattr(self, 'skills') and lesson.get('strategy') else []
+    skill = transferable[0] if transferable else None
+    skill_transfer = self.skills.apply(skill['skill_id'], {'evidence': bool(verified_experience.get('samples', 0))}) if skill else {'applied': False, 'reason': 'no_transfer_skill'}
+    if skill:
+        self.events.emit('skill_transfer_consulted', {'goal': goal, 'skill_id': skill['skill_id'], 'strategy': lesson.get('strategy'), 'applied': skill_transfer.get('applied', False), 'source': 'verified_procedure'})
     plan = self.orchestrator.planner.build(goal, experience=verified_experience)
+    if skill and skill_transfer.get('applied'):
+        plan.strategy = f'skill-transfer:{skill["name"]}'
+        plan.assumptions.append(f'transferred-skill={skill["skill_id"]}')
     self.events.emit('learned_strategy_consulted', {
         'goal': goal, 'strategy': lesson.get('strategy'),
         'confidence': lesson.get('confidence', 0.0), 'samples': lesson.get('samples', 0)})
@@ -1149,7 +1157,13 @@ def _execute_verified_goal(self, goal, primary, alternative=None, expected_effec
             {'verified': True, 'source': 'task_verifier', 'score': 1.0},
             strategy=lesson.get('strategy', 'evidence-first'), domain='task',
             episode_id=task['task_id'], phase='primary', attempt=1)
-        self.events.emit('verified_learning', {'task_id': task['task_id'], **learning_result})
+        promotion = self.outcome_learning.promotion_candidates(goal, 'task', 2)
+        learned_skill = None
+        if promotion and hasattr(self, 'learn_procedure_skill'):
+            best = promotion[0]
+            learned_skill = self.learn_procedure_skill(goal, best['strategy'], [task['task_id']], 'task')
+            self.events.emit('skill_promoted', {'task_id': task['task_id'], 'strategy': best['strategy'], 'skill_id': learned_skill['skill']['skill_id'], 'evidence': best})
+        self.events.emit('verified_learning', {'task_id': task['task_id'], **learning_result, 'skill_promotion': learned_skill is not None})
         self.events.emit('verified_task_completed', {
             'task_id': task['task_id'], 'phase': 'primary', 'success': True})
         return {'task': self.tasks.get(task['task_id']), 'plan': plan,
@@ -1183,7 +1197,13 @@ def _execute_verified_goal(self, goal, primary, alternative=None, expected_effec
             {'verified': True, 'source': 'task_verifier', 'score': 1.0},
             strategy=lesson.get('strategy', 'primary-then-replan'), domain='task',
             episode_id=task['task_id'], phase='alternative', attempt=2)
-        self.events.emit('verified_learning', {'task_id': task['task_id'], **learning_result})
+        promotion = self.outcome_learning.promotion_candidates(goal, 'task', 2)
+        learned_skill = None
+        if promotion and hasattr(self, 'learn_procedure_skill'):
+            best = promotion[0]
+            learned_skill = self.learn_procedure_skill(goal, best['strategy'], [task['task_id']], 'task')
+            self.events.emit('skill_promoted', {'task_id': task['task_id'], 'strategy': best['strategy'], 'skill_id': learned_skill['skill']['skill_id'], 'evidence': best})
+        self.events.emit('verified_learning', {'task_id': task['task_id'], **learning_result, 'skill_promotion': learned_skill is not None})
     self.events.emit('verified_task_completed', {
         'task_id': task['task_id'], 'phase': 'alternative',
         'success': alternative_verification.success})

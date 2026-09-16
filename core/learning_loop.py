@@ -238,6 +238,24 @@ class OutcomeBackedLearning:
             "lesson": lesson["lesson"],
         }
 
+    def promotion_candidates(self, goal, domain='general', min_samples=2):
+        """Return strategies supported by repeated verified successes on related goals."""
+        rows = self.retrieve_context(goal, domain, 100)
+        buckets = {}
+        for row in rows:
+            if not row.get('verified') or float(row.get('score', 0)) < .75: continue
+            key = str(row.get('strategy', 'default'))
+            buckets.setdefault(key, []).append(row)
+        ranked=[]
+        for strategy, items in buckets.items():
+            distinct_goals=len({str(x.get('goal','')) for x in items})
+            if len(items) >= int(min_samples) and distinct_goals >= 2:
+                ranked.append({'strategy':strategy,'samples':len(items),'distinct_goals':distinct_goals,
+                               'mean_score':round(sum(float(x.get('score',0)) for x in items)/len(items),3),
+                               'sources':[x.get('action','') for x in items[:8]]})
+        ranked.sort(key=lambda x:(x['distinct_goals'],x['mean_score'],x['samples']),reverse=True)
+        return ranked
+
     def stats(self):
         verified = [r for r in self.records if r.get("verified")]
         return {

@@ -35,6 +35,31 @@ class VerifiedNegativeLearningTests(unittest.TestCase):
         self.assertIn('verified-experience-selected=good_action', plan.assumptions)
         self.assertIn('good_action', plan.steps[0].success_criteria)
 
+    def test_verified_experience_promotes_and_transfers_a_skill_to_a_new_goal(self):
+        source = Path(__file__).resolve().parents[1] / 'config.json'
+        data = json.loads(source.read_text(encoding='utf-8-sig'))
+        data['memory']['db'] = 'data/test.db'
+        data['runtime']['event_log'] = 'data/events.jsonl'
+        data['runtime']['goals'] = 'data/goals.json'
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory); (root / 'data').mkdir()
+            (root / 'config.json').write_text(json.dumps(data, ensure_ascii=False), encoding='utf-8')
+            runtime = IranRuntime(root)
+            runtime.registry.register(Tool('good_action', 'good', lambda: 'correct', safe=True))
+            try:
+                first = runtime.execute_verified_goal('backup project files alpha', 'good_action', None, 'correct')
+                second = runtime.execute_verified_goal('backup project files beta', 'good_action', None, 'correct')
+                self.assertTrue(first['primary']['success'] and second['primary']['success'])
+                self.assertTrue(runtime.skills.skills)
+                third = runtime.execute_verified_goal('backup project files gamma', 'good_action', None, 'correct')
+                self.assertTrue(third['primary']['success'])
+                self.assertTrue(third['plan'].strategy.startswith('skill-transfer:'))
+                transfer_events = [e for e in runtime.events.recent(300) if e.get('event') == 'skill_transfer_consulted']
+                self.assertTrue(transfer_events)
+                self.assertTrue(transfer_events[-1]['data']['applied'])
+            finally:
+                runtime.close()
+
     def test_verified_failure_becomes_negative_evidence_for_next_decision(self):
         source = Path(__file__).resolve().parents[1] / 'config.json'
         data = json.loads(source.read_text(encoding='utf-8-sig'))
