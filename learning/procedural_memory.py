@@ -29,6 +29,8 @@ class ProceduralMemory:
         now = datetime.now().isoformat(timespec='seconds')
         pid = procedure_id or self._stable_id(name, goal)
         row = next((x for x in self.procedures if x.get('procedure_id') == pid), None)
+        previous_version = int(row.get('version', 0)) if row else 0
+        version = previous_version + 1 if row else 1
         payload = {'procedure_id': pid, 'name': str(name), 'goal': str(goal),
                    'preconditions': list(preconditions or []), 'steps': list(steps or []),
                    'expected_outcome': str(expected_outcome),
@@ -36,11 +38,50 @@ class ProceduralMemory:
                    'failure_conditions': list(failure_conditions or []),
                    'source_experiences': list(source_experiences or []),
                    'success_rate': round(float(success_rate), 4), 'confidence': round(float(confidence), 4),
+                   'version': version,
                    'created_at': row.get('created_at', now) if row else now, 'updated_at': now}
-        if row: row.update(payload)
-        else: self.procedures.append(payload)
+        if row:
+            # A procedure is versioned, so a revision keeps the shape it replaced. Without
+            # this, a change that lowered success_rate was unrecoverable and there was no
+            # way to see whether the procedure is improving or being rewritten each run.
+            history = row.setdefault('history', [])
+            history.append({k: row.get(k) for k in payload if k != 'history'})
+            del history[:-20]
+            row.update(payload)
+        else:
+            payload['history'] = []
+            self.procedures.append(payload)
         self._save()
-        return payload
+        # Return a snapshot, not the live stored record. Returning the live dict meant a
+        # caller holding the result saw it change under them when the same procedure was
+        # revised or had an outcome recorded later, which made "what was stored at that
+        # moment" impossible to reason about.
+        return dict(payload)
+
+    def revision_of(self, procedure_id, version=None):
+        """Return a specific revision of a procedure, or the current one.
+
+        Lets a caller inspect what a procedure looked like before it was changed, which
+        is what makes 'versioned' meaningful rather than just a counter.
+        """
+        row = next((x for x in self.procedures if x.get('procedure_id') == procedure_id), None)
+        if row is None:
+            return None
+        if version is None or int(version) == int(row.get('version', 1)):
+            return row
+        for entry in reversed(row.get('history', [])):
+            if int(entry.get('version', 0)) == int(version):
+                return entry
+        return None
+
+    def versions(self, procedure_id):
+        """All known revisions of a procedure, oldest first."""
+        row = next((x for x in self.procedures if x.get('procedure_id') == procedure_id), None)
+        if row is None:
+            return []
+        history = list(row.get('history', []))
+        current = {k: row.get(k) for k in row if k != 'history'}
+        return history + [current]
 
     @staticmethod
     def _stable_id(name, goal):
