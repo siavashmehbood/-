@@ -1,4 +1,4 @@
-﻿"""IRAN v2 cognitive core.
+"""IRAN v2 cognitive core.
 
 A deterministic, fully-local orchestration layer. It does not generate text itself;
 it builds a typed cognitive state from the existing language, memory, graph,
@@ -11,6 +11,9 @@ from core.working_memory import SymbolicWorkingMemory
 from core.metacognition import MetacognitiveMonitor
 from core.causal_reasoning import CausalGraph
 from core.analogical_reasoning import AnalogicalReasoner
+from core.production_rules import ProductionSystem
+from core.goal_stack import GoalStack
+from core.decision_cycle import DecisionCycle
 import re
 
 @dataclass
@@ -53,6 +56,9 @@ class AdvancedCognitiveCore:
         self.metacognition = MetacognitiveMonitor()
         self.causal = CausalGraph()
         self.analogy = AnalogicalReasoner()
+        self.production = ProductionSystem()
+        self.goals = GoalStack()
+        self.decision_cycle = DecisionCycle(self.production, self.goals)
 
     def _parse(self, text):
         parser = getattr(self.runtime, "dialogue", None)
@@ -141,6 +147,12 @@ class AdvancedCognitiveCore:
         self.history.append(state.snapshot())
         self.history = self.history[-100:]
         return state
+
+    def executive_cycle(self, facts, goal=None, steps=None, result=None):
+        """Run one symbolic executive cycle over explicit facts and optional goal."""
+        if goal and self.goals.current() is None:
+            self.goals.push(goal, steps=steps or [])
+        return self.decision_cycle.step(facts, result=result)
 
     def verify(self, state, answer):
         answer = str(answer or "").strip()
