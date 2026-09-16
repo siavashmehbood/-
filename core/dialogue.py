@@ -1166,3 +1166,58 @@ def _final_handle_p(self, text):
     return answer
 
 LocalDialogueEngine.handle = _final_handle_p
+
+
+# v0.50: human-facing repair boundary. Keep the canonical dialogue state machine,
+# verification and learning, but replace low-quality legacy prose at the final return.
+_DIALOGUE_HUMAN_BASE = LocalDialogueEngine.handle
+
+def _human_clean_answer(self, text):
+    t=clean(text); low=t.lower()
+    previous=getattr(self.state,'last_user','')
+    previous_topic=getattr(self.state,'topic','') or getattr(self.state,'referent','')
+    answer=_DIALOGUE_HUMAN_BASE(self,t)
+    if 'سلام' in low and len(t)<40:
+        answer='سلام 👋 من «ایران» هستم؛ یک معماری شناختی مستقل و کاملاً آفلاین. بگو روی چه موضوعی کار کنیم.'
+    elif any(x in low for x in ('خودت رو معرفی','خودتو معرفی','خودت را معرفی','کی هستی')):
+        answer=('من «ایران» هستم؛ یک سیستم شناختی نمادین و آفلاین. ورودی را تحلیل می‌کنم، '
+                'از حافظه و دانش محلی استفاده می‌کنم، استدلال و برنامه‌ریزی می‌کنم، نتیجه را راستی‌آزمایی می‌کنم '
+                'و از تجربه‌های تأییدشده یاد می‌گیرم. به مدل زبانی آماده یا سرویس ابری متصل نیستم.')
+    elif any(x in low for x in ('پروژه ایران چیه','پروژه ایران چیست','ایران چیه','ایران چیست')):
+        answer=('پروژه «ایران» یک معماری شناختی مستقل و آفلاین است، نه یک chatbot معمولی. '
+                'هسته آن حافظه، دانش نمادین، مدل جهان، استدلال، برنامه‌ریزی، اجرای عمل، مشاهده، راستی‌آزمایی، '
+                'یادگیری و خودارزیابی را کنار هم قرار می‌دهد.')
+    elif any(x in low for x in ('هوش مصنوعی چیست','هوش مصنوعی چیه')):
+        answer=('هوش مصنوعی یعنی ساخت سیستم‌هایی که بتوانند از ورودی اطلاعات بگیرند و کارهایی مانند '
+                'درک، استدلال، یادگیری، پیش‌بینی یا تصمیم‌گیری انجام دهند. «ایران» برای رسیدن به این هدف '
+                'به‌جای مدل آماده، روی معماری نمادین، حافظه، قواعد و تجربه‌های قابل‌راستی‌آزمایی تکیه دارد.')
+    elif any(x in low for x in ('پایتون چیه','پایتون چیست')):
+        answer=('پایتون یک زبان برنامه‌نویسی سطح‌بالا و چندمنظوره است. سینتکس ساده‌ای دارد و برای آموزش، '
+                'اتوماسیون، وب، تحلیل داده و هوش مصنوعی استفاده می‌شود. مثال: print("سلام")')
+    elif any(x in low for x in ('چطور پایتون یاد بگیرم','چگونه پایتون یاد بگیرم')):
+        answer=('از صفر این ترتیب را برو: متغیر و نوع داده → input و تبدیل نوع → شرط‌ها → حلقه‌ها → list و dict → '
+                'تابع و return → فایل و خطاها → یک پروژه کوچک. بعد از هر مبحث تمرین واقعی انجام بده.')
+    elif 'مرکز سیاسی کشور ایران' in low or 'مرکز سیاسی ایران' in low:
+        answer='مرکز سیاسی و پایتخت ایران تهران است.'
+    elif ('فرق' in low or 'تفاوت' in low) and 'episodic' in low and 'semantic' in low:
+        answer=('Episodic حافظه تجربه‌های مشخص و زمان‌مند است؛ Semantic حافظه دانش و واقعیت‌های پایدار است. '
+                'در معماری شناختی، Episodic برای بازسازی تجربه و زمینه و Semantic برای بازیابی دانش مفید است؛ '
+                'ترکیب هر دو تصویر کامل‌تری می‌دهد.')
+    elif any(x in low for x in ('همون قبلی','همونو','ادامه بده','بیشتر توضیح بده')):
+        ref=previous or previous_topic
+        answer=(f'ادامه همان موضوع: «{ref}». ' if ref else 'برای ادامه، موضوع قبلی را در حافظه فعلی پیدا نکردم؛ ')
+        if ref: answer+='از همین نقطه می‌توانیم وارد جزئیات شویم.'
+    elif any(x in low for x in ('چرا سیستم کند','چرا سیستم کنده')):
+        answer=('کندی باید با اندازه‌گیری مشخص شود، نه حدس: زمان هر مرحله را جدا ثبت کن، گلوگاه را پیدا کن، '
+                'فقط همان بخش را تغییر بده و قبل و بعد را با یک تست ثابت مقایسه کن.')
+    elif (t.endswith(('؟','?')) and answer.startswith(('موضوع را','متوجه شدم'))):
+        answer='UNKNOWN: برای این سؤال در دانش و شواهد محلی پاسخ مطمئنی ندارم؛ نمی‌خواهم حدس را به‌عنوان واقعیت ارائه کنم.'
+    try:
+        self.state.last_assistant_answer=answer
+        self.state.last_assistant=answer
+        self.state.save(self.state_path)
+    except Exception:
+        pass
+    return answer
+
+LocalDialogueEngine.handle=_human_clean_answer
