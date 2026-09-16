@@ -136,16 +136,59 @@ class SkillSystem:
         self._save_compositions()
         return existing
 
-    def retrieve_compositions(self, goal, limit=5):
+    def retrieve_compositions(self, goal, limit=5, verified_only=True):
         q=set(str(goal).lower().split()); ranked=[]
         for c in self.compositions:
             if not c.get('enabled',True): continue
+            if verified_only and c.get('verification_count',0) < 1: continue
             text=str(c.get('goal','')).lower()+' '+' '.join(str(x.get('action','')) for x in c.get('steps',[]))
             overlap=len(q & set(text.split()))/max(1,len(q))
-            score=.65*overlap+.35*float(c.get('confidence',0))
+            score=.55*overlap+.30*float(c.get('confidence',0))+.15*min(1,int(c.get('verification_count',0))/5)
             if overlap: ranked.append((score,c))
         ranked.sort(key=lambda x:x[0],reverse=True)
         return [c for _,c in ranked[:int(limit)]]
+
+    def retrieve_hierarchical(self, goal, domain=None, limit=5, max_level=None):
+        """Retrieve enabled higher-order skills without bypassing normal policy checks."""
+        ranked=[]; q=set(str(goal).lower().split())
+        for skill in self.skills:
+            if not skill.get('enabled', True) or not skill.get('is_composite'): continue
+            if domain and skill.get('domain') not in (domain, 'general'): continue
+            level=int(skill.get('composition_level', 0))
+            if max_level is not None and level > int(max_level): continue
+            text=' '.join([str(skill.get('name','')), str(skill.get('description','')),
+                           ' '.join(map(str, skill.get('goal_patterns',[])))]) .lower()
+            overlap=len(q & set(text.split()))/max(1,len(q))
+            if overlap:
+                score=.50*overlap+.35*float(skill.get('confidence',0))+.15*min(1,int(skill.get('usage_count',0))/5)
+                ranked.append((score, skill))
+        ranked.sort(key=lambda item:item[0], reverse=True)
+        return [skill for _,skill in ranked[:int(limit)]]
+
+    def expand_skill(self, skill_id, max_depth=8):
+        """Expand a hierarchical skill into executable leaf actions, rejecting cycles."""
+        root=next((x for x in self.skills if x.get('skill_id')==skill_id), None)
+        if not root or not root.get('enabled', True): return []
+        def walk(skill, depth, seen):
+            if depth > int(max_depth): return []
+            sid=skill.get('skill_id')
+            if sid in seen: return []
+            seen=seen | {sid}
+            steps=(skill.get('procedure') or {}).get('steps', [])
+            out=[]
+            for raw in steps:
+                action=raw.get('action') if isinstance(raw,dict) else str(raw)
+                child_id=raw.get('skill_id') if isinstance(raw,dict) else None
+                if child_id and child_id != sid:
+                    child=next((x for x in self.skills if x.get('skill_id')==child_id),None)
+                    if child and child.get('is_composite'):
+                        out.extend(walk(child, depth+1, seen)); continue
+                if action:
+                    item=dict(raw) if isinstance(raw,dict) else {'action':action}
+                    item.setdefault('origin_skill_id', sid)
+                    out.append(item)
+            return out
+        return walk(root, 0, set())
 
     def check_preconditions(self, skill, context=None):
         return self.procedures.check_preconditions({'preconditions':skill.get('preconditions',[])},context)
@@ -175,22 +218,29 @@ class SkillSystem:
         row['enabled']=bool(enabled); row['updated_at']=datetime.now().isoformat(timespec='seconds'); row['status_reason']=reason; self._save(); return row
 
 # v0.45: verified compositions can become higher-order skills.
-def _promote_composition_as_skill(self, composition, domain="task"):
+def _promote_composition_as_skill(self, composition, domain="task", max_level=8):
     if not composition or composition.get("status") not in ("candidate", "verified"):
         return None
     steps = list(composition.get("steps") or [])
-    if len(steps) < 2:
+    source_ids = list(composition.get("skill_ids") or [])
+    if len(steps) < 2 or len(source_ids) < 2:
         return None
-    level = 1
-    for x in self.skills:
-        if x.get("is_composite"):
-            level = max(level, int(x.get("composition_level", 0)) + 1)
+    source_levels=[]
+    for sid in source_ids:
+        source=next((x for x in self.skills if x.get("skill_id")==sid), None)
+        if source:
+            source_levels.append(int(source.get("composition_level", 0)))
+    level = (max(source_levels) + 1) if source_levels else 1
+    if level > int(max_level):
+        return None
     name = "composed:" + str(composition.get("composition_id"))
     procedure = {
         "steps": [dict(x) for x in steps],
         "expected_outcome": str(composition.get("goal", "")),
         "kind": "hierarchical-composition",
         "composition_id": composition.get("composition_id"),
+        "source_skill_ids": source_ids,
+        "composition_level": level,
     }
     skill = self.upsert(
         name=name,
@@ -207,7 +257,9 @@ def _promote_composition_as_skill(self, composition, domain="task"):
     skill["is_composite"] = True
     skill["composition_level"] = level
     skill["source_composition_id"] = composition.get("composition_id")
-    skill["source_skill_ids"] = list(composition.get("skill_ids") or [])
+    skill["source_skill_ids"] = source_ids
+    skill["source_composition_ids"] = [composition.get("composition_id")]
+    skill["max_expansion_depth"] = int(max_level)
     skill["updated_at"] = datetime.now().isoformat(timespec="seconds")
     self._save()
     return skill

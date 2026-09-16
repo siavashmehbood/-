@@ -47,6 +47,38 @@ class SkillCompositionIntegrationTests(unittest.TestCase):
             self.assertIn('skill_composition_completed', events)
             runtime.close()
 
+    def test_hierarchical_skill_can_be_recomposed_with_new_skill(self):
+        with tempfile.TemporaryDirectory() as directory:
+            runtime = self._runtime(directory)
+            for name, result in [('step_a','a'), ('step_b','b'), ('step_c','c')]:
+                runtime.registry.register(Tool(name, name, lambda value=result: value, safe=True))
+            goal_ab = 'build layered ab behavior'
+            runtime.skills.upsert(name='skill-a', description='a', domain='task', goal_patterns=[goal_ab],
+                                  procedure={'steps':[{'action':'step_a','expected_effect':'a'}]}, preconditions=[], confidence=.9)
+            runtime.skills.upsert(name='skill-b', description='b', domain='task', goal_patterns=[goal_ab],
+                                  procedure={'steps':[{'action':'step_b','expected_effect':'b'}]}, preconditions=[], confidence=.9)
+            first = runtime.execute_verified_goal(goal_ab, 'step_a', expected_effect='b')
+            self.assertTrue(first['success'])
+            higher = first['higher_order_skill']
+            self.assertTrue(higher['is_composite'])
+            self.assertEqual(higher['composition_level'], 1)
+            self.assertEqual(set(higher['source_skill_ids']), set(first['composition']['skill_ids']))
+
+            goal_abc = 'extend layered ab behavior with c'
+            runtime.skills.upsert(name='skill-c', description='c', domain='task', goal_patterns=[goal_abc],
+                                  procedure={'steps':[{'action':'step_c','expected_effect':'c'}]}, preconditions=[], confidence=.9)
+            higher['goal_patterns'] = [goal_abc]
+            runtime.skills._save()
+            second = runtime.execute_verified_goal(goal_abc, 'step_a', expected_effect='c')
+            self.assertTrue(second['success'])
+            self.assertGreaterEqual(len(second['composition']['skill_ids']), 2)
+            self.assertEqual(second['higher_order_skill']['composition_level'], 2)
+            self.assertIn(higher['skill_id'], second['composition']['skill_ids'])
+            c_id = next(x['skill_id'] for x in runtime.skills.skills if x['name']=='skill-c')
+            self.assertIn(c_id, second['composition']['skill_ids'])
+            self.assertEqual(len(runtime.skills.compositions), 2)
+            runtime.close()
+
     def test_composition_stops_on_failed_step(self):
         with tempfile.TemporaryDirectory() as directory:
             runtime = self._runtime(directory)

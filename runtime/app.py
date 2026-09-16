@@ -1629,7 +1629,7 @@ def _execute_composed_goal_43(self, goal, composition, final_expected, kwargs):
             self.events.emit('skill_composition_failed', {'task_id':task['task_id'],'composition_id':composition['composition_id'],'failed_step':step['order']})
             return {'task':self.tasks.get(task['task_id']),'composition':composition,'steps':results,'success':False}
     self.tasks.transition(task['task_id'], TaskStatus.SUCCESS.value, 'all composed steps independently verified')
-    self.events.emit('sskill_composition_completed', {'task_id':task['task_id'],'composition_id':composition['composition_id'],'steps':len(results),'success':True})
+    self.events.emit('skill_composition_completed', {'task_id':task['task_id'],'composition_id':composition['composition_id'],'steps':len(results),'success':True})
     return {'task':self.tasks.get(task['task_id']),'composition':composition,'steps':results,'success':True,'plan_strategy':'skill-composition'}
 IranRuntime._execute_composed_goal_43 = _execute_composed_goal_43
 
