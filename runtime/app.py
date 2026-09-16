@@ -1427,3 +1427,35 @@ def _atomspace_sync_handle(self, text):
     runtime.atomspace.sync()
     return _atomspace_sync_base_handle(self, text)
 UnifiedCognitivePipeline.handle = _atomspace_sync_handle
+
+
+# v0.37: integrated Soar/LIDA-inspired cognitive controller and procedural learning.
+from core.cognitive_controller import CognitiveController
+
+_controller_base_init = IranRuntime.__init__
+def _init_controller(self, root):
+    _controller_base_init(self, root)
+    self.cognitive_controller = CognitiveController(self, self.root / 'data' / 'procedures.json')
+    self.events.emit('cognitive_controller_ready', {'offline': True, 'attention': True, 'procedural_learning': True})
+IranRuntime.__init__ = _init_controller
+
+_controller_base_handle = UnifiedCognitivePipeline.handle
+def _controller_handle(self, text):
+    runtime = self.runtime
+    result = _controller_base_handle(self, text)
+    state = getattr(runtime.cognitive_core, 'last_state', None)
+    if state is not None:
+        cycle = runtime.cognitive_controller.cycle(text, state, result)
+        verification = getattr(self.last_result, 'verification', {}) if self.last_result else {}
+        proc = runtime.cognitive_controller.learn(state, result, verification)
+        runtime.events.emit('executive_control', cycle)
+        runtime.events.emit('attention_broadcast', runtime.cognitive_controller.workspace.snapshot())
+        runtime.events.emit('procedural_learning', {
+            'learned': bool(proc),
+            'intent': getattr(state, 'intent', 'general'),
+            'success': bool(verification.get('passed')),
+        })
+    return result
+UnifiedCognitivePipeline.handle = _controller_handle
+
+IranRuntime.cognitive_controller_snapshot = lambda self: self.cognitive_controller.snapshot()
