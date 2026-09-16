@@ -38,6 +38,17 @@ class UnifiedCognitivePipeline:
                 "source": "unified_pipeline",
             })
 
+        # Route explicit personal-memory questions before generic dialogue.
+        try:
+            routed = runtime.conversation_router.answer(clean) if hasattr(runtime, 'conversation_router') else None
+        except Exception:
+            routed = None
+        if routed is not None:
+            runtime.memory.add('user', clean, .72)
+            runtime.memory.add('assistant', routed, .68)
+            runtime.events.emit('response_generated', {'goal': clean, 'route': 'conversation_router', 'mode': 'USER_MEMORY', 'verified': True, 'score': 1.0})
+            return routed
+
         try:
             auto = runtime.orchestrator._auto_tool(clean)
         except Exception:

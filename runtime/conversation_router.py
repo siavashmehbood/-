@@ -45,3 +45,17 @@ class ConversationRouter:
             else:
                 lines.append(f'• {p}: {obj}')
         return 'تا این لحظه این اطلاعات صریح را از خودتان دارم:\n' + '\n'.join(lines)
+
+
+# v0.39: cover direct personal-memory questions in the canonical dialogue path.
+_original_asks_about_user = ConversationRouter._asks_about_user
+def _asks_about_user_v39(text):
+    t = str(text)
+    markers = (
+        '\u0627\u0633\u0645 \u0645\u0646 \u0686\u06cc \u0628\u0648\u062f',
+        '\u0646\u0627\u0645 \u0645\u0646 \u0686\u06cc \u0628\u0648\u062f',
+        '\u0686\u0647 \u0686\u06cc\u0632\u06cc \u062f\u0648\u0633\u062a \u062f\u0627\u0634\u062a\u0645',
+        '\u0686\u06cc \u062f\u0648\u0633\u062a \u062f\u0627\u0634\u062a\u0645'
+    )
+    return _original_asks_about_user(t) or any(m in t for m in markers)
+ConversationRouter._asks_about_user = staticmethod(_asks_about_user_v39)
