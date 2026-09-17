@@ -75,23 +75,33 @@ class ChatWindow(QMainWindow):
   lessons=result.get('learned') or []
   if not lessons:
    self.status.setText('یادگیری اینترنتی: مورد تازه‌ای برای پیشنهاد پیدا نشد'); return
-  lesson=lessons[0]
-  box=QMessageBox(self); box.setWindowTitle('یادگیری جدید — تأیید شما')
+  proposal=result.get('proposal')
+  if not proposal: return
+  sources=proposal.get('sources',[])
+  source_lines=[]
+  for i,src in enumerate(sources,1):
+   source_lines.append(f"{i}) {src.get('source','')} — اعتماد {float(src.get('trust',0)):.0%}\n   {src.get('evidence','')[:700]}")
+  agreements='، '.join(proposal.get('agreements',[])[:10]) or 'همپوشانی معنادار کافی پیدا نشد'
+  conflicts=proposal.get('conflicts',[])
+  conflict_text=(f"هشدار: {len(conflicts)} اختلاف/همپوشانی ضعیف بین منابع شناسایی شد." if conflicts else 'تعارض آشکار در شواهد شناسایی نشد.')
+  box=QMessageBox(self); box.setWindowTitle('پیشنهاد دانش چندمنبعی — تأیید شما')
   box.setIcon(QMessageBox.Information)
-  box.setText('ایران یک مطلب جدید از اینترنت پیدا کرده است.')
-  box.setInformativeText(f"عنوان: {lesson.get('title','بدون عنوان')}\nمنبع: {lesson.get('source','')}\nاعتماد منبع: {float(lesson.get('trust',0)):.0%}\n\n{self.runtime.online_learning.excerpt(lesson.get('query',''),lesson.get('text',''),1200)}")
-  box.setDetailedText('این مطلب هنوز به حافظه ایران اضافه نشده است.\nفقط با تأیید شما در data/web_lessons.json ذخیره می‌شود.\nمحتوای وب اجرا نمی‌شود؛ فقط به‌عنوان دانش خواندنی ذخیره خواهد شد.')
-  yes=box.addButton('تأیید؛ اضافه کن', QMessageBox.AcceptRole)
-  no=box.addButton('رد؛ اضافه نکن', QMessageBox.RejectRole)
+  box.setText('ایران چند منبع را بررسی کرده و یک پیشنهاد واحد ساخته است.')
+  box.setInformativeText(
+   f"موضوع: {proposal.get('query','')}\nاعتماد ترکیبی: {float(proposal.get('confidence',0)):.0%}\n"
+   f"توافق‌های استخراج‌شده: {agreements}\n\n{proposal.get('summary','')[:1800]}\n\nمنابع بررسی‌شده:\n"+'\n'.join(source_lines)+f"\n\n{conflict_text}")
+  box.setDetailedText('این پیشنهاد هنوز وارد حافظه نشده است.\nبا تأیید شما، متن کامل هر منبعِ مورد اعتماد با شناسه پیشنهاد و میزان ارتباط آن ذخیره می‌شود.\nرد کردن، هیچ‌یک از منابع را ذخیره نمی‌کند.\nمحتوای وب هرگز به‌عنوان دستور اجرا نمی‌شود.')
+  yes=box.addButton('تأیید پیشنهاد؛ اضافه کن', QMessageBox.AcceptRole)
+  no=box.addButton('رد پیشنهاد؛ اضافه نکن', QMessageBox.RejectRole)
   box.exec()
   if box.clickedButton() is yes:
-   result=self.runtime.approve_online_lesson(lesson)
-   self.status.setText('یادگیری تأیید شد و به حافظه دانشی اضافه شد')
-   self.events.addItem(f"یادگیری تأیید شد: {lesson.get('title','')}")
+   self.runtime.approve_online_proposal(proposal)
+   self.status.setText(f"پیشنهاد تأیید شد؛ {len(sources)} منبع با provenance ذخیره شد")
+   self.events.addItem(f"پیشنهاد دانش تأیید شد: {proposal.get('title','')}")
   else:
-   self.runtime.reject_online_lesson(lesson)
-   self.status.setText('این یادگیری ذخیره نشد')
-   self.events.addItem(f"یادگیری رد شد: {lesson.get('title','')}")
+   self.runtime.reject_online_proposal(proposal)
+   self.status.setText('پیشنهاد چندمنبعی رد شد و چیزی ذخیره نشد')
+   self.events.addItem(f"پیشنهاد دانش رد شد: {proposal.get('title','')}")
 
  def paste_clipboard(self): self.input.insertPlainText(QApplication.clipboard().text()); self.input.setFocus()
  def copy_response(self):

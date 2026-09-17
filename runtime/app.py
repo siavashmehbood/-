@@ -76,9 +76,17 @@ class IranRuntime:
         result=self.online_learning.approve_lesson(lesson)
         self.events.emit('online_learning_approved', result)
         return result
+    def approve_online_proposal(self, proposal):
+        result=self.online_learning.approve_proposal(proposal)
+        self.events.emit('online_learning_proposal_approved', result)
+        return result
     def reject_online_lesson(self, lesson):
         result=self.online_learning.reject_lesson(lesson)
         self.events.emit('online_learning_rejected', result)
+        return result
+    def reject_online_proposal(self, proposal):
+        result=self.online_learning.reject_proposal(proposal)
+        self.events.emit('online_learning_proposal_rejected', result)
         return result
     def approve_online_learning(self):
         result=self.online_learning.approve_session()

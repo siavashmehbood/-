@@ -18,6 +18,18 @@ class WebLesson:
     fetched_at: str
     query: str = ""
 
+@dataclass
+class KnowledgeProposal:
+    proposal_id: str
+    query: str
+    title: str
+    summary: str
+    confidence: float
+    sources: list
+    agreements: list
+    conflicts: list
+    created_at: str
+
 class _TextParser(HTMLParser):
     def __init__(self):
         super().__init__(); self.parts=[]; self.skip=0; self.title=[]
@@ -60,6 +72,25 @@ class OnlineLearning:
         return [x.get('title','') for x in data.get('query',{}).get('search',[]) if x.get('title')]
     def _wiki_page_url(self,title):
         return 'https://en.wikipedia.org/wiki/'+quote(title.replace(' ','_'),safe='_()')
+    def _wikidata_search(self,query):
+        url='https://www.wikidata.org/w/api.php?action=wbsearchentities&search='+quote_plus(query)+'&language=en&format=json&limit=2'
+        req=Request(url,headers={'User-Agent':'IRAN-Cognitive-Architecture/online-learning'})
+        with urlopen(req,timeout=self.timeout) as r:
+            data=json.loads(r.read().decode('utf-8','replace'))
+        return [(x.get('id',''),x.get('label','')) for x in data.get('search',[]) if x.get('id')]
+    def _wikidata_lesson(self,entity_id,label,query):
+        url='https://www.wikidata.org/wiki/Special:EntityData/'+quote(entity_id)+'.json'
+        req=Request(url,headers={'User-Agent':'IRAN-Cognitive-Architecture/online-learning'})
+        with urlopen(req,timeout=self.timeout) as r:
+            data=json.loads(r.read().decode('utf-8','replace'))
+        entity=data.get('entities',{}).get(entity_id,{})
+        desc=(entity.get('descriptions',{}).get('en') or {}).get('value','')
+        aliases=[x.get('value','') for x in entity.get('aliases',{}).get('en',[])[:5]]
+        text=' '.join(x for x in [label,desc,'aliases: '+', '.join(aliases)] if x).strip()
+        if len(text)<40: return None
+        return {'url':url,'title':label or entity_id,'text':text[:self.max_chars],
+                'source':'wikidata.org','trust':self._trust(url),
+                'fetched_at':datetime.now().isoformat(timespec='seconds'),'query':query}
     def __init__(self, root, config=None):
         self.root=Path(root); cfg=config or {}; self.cfg=cfg
         self.enabled=bool(cfg.get("enabled",False)); self.auto_fetch=bool(cfg.get("auto_fetch_on_unknown",True))
@@ -103,14 +134,89 @@ class OnlineLearning:
         key=lesson.url
         self.lessons=[x for x in self.lessons if x.get('url')!=key]
         self.lessons.append(item); self.lessons=self.lessons[-500:]; self._save(); return item
+    def _token_set(self, text):
+        return set(re.findall(r'[\wآ-ی]{3,}', str(text).lower()))
+
+    def build_proposal(self, query, lessons):
+        """Create one reviewable, provenance-preserving proposal from multiple sources.
+        No proposal is persisted until approve_proposal() is called.
+        """
+        unique=[]; seen=set()
+        for lesson in lessons or []:
+            url=str(lesson.get('url',''))
+            if url and url not in seen:
+                seen.add(url); unique.append(dict(lesson))
+        if not unique: return None
+        tokens=self._token_set(query)
+        source_rows=[]; evidence_sets=[]
+        for item in unique:
+            evidence=self.excerpt(query,item.get('text',''),700)
+            words=self._token_set(item.get('text',''))
+            overlap=len(tokens & words)/max(1,len(tokens))
+            source_rows.append({'url':item.get('url',''),'source':item.get('source',''),
+                'title':item.get('title',''),'trust':float(item.get('trust',0)),
+                'evidence':evidence,'text':item.get('text',''),'relevance':round(overlap,3)})
+            evidence_sets.append(self._token_set(evidence))
+        shared=set.intersection(*evidence_sets) if len(evidence_sets)>1 else (evidence_sets[0] if evidence_sets else set())
+        shared -= tokens
+        agreements=sorted(shared, key=lambda x: (-len(x), x))[:12]
+        conflicts=[]
+        for i,left in enumerate(source_rows):
+            for right in source_rows[i+1:]:
+                a=self._token_set(left['evidence']); b=self._token_set(right['evidence'])
+                similarity=len(a & b)/max(1,len(a | b))
+                if similarity < .08:
+                    conflicts.append({'sources':[left['source'],right['source']], 'reason':'low evidence overlap', 'similarity':round(similarity,3)})
+        avg_trust=sum(x['trust'] for x in source_rows)/len(source_rows)
+        consensus=min(1.0, len(source_rows)/3) * min(1.0, .55 + .08*len(agreements))
+        confidence=round(.55*avg_trust + .45*consensus - min(.18,.04*len(conflicts)),3)
+        summary='؛ '.join(x['evidence'] for x in source_rows[:3])
+        if conflicts: summary += ' | هشدار: بخشی از شواهد بین منابع همپوشانی کمی دارد و نیازمند بررسی است.'
+        stamp=datetime.now().isoformat(timespec='seconds')
+        proposal=KnowledgeProposal(
+            proposal_id='proposal-'+datetime.now().strftime('%Y%m%d%H%M%S%f'), query=str(query),
+            title='پیشنهاد دانش چندمنبعی: '+str(query)[:100], summary=summary[:2400],
+            confidence=confidence, sources=source_rows, agreements=agreements,
+            conflicts=conflicts, created_at=stamp)
+        return asdict(proposal)
+
+    def approve_proposal(self, proposal):
+        """Commit all unique source lessons from an approved proposal atomically."""
+        if not proposal or not proposal.get('sources'):
+            return {'approved':False,'reason':'empty_proposal'}
+        approved=[]
+        for source in proposal.get('sources',[]):
+            url=source.get('url','')
+            if not url or not self._host_ok(url): continue
+            approved.append({'url':url,'title':source.get('title',''),'text':source.get('text') or source.get('evidence',''),
+                'source':source.get('source',''),'trust':float(source.get('trust',0)),
+                'fetched_at':proposal.get('created_at',''),'query':proposal.get('query',''),
+                'provenance':{'proposal_id':proposal.get('proposal_id'),'relevance':source.get('relevance',0)}})
+        if not approved: return {'approved':False,'reason':'no_trusted_sources'}
+        by_url={x.get('url'):x for x in self.lessons}
+        for item in approved: by_url[item['url']]=item
+        self.lessons=list(by_url.values())[-500:]; self._save()
+        self.last_sync=datetime.now().isoformat(timespec='seconds')
+        return {'approved':True,'proposal':proposal,'committed':len(approved),'lessons':len(self.lessons)}
+
+    def reject_proposal(self, proposal):
+        return {'approved':False,'rejected':bool(proposal),'proposal_id':(proposal or {}).get('proposal_id','')}
+
     def search(self,query):
-        """Search trusted public knowledge, then cache the retrieved evidence."""
+        """Search trusted public knowledge without persisting fetched evidence."""
         if not self.enabled or not query.strip(): return []
         hits=[]
         try:
-            for title in self._wiki_search(query)[:self.max_sources]:
+            for title in self._wiki_search(query)[:max(1,self.max_sources-1)]:
                 item=self.learn_url(self._wiki_page_url(title),query,commit=False)
                 if item: hits.append(item)
+        except Exception:
+            pass
+        try:
+            if len(hits) < self.max_sources:
+                for entity_id,label in self._wikidata_search(query)[:1]:
+                    item=self._wikidata_lesson(entity_id,label,query)
+                    if item: hits.append(item)
         except Exception:
             pass
         if not hits:
@@ -144,7 +250,10 @@ class OnlineLearning:
                 except Exception: continue
         else:
             learned=self.search(query)[:self.max_sources]
-        return {'enabled':True,'learned':learned,'count':len(learned),'query':query,'pending':bool(learned),'reason':'user_approval_required' if learned else 'no_new_lesson'}
+        proposal=self.build_proposal(query, learned) if learned else None
+        return {'enabled':True,'learned':learned,'count':len(learned),'query':query,
+                'pending':bool(proposal),'proposal':proposal,
+                'reason':'user_approval_required' if proposal else 'no_new_lesson'}
 
     def approve_lesson(self, lesson):
         if not lesson: return {'approved':False,'reason':'empty_lesson'}
