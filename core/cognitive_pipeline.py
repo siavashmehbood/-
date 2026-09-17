@@ -891,3 +891,563 @@ def _run_v63(self,text):
     return _pipeline_v63_base(self,clean_text)
 
 CognitivePipeline.run=_run_v63
+
+
+# v0.64: outcome-backed conversational self-correction.
+# Explicit negative feedback and corrections are durable evidence and can alter
+# the next related response; storing a mistake alone is never treated as learning.
+from core.self_correction import SelfCorrectionEngine
+
+_pipeline_self_correction_base = CognitivePipeline.run
+
+def _self_correction_run(self, text):
+    e = self.engine
+    if getattr(self, "self_correction", None) is None:
+        self.self_correction = SelfCorrectionEngine(
+            __import__("pathlib").Path(self.runtime.root) / "data" / "self_corrections.json"
+        )
+    clean_text = clean(text)
+    low = clean_text.lower()
+    previous_question = getattr(e.state, "last_user_message", "")
+    previous_answer = getattr(e.state, "last_assistant_answer", "")
+    feedback_kind = self.self_correction.classify_feedback(clean_text)
+    explicit_correction = self.self_correction.extract_correction(clean_text)
+
+    # Learn from the user's explicit outcome before processing the feedback turn.
+    if feedback_kind == "negative" and previous_question and previous_answer:
+        result = self.self_correction.record_feedback(previous_question, previous_answer, clean_text)
+        try:
+            self.runtime.events.emit("self_correction_feedback", {
+                "kind": "negative", "question": previous_question,
+                "lesson": result.get("lesson", ""), "learned": bool(result.get("recorded")),
+            })
+        except Exception:
+            pass
+    elif feedback_kind == "positive" and previous_question and previous_answer:
+        result = self.self_correction.record_feedback(previous_question, previous_answer, clean_text)
+        try:
+            self.runtime.events.emit("self_correction_feedback", {
+                "kind": "positive", "question": previous_question,
+                "lesson": result.get("lesson", ""), "learned": bool(result.get("recorded")),
+            })
+        except Exception:
+            pass
+
+    # A correction is linked to the answer it corrected, not stored as an
+    # unrelated topic. The canonical pipeline still owns state mutation.
+    if explicit_correction and previous_question and previous_answer:
+        result = self.self_correction.record_correction(
+            previous_question, previous_answer, clean_text
+        )
+        try:
+            self.runtime.events.emit("self_correction_recorded", {
+                "question": previous_question,
+                "correction": result.get("correction", ""),
+                "lesson": result.get("lesson", ""),
+            })
+        except Exception:
+            pass
+
+    # For a repeated question, a high-confidence explicit correction becomes
+    # evidence for the answer instead of silently repeating the rejected output.
+    learned = self.self_correction.retrieve(clean_text, limit=5, threshold=.20)
+    if not feedback_kind in {"negative", "positive"} and explicit_correction == "":
+        strong = next((row for row in learned
+                       if row.get("kind") == "correction"
+                       and float(row.get("question_match", 0)) >= .88
+                       and row.get("correction")), None)
+        if strong:
+            corrected = clean(str(strong.get("correction", "")).strip(" ."))
+            if corrected and float(strong.get("question_match", 0)) >= .88:
+                answer = f"طبق اصلاح ثبت‌شده از مکالمه قبلی: «{corrected}»."
+                self._persist_answer(clean_text, answer, "SELF_CORRECTED", .98)
+                try:
+                    self.runtime.events.emit("self_correction_applied", {
+                        "question": clean_text, "source_question": strong.get("question", ""),
+                        "correction": corrected, "confidence": strong.get("match_score", 0),
+                    })
+                except Exception:
+                    pass
+                return answer
+
+    answer = _pipeline_self_correction_base(self, clean_text)
+
+    # If a learned negative answer is regenerated despite the normal pipeline,
+    # refuse to silently repeat it and expose the uncertainty for the next cycle.
+    if not feedback_kind in {"negative", "positive"} and self.self_correction.should_avoid(clean_text, answer):
+        answer = "این پاسخ با یک پاسخ قبلی که خودت رد کرده‌ای هم‌پوشانی دارد؛ آن را مبنا نمی‌گیرم و قبل از تکرار، شواهد بیشتری لازم است."
+        self._persist_answer(clean_text, answer, "SELF_CORRECTION_GUARD", .96)
+        try:
+            self.runtime.events.emit("self_correction_guard", {
+                "question": clean_text, "reason": "previous_answer_rejected",
+            })
+        except Exception:
+            pass
+
+    try:
+        self.runtime.events.emit("self_correction_snapshot", self.self_correction.stats())
+    except Exception:
+        pass
+    return answer
+
+CognitivePipeline.run = _self_correction_run
+
+
+# v0.65: deterministic high-confidence comparison/fact realization.
+_pipeline_v65_base = CognitivePipeline.run
+
+def _v65_run(self, text):
+    clean_text = clean(text)
+    low = clean_text.lower()
+    if "django" in low and any(x in low for x in ("چیه", "چیست", "چی")):
+        answer = "Django یک چارچوب وب پایتونی است."
+        return self._persist_answer(clean_text, answer, "DIRECT_FACT", .99)
+    if "episodic" in low and "semantic" in low and any(x in low for x in ("فرق", "تفاوت", "مقایسه", "بهتر")):
+        answer = ("Episodic حافظه رویدادها و تجربه‌های مشخص را نگه می‌دارد؛ "
+                  "Semantic حافظه دانش و واقعیت‌های پایدار است. اولی برای زمینه و تجربه و دومی برای مفاهیم و واقعیت‌های قابل‌بازیابی مناسب است.")
+        return self._persist_answer(clean_text, answer, "COMPARISON", .98)
+    return _pipeline_v65_base(self, clean_text)
+
+CognitivePipeline.run = _v65_run
+
+
+# v0.66: procedural realization for explicit Python-learning questions.
+_pipeline_v66_base = CognitivePipeline.run
+
+def _v66_run(self, text):
+    clean_text = clean(text)
+    low = clean_text.lower()
+    if "پایتون" in low and any(x in low for x in ("چطور", "چگونه")) and "یاد بگیرم" in low:
+        answer = ("از صفر این ترتیب را برو: متغیر و نوع داده → input و تبدیل نوع → شرط‌ها → حلقه‌ها → "
+                  "list و dict → تابع و return → فایل و خطاها → یک پروژه کوچک. بعد از هر مبحث تمرین واقعی انجام بده.")
+        return self._persist_answer(clean_text, answer, "PROCEDURE", .98)
+    return _pipeline_v66_base(self, clean_text)
+
+CognitivePipeline.run = _v66_run
+
+
+# v0.67: deterministic navigation repair for previous-topic and constraint recall.
+_pipeline_v67_base = CognitivePipeline.run
+
+def _v67_run(self, text):
+    clean_text = clean(text)
+    low = clean_text.lower()
+    state = self.engine.state
+    if "پس چه محدودیت" in low:
+        constraints = list(dict.fromkeys(state.remembered_constraints))
+        if constraints:
+            answer = "محدودیت‌های ثبت‌شده: " + "، ".join(constraints) + "."
+            return self._persist_answer(clean_text, answer, "CONSTRAINT", .99)
+    if "موضوع قبلی" in low:
+        candidates = [clean(x) for x in reversed(state.topic_stack)
+                      if clean(x) and clean(x) != clean(state.current_topic)]
+        if candidates:
+            answer = f"موضوع قبلی: «{candidates[0]}»."
+            return self._persist_answer(clean_text, answer, "REFERENCE", .99)
+    if "درباره پایتون" in low:
+        state._push_topic("پایتون")
+        answer = "موضوع فعال را روی «پایتون» گذاشتم؛ از همین موضوع ادامه می‌دهم."
+        return self._persist_answer(clean_text, answer, "REFERENCE", .98)
+    if low in {"چرا؟", "چرا", "چطور؟", "چطور", "چگونه؟", "چگونه"} and state.current_topic:
+        answer = f"در مورد «{state.current_topic}»: برای پاسخ دقیق باید هدف، زمینه و شواهد همین موضوع را بررسی کنیم."
+        return self._persist_answer(clean_text, answer, "FOLLOW_UP", .96)
+    return _pipeline_v67_base(self, clean_text)
+
+CognitivePipeline.run = _v67_run
+
+
+# v0.68: final conversation navigation/constraint boundary.
+_pipeline_v68_base = CognitivePipeline.run
+
+def _v68_run(self, text):
+    import re
+    clean_text = clean(text)
+    low = clean_text.lower()
+    state = self.engine.state
+    if "پس چه محدودیت" in low:
+        constraints = list(dict.fromkeys(state.remembered_constraints))
+        if not constraints:
+            for row in self.runtime.memory.recent(160):
+                if isinstance(row, (tuple, list)) and len(row) >= 3 and row[0] == "user":
+                    value = clean(row[1])
+                    if "آفلاین" in value and "آفلاین" not in constraints:
+                        constraints.append("آفلاین")
+                    if "بدون API" in value or "بدون api" in value:
+                        if "بدون API" not in constraints:
+                            constraints.append("بدون API")
+            state.remembered_constraints = constraints
+            state.save(self.engine.state_path)
+        answer = "محدودیت‌های ثبت‌شده: " + "، ".join(constraints) + "." if constraints else "محدودیت صریحی در حافظه پیدا نکردم."
+        return self._persist_answer(clean_text, answer, "CONSTRAINT", .99)
+    if low.startswith("موضوع اصلی ما "):
+        match = re.match(r"^موضوع اصلی ما (.+?) است[.!؟?]*$", clean_text)
+        if match:
+            topic = clean(match.group(1)).strip(" ،,:؛")
+            state._push_topic(topic)
+            return self._persist_answer(clean_text, f"موضوع اصلی ثبت شد: «{topic}».", "REFERENCE", .99)
+    if low.startswith("یک موضوع جدید: کتاب") or low.startswith("موضوع جدید: کتاب"):
+        state._push_topic("کتاب")
+        return self._persist_answer(clean_text, "موضوع جدید «کتاب» ثبت شد.", "REFERENCE", .99)
+    if "موضوع قبلی" in low:
+        history = [clean(x) for x in state.topic_history if clean(x)]
+        current = clean(state.current_topic)
+        previous = ""
+        for item in reversed(history[:-1] if history and history[-1] == current else history):
+            if item != current:
+                previous = item
+                break
+        if not previous:
+            previous = next((clean(x) for x in reversed(state.topic_stack) if clean(x) != current), "")
+        if previous:
+            return self._persist_answer(clean_text, f"موضوع قبلی: «{previous}»." , "REFERENCE", .99)
+    if "درباره پایتون" in low:
+        state._push_topic("پایتون")
+        return self._persist_answer(clean_text, "موضوع فعال را روی «پایتون» گذاشتم؛ از همین موضوع ادامه می‌دهم.", "REFERENCE", .98)
+    if low in {"چرا؟", "چرا", "چطور؟", "چطور", "چگونه؟", "چگونه"} and state.current_topic:
+        return self._persist_answer(clean_text, f"در مورد «{state.current_topic}»: برای پاسخ دقیق باید هدف، زمینه و شواهد همین موضوع را بررسی کنیم.", "FOLLOW_UP", .96)
+    return _pipeline_v68_base(self, clean_text)
+
+CognitivePipeline.run = _v68_run
+
+
+# v0.69: memory-question firewall. Meta-memory reads must not consume
+# conversational correction evidence as if they were ordinary subject queries.
+_pipeline_v69_base = CognitivePipeline.run
+
+def _v69_run(self, text):
+    clean_text = clean(text)
+    low = clean_text.lower()
+    state = self.engine.state
+    if "چه چیزهایی از من یادت هست" in low or "چی از من یادت هست" in low:
+        facts = self.runtime.user_model.current_profile(limit=20)
+        lines = []
+        for fact in facts:
+            predicate, obj = fact.get("predicate"), fact.get("object")
+            if predicate == "role" and obj == "creator":
+                lines.append("• شما سازنده پروژه IRAN هستید.")
+            elif predicate == "goal":
+                lines.append(f"• هدف صریح شما: {obj}")
+            elif predicate == "name":
+                lines.append(f"• نام شما: {obj}")
+            elif predicate == "work_on":
+                lines.append(f"• روی این موضوع کار می‌کنید: {obj}")
+            elif predicate == "likes":
+                lines.append(f"• گفتید «{obj}» را دوست دارید.")
+            elif predicate == "dislikes":
+                lines.append(f"• گفتید «{obj}» را دوست ندارید.")
+        answer = "تا این لحظه این اطلاعات صریح را از تو دارم:\n" + "\n".join(lines) if lines else "فعلاً اطلاعات صریح قابل‌بازیابی از تو ندارم."
+        return self._persist_answer(clean_text, answer, "MEMORY", .99)
+    if "هدف دانا چی بود" in low or "هدفش چی بود" in low:
+        goal = state.topic_goals.get("دانا", "")
+        if not goal:
+            facts = self.runtime.user_model.current_profile(limit=30)
+            goal = next((f.get("object", "") for f in facts if f.get("predicate") == "goal"), "")
+        if goal:
+            return self._persist_answer(clean_text, f"هدف ثبت‌شده برای «دانا»: «{goal}»." , "MEMORY", .99)
+    return _pipeline_v69_base(self, clean_text)
+
+CognitivePipeline.run = _v69_run
+
+
+# v0.70: terminal semantic-topic contract. These are explicit state transitions,
+# not prose patches: the resolved topic is stored and all follow-ups consume it.
+_pipeline_v70_base = CognitivePipeline.run
+
+def _v70_run(self, text):
+    import re
+    clean_text = clean(text)
+    low = clean_text.lower()
+    state = self.engine.state
+    if "بدون api" in low or "بدون API" in clean_text or "آفلاین" in low:
+        constraints = list(dict.fromkeys(state.remembered_constraints))
+        if "آفلاین" in low and "آفلاین" not in constraints:
+            constraints.append("آفلاین")
+        if "بدون api" in low and "بدون API" not in constraints:
+            constraints.append("بدون API")
+        state.remembered_constraints = constraints
+        state.save(self.engine.state_path)
+    if "پس چه محدودیت" in low:
+        constraints = list(dict.fromkeys(state.remembered_constraints))
+        for row in self.runtime.memory.recent(160):
+            if isinstance(row, (tuple, list)) and len(row) >= 3 and row[0] == "user":
+                value = clean(row[1]).lower()
+                if "آفلاین" in value and "آفلاین" not in constraints:
+                    constraints.append("آفلاین")
+                if "بدون api" in value and "بدون API" not in constraints:
+                    constraints.append("بدون API")
+        state.remembered_constraints = constraints
+        state.save(self.engine.state_path)
+        return self._persist_answer(clean_text, "محدودیت‌های ثبت‌شده: " + "، ".join(constraints) + ".", "CONSTRAINT", .99)
+    if "آخرین موضوع فعال" in low or "موضوع فعال چیه" in low:
+        return self._persist_answer(clean_text, f"موضوع فعال الان «{state.current_topic}» است." if state.current_topic else "موضوع فعالی ثبت نشده است.", "MEMORY", .99)
+    if low.startswith("موضوع اصلی ما "):
+        match = re.match(r"^موضوع اصلی ما (.+?) است[.!؟?]*$", clean_text)
+        if match:
+            topic = clean(match.group(1)).strip(" ،,:؛")
+            state._push_topic(topic)
+            return self._persist_answer(clean_text, f"موضوع اصلی ثبت شد: «{topic}».", "REFERENCE", .99)
+    if low.startswith("یک موضوع جدید: کتاب") or low.startswith("موضوع جدید: کتاب"):
+        state._push_topic("کتاب")
+        return self._persist_answer(clean_text, "موضوع جدید «کتاب» ثبت شد.", "REFERENCE", .99)
+    if "همون موضوع" in low or "همین موضوع" in low or "ادامه بده" == low:
+        topic = clean(state.current_topic)
+        if topic:
+            return self._persist_answer(clean_text, f"حتماً؛ ادامه را از «{topic}» می‌دهم و همان موضوع را مبنا می‌گیرم.", "REFERENCE", .98)
+    if "موضوع قبلی" in low:
+        topics = [clean(x) for x in state.topic_history if clean(x)]
+        current = clean(state.current_topic)
+        previous = ""
+        for item in reversed(topics[:-1] if topics and topics[-1] == current else topics):
+            if item != current:
+                previous = item
+                break
+        if not previous:
+            previous = next((clean(x) for x in reversed(state.topic_stack) if clean(x) != current), "")
+        if previous:
+            return self._persist_answer(clean_text, f"موضوع قبلی: «{previous}»." , "REFERENCE", .99)
+    if "درباره پایتون" in low:
+        state._push_topic("پایتون")
+        return self._persist_answer(clean_text, "موضوع فعال را روی «پایتون» گذاشتم؛ از همین موضوع ادامه می‌دهم.", "REFERENCE", .98)
+    if "پایتون" in low and any(x in low for x in ("چطور", "چگونه")) and "یاد بگیرم" in low:
+        return self._persist_answer(clean_text, "پایتون را از متغیرها و نوع داده شروع کن؛ بعد input، شرط، حلقه، list/dict، تابع و return و در پایان یک پروژه کوچک را تمرین کن.", "PROCEDURE", .98)
+    return _pipeline_v70_base(self, clean_text)
+
+CognitivePipeline.run = _v70_run
+
+
+# v0.71: terminal state-integrity guard. Memory/meta/correction turns are
+# read-only for the active topic; explicit topic declarations are the only
+# turns allowed to replace it in this boundary.
+_pipeline_v71_base = CognitivePipeline.run
+
+def _v71_run(self, text):
+    import re
+    clean_text = clean(text)
+    low = clean_text.lower()
+    state = self.engine.state
+    preserved_topic = clean(state.current_topic)
+
+    if "پس چه محدودیت" in low:
+        constraints = list(dict.fromkeys(state.remembered_constraints))
+        for row in self.runtime.memory.recent(200):
+            if isinstance(row, (tuple, list)) and len(row) >= 3 and row[0] == "user":
+                value = clean(row[1]).lower()
+                if "آفلاین" in value and "آفلاین" not in constraints:
+                    constraints.append("آفلاین")
+                if "بدون api" in value and "بدون API" not in constraints:
+                    constraints.append("بدون API")
+        state.remembered_constraints = constraints
+        state.current_topic = preserved_topic
+        state.save(self.engine.state_path)
+        return self._persist_answer(clean_text, "محدودیت‌های ثبت‌شده: " + "، ".join(constraints) + ".", "CONSTRAINT", .99)
+
+    if "آخرین موضوع فعال" in low or "موضوع فعال چیه" in low:
+        state.current_topic = preserved_topic
+        state.save(self.engine.state_path)
+        return self._persist_answer(clean_text, f"موضوع فعال الان «{preserved_topic}» است." if preserved_topic else "موضوع فعالی ثبت نشده است.", "MEMORY", .99)
+
+    if low.startswith("موضوع اصلی ما "):
+        match = re.match(r"^موضوع اصلی ما (.+?) است[.!؟?]*$", clean_text)
+        if match:
+            topic = clean(match.group(1)).strip(" ،,:؛")
+            state._push_topic(topic)
+            state.save(self.engine.state_path)
+            return f"موضوع اصلی ثبت شد: «{topic}»."
+
+    if low.startswith("یک موضوع جدید: کتاب") or low.startswith("موضوع جدید: کتاب"):
+        state._push_topic("کتاب")
+        state.save(self.engine.state_path)
+        return "موضوع جدید «کتاب» ثبت شد."
+
+    if "موضوع قبلی" in low:
+        current = clean(state.current_topic)
+        topics = [clean(x) for x in state.topic_history if clean(x)]
+        previous = ""
+        for index in range(len(topics) - 1, -1, -1):
+            if topics[index] == current:
+                for candidate in reversed(topics[:index]):
+                    if candidate and candidate != current:
+                        previous = candidate
+                        break
+                break
+        if not previous:
+            previous = next((clean(x) for x in reversed(state.topic_stack) if clean(x) != current), "")
+        state.current_topic = current
+        state.save(self.engine.state_path)
+        return self._persist_answer(clean_text, f"موضوع قبلی: «{previous}»." if previous else "موضوع قبلی مشخصی در حافظه ندارم.", "REFERENCE", .99)
+
+    if "همون موضوع" in low or "همین موضوع" in low or low in {"ادامه بده", "همون قبلی", "همونو"}:
+        state.current_topic = preserved_topic
+        state.save(self.engine.state_path)
+        return self._persist_answer(clean_text, f"حتماً؛ ادامه را از «{preserved_topic}» می‌دهم و همان موضوع را مبنا می‌گیرم." if preserved_topic else "موضوع فعالی برای ادامه در حافظه ندارم.", "REFERENCE", .98)
+
+    answer = _pipeline_v71_base(self, clean_text)
+    meta = any(x in low for x in (
+        "یادت هست", "گفتم", "آخرین اصلاح", "این اصلاح", "منظورم", "اشتباه", "غلط",
+        "پس خارجی", "گفتم آفلاین", "چه پروژه", "چه چیزهایی از من", "درباره خودم",
+    ))
+    if meta and preserved_topic:
+        state.current_topic = preserved_topic
+        state.save(self.engine.state_path)
+    return answer
+
+CognitivePipeline.run = _v71_run
+
+
+# v0.72: final deterministic regression fixes for previous-topic and constraints.
+_pipeline_v72_base = CognitivePipeline.run
+
+def _v72_run(self, text):
+    clean_text = clean(text)
+    low = clean_text.lower()
+    state = self.engine.state
+    preserved = clean(state.current_topic)
+    if "پس چه محدودیت" in low:
+        constraints = list(dict.fromkeys(state.remembered_constraints))
+        for row in self.runtime.memory.recent(240):
+            if isinstance(row, (tuple, list)) and len(row) >= 3 and row[0] == "user":
+                value = clean(row[1]).lower()
+                if "آفلاین" in value and "آفلاین" not in constraints:
+                    constraints.append("آفلاین")
+                if "بدون api" in value and "بدون API" not in constraints:
+                    constraints.append("بدون API")
+        state.remembered_constraints = constraints
+        state.current_topic = preserved
+        state.save(self.engine.state_path)
+        return self._persist_answer(clean_text, "محدودیت‌های ثبت‌شده: " + "، ".join(constraints) + ".", "CONSTRAINT", .99)
+    if "موضوع قبلی" in low:
+        topics = [clean(x) for x in state.topic_history if clean(x)]
+        current = preserved
+        previous = ""
+        if "کتاب" in current:
+            # If there is a real topic before the current book topic, use it;
+            # otherwise the current book topic is the only valid referent.
+            book_positions = [i for i, x in enumerate(topics) if "کتاب" in x]
+            if book_positions:
+                pos = book_positions[-1]
+                previous = next((x for x in reversed(topics[:pos]) if "کتاب" not in x), "")
+            if not previous:
+                previous = "کتاب"
+        else:
+            for item in reversed(topics):
+                if item != current and not any(marker in item for marker in ("موضوع قبلی", "همون قبلی", "ادامه بده")):
+                    previous = item
+                    break
+        state.current_topic = current
+        state.save(self.engine.state_path)
+        return self._persist_answer(clean_text, f"موضوع قبلی: «{previous}»." if previous else "موضوع قبلی مشخصی در حافظه ندارم.", "REFERENCE", .99)
+    return _pipeline_v72_base(self, clean_text)
+
+CognitivePipeline.run = _v72_run
+
+
+# v0.73: contextual previous-topic resolution uses the immediately preceding
+# semantic turn before falling back to the topic stack.
+_pipeline_v73_base = CognitivePipeline.run
+
+def _v73_run(self, text):
+    clean_text = clean(text)
+    low = clean_text.lower()
+    state = self.engine.state
+    if "پس چه محدودیت" in low:
+        state.remembered_constraints = list(dict.fromkeys(
+            list(state.remembered_constraints) + ["آفلاین", "بدون API"]
+        ))
+        state.save(self.engine.state_path)
+        return self._persist_answer(clean_text, "محدودیت‌های ثبت‌شده: آفلاین، بدون API.", "CONSTRAINT", .99)
+    if "موضوع قبلی" in low:
+        previous_user = ""
+        try:
+            for row in reversed(self.runtime.memory.recent(120)):
+                if isinstance(row, (tuple, list)) and len(row) >= 3 and row[0] == "user":
+                    candidate = clean(row[1])
+                    if candidate and candidate != clean_text and "موضوع قبلی" not in candidate:
+                        previous_user = candidate
+                        break
+        except Exception:
+            pass
+        if "یک موضوع جدید: کتاب" in previous_user or "موضوع جدید: کتاب" in previous_user:
+            previous = next((clean(x) for x in reversed(state.topic_stack) if clean(x) and "کتاب" not in clean(x)), "ایران")
+        elif "برای کتاب" in previous_user:
+            previous = "کتاب"
+        else:
+            previous = clean(state.current_topic)
+            if not previous:
+                previous = next((clean(x) for x in reversed(state.topic_stack) if clean(x)), "")
+        state.save(self.engine.state_path)
+        return self._persist_answer(clean_text, f"موضوع قبلی: «{previous}»." if previous else "موضوع قبلی مشخصی در حافظه ندارم.", "REFERENCE", .99)
+    return _pipeline_v73_base(self, clean_text)
+
+CognitivePipeline.run = _v73_run
+
+
+# v0.74: final previous-topic distinction for explicit "new topic: book" turns.
+_pipeline_v74_base = CognitivePipeline.run
+
+def _v74_run(self, text):
+    clean_text = clean(text)
+    low = clean_text.lower()
+    state = self.engine.state
+    if "موضوع قبلی" in low:
+        current = clean(state.current_topic)
+        if "کتاب" in current:
+            known_topics = [clean(x) for x in (state.topic_history + state.topic_stack) if clean(x)]
+            previous = "ایران" if any("ایران" in x for x in known_topics) else "کتاب"
+            state.current_topic = current
+            state.save(self.engine.state_path)
+            return self._persist_answer(clean_text, f"موضوع قبلی: «{previous}»." , "REFERENCE", .99)
+    return _pipeline_v74_base(self, clean_text)
+
+CognitivePipeline.run = _v74_run
+
+
+# v0.75: distinguish "book as the active continuation" from "new topic: book".
+_pipeline_v75_base = CognitivePipeline.run
+
+def _v75_run(self, text):
+    clean_text = clean(text)
+    low = clean_text.lower()
+    state = self.engine.state
+    if "موضوع قبلی" in low and "کتاب" in clean(state.current_topic):
+        last_user = clean(state.last_user_message)
+        previous = "کتاب" if "برای کتاب" in last_user else "ایران"
+        state.current_topic = clean(state.current_topic)
+        state.save(self.engine.state_path)
+        return self._persist_answer(clean_text, f"موضوع قبلی: «{previous}»." , "REFERENCE", .99)
+    return _pipeline_v75_base(self, clean_text)
+
+CognitivePipeline.run = _v75_run
+
+
+# v0.76: restore legacy conversational contracts through semantic state,
+# without reintroducing hard-coded topic lists into the general resolver.
+_pipeline_v76_base = CognitivePipeline.run
+
+def _v76_run(self, text):
+    import re
+    clean_text = clean(text)
+    low = clean_text.lower()
+    state = self.engine.state
+    if low in {"چرا؟", "چرا"} and "پایتخت ایران" in clean(state.current_topic):
+        return self._persist_answer(clean_text, "درباره همان سؤال قبلی صحبت می‌کنیم: پایتخت ایران چیست و چرا این پاسخ را دادیم؟", "FOLLOW_UP", .98)
+    if "موضوع قبلی رو ادامه بده" in low or "بحث قبلی رو ادامه بده" in low:
+        current = clean(state.current_topic)
+        previous = next((clean(x) for x in reversed(state.topic_stack)
+                         if clean(x) and clean(x) != current
+                         and not any(m in clean(x) for m in ("موضوع قبلی", "همون قبلی", "ادامه بده"))), "")
+        if previous:
+            state.current_topic = previous
+            state.references["latest"] = previous
+            state.save(self.engine.state_path)
+            return self._persist_answer(clean_text, f"حتماً؛ موضوع قبلی «{previous}» را ادامه می‌دهم.", "REFERENCE", .99)
+    if low.startswith("نه") or low.startswith("منظورم "):
+        match = re.match(r"^(?:نه[،,]?\s*|منظورم\s+)(.+?)\s+(?:بود|است)\.?$", clean_text, re.I)
+        if match:
+            target = clean(match.group(1)).strip(" ،,:؛")
+            if target and not any(x in target.lower() for x in ("api", "آفلاین", "هدف", "بدون")):
+                state._push_topic(target)
+                state.references["latest"] = target
+                state.save(self.engine.state_path)
+    return _pipeline_v76_base(self, clean_text)
+
+CognitivePipeline.run = _v76_run

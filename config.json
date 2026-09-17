@@ -14,7 +14,7 @@
   "security": {
     "safe_mode": true,
     "allow_shell": false,
-    "allow_network_tools": true
+    "allow_network_tools": false
   },
   "self_improvement": {
     "enabled": true,
