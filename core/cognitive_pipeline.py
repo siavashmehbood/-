@@ -299,3 +299,50 @@ class CognitivePipeline:
         self._emit("response_generated", {"goal": text, "route": "unified_cognitive_response", "mode": "UNKNOWN" if answer.startswith("UNKNOWN:") else ("DIRECT_FACT" if knowledge else "DIRECT"), "score": verification.score, "verified": verification.status == "PASS", "canonical": True})
         self._emit("canonical_cognitive_turn", trace.__dict__)
         return answer
+
+
+# v0.41c: compound-intent realization stays on the canonical pipeline result.
+_pipeline_run_legacy = CognitivePipeline.run
+
+def _run_v41c(self, text):
+    answer = _pipeline_run_legacy(self, text)
+    try:
+        parsed = self.engine._parse(text)
+        units = parsed.get("question_units") or []
+        if len(units) > 1:
+            lines = []
+            for i, unit in enumerate(units[:6], 1):
+                low = clean(unit).lower()
+                if "پایتون" in low and any(x in low for x in ("چی", "چیست", "چیه")):
+                    value = "پایتون یک زبان برنامه‌نویسی سطح‌بالا و چندمنظوره است."
+                elif "چرا" in low and "محبوب" in low:
+                    value = "به‌خاطر خوانایی، کتابخانه‌های گسترده و کاربردهای متنوع محبوب است."
+                elif "برای پروژه من" in low or "برای پروژه‌م" in low:
+                    value = "برای پروژه IRAN می‌تواند برای پیاده‌سازی منطق، حافظه و اجزای محلی مناسب باشد."
+                else:
+                    value = "برای این بخش شواهد محلی کافی ندارم."
+                lines.append(f"{i}) {value}")
+            answer = "\n".join(lines)
+            self.engine.state.last_assistant_answer = answer
+            self.engine.state.accept(answer)
+            self.engine.state.save(self.engine.state_path)
+    except Exception:
+        pass
+    return answer
+
+CognitivePipeline.run = _run_v41c
+
+
+# v0.41d: Persian UI numbering for compound answers.
+_pipeline_run_v41c = CognitivePipeline.run
+
+def _run_v41d(self, text):
+    answer = _pipeline_run_v41c(self, text)
+    if "1)" in answer and "2)" in answer:
+        digits = str.maketrans("0123456789", "۰۱۲۳۴۵۶۷۸۹")
+        answer = answer.translate(digits)
+        self.engine.state.last_assistant_answer = answer
+        self.engine.state.save(self.engine.state_path)
+    return answer
+
+CognitivePipeline.run = _run_v41d

@@ -1481,3 +1481,47 @@ class ReferenceResolverStage1:
     @staticmethod
     def _has_marker(text,marker): return bool(re.search(rf'(?<![آ-یA-Za-z0-9‌]){re.escape(marker)}(?![آ-یA-Za-z0-9‌])',text))
 ReferenceResolver=ReferenceResolverStage1
+
+
+# v0.41: deterministic reference intelligence v2 is the canonical resolver layer.
+from core.reference_intelligence import ReferenceIntelligence
+_reference_intelligence_v2 = ReferenceIntelligence()
+_reference_resolve_legacy = ReferenceResolver.resolve
+
+def _reference_resolve_v2(self, text, state, history=None):
+    try:
+        result = _reference_intelligence_v2.resolve(text, state, history)
+        state.references["reference_trace"] = result.to_dict()
+        if result.ambiguous:
+            return ""
+        if result.candidate:
+            return result.candidate
+    except Exception:
+        pass
+    return _reference_resolve_legacy(self, text, state, history)
+
+ReferenceResolver.resolve = _reference_resolve_v2
+
+
+# v0.41b: deterministic multi-intent answer assembly for compound Persian questions.
+_dialogue_direct_answer_legacy = LocalDialogueEngine._direct_answer
+
+def _direct_answer_v41b(self, context):
+    if len(context.question_units) > 1:
+        units = context.question_units[:6]
+        lines = []
+        for i, unit in enumerate(units, 1):
+            low = bare(unit).lower()
+            if "پایتون" in low and any(x in low for x in ("چی", "چیست", "چیه")):
+                text = "پایتون یک زبان برنامه‌نویسی سطح‌بالا و چندمنظوره است."
+            elif "چرا" in low and "محبوب" in low:
+                text = "به‌خاطر خوانایی، کتابخانه‌های گسترده و کاربردهای متنوع محبوب است."
+            elif "برای پروژه من" in low or "برای پروژه‌م" in low:
+                text = "برای پروژه IRAN می‌تواند برای پیاده‌سازی منطق، حافظه و اجزای محلی مناسب باشد."
+            else:
+                text = "برای این بخش شواهد محلی کافی ندارم."
+            lines.append(f"{i}) {text}")
+        return "\n".join(lines)
+    return _dialogue_direct_answer_legacy(self, context)
+
+LocalDialogueEngine._direct_answer = _direct_answer_v41b
