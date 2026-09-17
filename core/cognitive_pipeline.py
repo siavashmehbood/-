@@ -281,7 +281,40 @@ class CognitivePipeline:
         elif any(x in low for x in ("همونو بیشتر", "همون قبلی", "همونو", "ادامه بده", "بیشتر توضیح بده")) and reference:
             answer = f"حتماً؛ ادامه را از «{reference}» می‌دهم و همان موضوع را مبنا می‌گیرم."
 
-        unknown_candidate = (not knowledge and not memory and context.question_type in {"what", "why", "how", "where", "yes_no"} and not is_follow_up(text) and not is_correction(text))
+        # Online learning is a retrieval fallback, never an automatic code/model update.
+        online_context = []
+        if not answer and getattr(self.runtime, 'online_learning', None) is not None:
+            online = self.runtime.online_learning
+            try:
+                online_context = online.context(text, limit=3)
+                if not online_context and online.enabled and online.auto_fetch:
+                    online.acquire(text)
+                    online_context = online.context(text, limit=3)
+                if online_context:
+                    self._emit('online_evidence_retrieved', {
+                        'query': text, 'count': len(online_context),
+                        'sources': [x.get('url') for x in online_context],
+                        'trusted': [x.get('source') for x in online_context],
+                    })
+            except Exception as exc:
+                self._emit('online_learning_error', {'error': type(exc).__name__})
+        unknown_candidate = (not knowledge and not memory and not online_context and context.question_type in {"what", "why", "how", "where", "yes_no"} and not is_follow_up(text) and not is_correction(text))
+        if not answer and online_context:
+            top = online_context[0]
+            excerpt = str(top.get('text','')).strip()
+            try:
+                excerpt = self.runtime.online_learning.excerpt(text, excerpt, 900)
+            except Exception:
+                if len(excerpt) > 900: excerpt = excerpt[:900].rsplit(' ',1)[0] + '…'
+            answer = (f"از منبع آنلاین معتبر «{top.get('source','')}» یادگیری شد.\n"
+                      f"عنوان: {top.get('title','')}\n"
+                      f"شاهد ذخیره‌شده: {excerpt}\n"
+                      f"این محتوا در حافظه وب محلی ذخیره شد و برای پاسخ‌های بعدی قابل بازیابی است.")
+            try:
+                self.runtime.learning.record(text, 'online-acquisition', excerpt, float(top.get('trust', .5)),
+                                             context.intent, 'online-evidence', 'web')
+            except Exception:
+                pass
         if not answer and unknown_candidate:
             answer = "UNKNOWN: برای این سؤال در دانش و شواهد محلی اطلاعات کافی ندارم؛ نمی‌خواهم حدس را به‌عنوان واقعیت بگویم."
         if not answer and getattr(e, "grounded_synthesizer", None):

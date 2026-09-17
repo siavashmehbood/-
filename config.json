@@ -22,6 +22,16 @@
     "auto_deploy": false,
     "require_tests": true
   },
+  "online_learning": {
+    "enabled": true,
+    "startup_sync": true,
+    "auto_fetch_on_unknown": true,
+    "max_sources": 3,
+    "max_fetches_per_session": 1,
+    "timeout": 4,
+    "max_chars": 18000,
+    "store": "data/web_lessons.json"
+  },
   "autonomy": {
     "enabled": true,
     "mode": "local-safe-read-only",

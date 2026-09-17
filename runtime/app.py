@@ -12,6 +12,7 @@ from core.reflection import ReflectionEngine
 from memory.store import Memory
 from knowledge.knowledge_graph import KnowledgeGraph
 from learning.learning_engine import LearningEngine
+from learning.online_learning import OnlineLearning
 from providers.factory import create_provider
 from runtime.events import EventLog
 from runtime.goals import GoalStore
@@ -34,14 +35,17 @@ class IranRuntime:
         self.provider=create_provider(self.config);self.brain=Brain(self.provider);self.memory=Memory(self.root/self.config['memory']['db']);self.events=EventLog(self.root/self.config['runtime']['event_log'])
         self.goals=GoalStore(self.root/self.config['runtime'].get('goals','data/goals.json'));self.policy=SecurityPolicy(self.config);self.registry=build_registry(self.root,self.memory);self.agent=Agent(self.brain,self.memory,self.config['memory']['max_history'])
         self.evaluator=Evaluator(self.root);self.benchmark=CognitiveBenchmark();self.improvement=SelfImprovementLoop(self.root);self.cognition_engine=CognitiveEngine();self.world=WorldModel(self.root/'data/world.json')
-        self.knowledge=KnowledgeGraph(self.root/'data/knowledge.json');self.learning=LearningEngine(self.root/'data/experiences.json');self.prediction=PredictionEngine(self.root/'data/predictions.json');self.anomaly=AnomalyDetector();self.kernel=CognitiveKernel(self.memory,self.world,self.knowledge,self.prediction,self.anomaly,self.learning)
+        self.knowledge=KnowledgeGraph(self.root/'data/knowledge.json');self.learning=LearningEngine(self.root/'data/experiences.json');self.online_learning=OnlineLearning(self.root,self.config.get('online_learning',{}));self.prediction=PredictionEngine(self.root/'data/predictions.json');self.anomaly=AnomalyDetector();self.kernel=CognitiveKernel(self.memory,self.world,self.knowledge,self.prediction,self.anomaly,self.learning)
+        if self.online_learning.enabled:
+            sync=self.online_learning.startup_sync()
+            self.events.emit('online_learning_ready', {'enabled':True,'startup_sync':True,'learned':sync.get('count',0),'stats':self.online_learning.stats()})
         self._seed_local_knowledge()
         self.rules=SymbolicRuleEngine()
         self.rules.add('پروژه ایران', 'معماری شناختی', .95, 'project_definition')
         self.rules.add('معماری شناختی', 'نیازمند حافظه و استدلال', .9, 'architecture_principle')
         self.answer_generator=AnswerGenerator(getattr(self.provider,'response_engine',None) or LocalResponseEngine(), self.knowledge)
         self.reflector=ReflectionEngine();self.orchestrator=Orchestrator(self.agent,self.memory,self.events,self.registry,self.policy,self.goals,self.evaluator);self.scheduler=Scheduler(self.root/'data/schedule.json');self.runner=BackgroundRunner(self.scheduler,self.events)
-        self.events.emit('runtime_ready',{'provider':self.provider.name,'version':self.config['version'],'cognitive':True,'offline':True,'network_model':False})
+        self.events.emit('runtime_ready',{'provider':self.provider.name,'version':self.config['version'],'cognitive':True,'offline':not self.online_learning.enabled,'online_learning':self.online_learning.enabled,'network_model':False})
     def _seed_local_knowledge(self):
         facts = (
             ('ایران', 'پایتخت', 'تهران', .99),
@@ -62,6 +66,11 @@ class IranRuntime:
         self.world.record_observation('response_score',score,1.0);self.world.transition(language.intent,cycle.decision.get('chosen','respond'),answer[:300],score);self.events.emit('reflection',reflection.__dict__)
         return answer
     def health(self):return self.brain.health()
+    def online_learning_snapshot(self):return self.online_learning.stats()
+    def learn_online(self, query, urls=None):
+        result=self.online_learning.acquire(str(query), urls)
+        self.events.emit('online_learning_manual', result)
+        return result
     def metrics(self):return self.orchestrator.metrics.snapshot()
     def cognitive_snapshot(self,text):
         state=self.cognition_engine.analyze(text);cycle=self.kernel.cycle(text)
