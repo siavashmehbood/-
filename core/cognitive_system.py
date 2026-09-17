@@ -56,6 +56,7 @@ class CognitiveSystem:
             return pipeline
         pipeline = CognitivePipeline(self.dialogue)
         self.dialogue.cognitive_pipeline = pipeline
+        self.dialogue._canonical_pipeline = pipeline
         return pipeline
 
     def turn(self, text: str) -> str:
