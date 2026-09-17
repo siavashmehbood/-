@@ -2,6 +2,7 @@
 from dataclasses import dataclass, field
 from datetime import datetime
 from core.dialogue import CognitiveContext, clean, is_correction, is_follow_up
+from core.context_tracker import ContextTracker
 
 
 @dataclass
@@ -25,6 +26,7 @@ class CognitivePipeline:
     def __init__(self, engine):
         self.engine = engine
         self.runtime = engine.runtime
+        self.context_tracker = ContextTracker.load(__import__("pathlib").Path(self.runtime.root) / "data" / "context_tracker.json")
 
     def _emit(self, event, data):
         try:
@@ -117,6 +119,7 @@ class CognitivePipeline:
         # Parse the turn once.
         parsed = e._parse(text)
         parsed.update(e.analyzer.analyze(text, parsed))
+        context_snapshot = self.context_tracker.observe(text, parsed)
 
         # Stable local identity/project facts.
         if low in {"سلام", "درود", "سلام ایران", "هی", "hello", "hi"}:
@@ -148,6 +151,12 @@ class CognitivePipeline:
         # Conversation reference resolution.
         history = self.runtime.memory.recent(24)
         references, reference = e._references(text, parsed, history)
+        if not reference:
+            reference = self.context_tracker.resolve()
+            if reference:
+                references['resolved'] = {'candidate': reference, 'confidence': .86, 'source': 'context_tracker'}
+        else:
+            self.context_tracker.observe(text, parsed, reference)
         recent_users = []
         for row in reversed(history):
             if isinstance(row, (tuple, list)) and len(row) >= 3 and row[0] == "user":
@@ -275,6 +284,11 @@ class CognitivePipeline:
             elapsed_ms=round((datetime.now() - started).total_seconds() * 1000, 2),
         )
         e.last_trace = trace
+        e.context_snapshot = context_snapshot.__dict__
+        try:
+            self.context_tracker.save(__import__("pathlib").Path(self.runtime.root) / "data" / "context_tracker.json")
+        except Exception:
+            pass
         e.turn_traces.append(trace.__dict__)
         e.turn_traces = e.turn_traces[-50:]
         self._emit("language_analysis", {"intent": context.intent, "confidence": context.confidence, "entities": context.entities, "constraints": context.constraints, "canonical": True})
