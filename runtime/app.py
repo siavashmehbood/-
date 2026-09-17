@@ -1094,6 +1094,21 @@ def _execute_verified_goal(self, goal, primary, alternative=None, expected_effec
     lesson = self.outcome_learning.lesson(goal, 'task') if hasattr(self, 'outcome_learning') else {
         'strategy': 'evidence-first', 'confidence': 0.35, 'samples': 0,
         'lesson': 'collect evidence before committing'}
+    transfer = self.learning.transfer_plan(goal, 'command', 'verified-task') if hasattr(self, 'learning') else {'available': False}
+    if transfer.get('use_strategy'):
+        lesson = dict(lesson)
+        lesson['strategy'] = transfer['strategy']
+        lesson['confidence'] = max(float(lesson.get('confidence', 0)), float(transfer.get('confidence', 0)))
+        lesson['transfer_patterns'] = transfer.get('patterns', [])
+        self.events.emit('transfer_pattern_applied', {
+            'goal': goal, 'strategy': transfer['strategy'],
+            'confidence': transfer.get('confidence', 0),
+            'patterns': len(transfer.get('patterns', [])),
+            'source': 'repeated_verified_experiences'})
+    elif transfer.get('available'):
+        self.events.emit('transfer_pattern_rejected', {
+            'goal': goal, 'reason': transfer.get('reason'),
+            'patterns': len(transfer.get('patterns', []))})
     verified_experience = self.outcome_learning.recommend_action(goal, [primary, alternative] if alternative else [primary], 'task') if hasattr(self, 'outcome_learning') else {}
     transferable = self.skills.retrieve_transfer(goal, 'task', lesson.get('strategy')) if hasattr(self, 'skills') and lesson.get('strategy') else []
     skill = transferable[0] if transferable else None

@@ -31,6 +31,10 @@ class GoalLearningLifecycleTests(unittest.TestCase):
                 events = [e for e in runtime.events.recent(100) if e.get('event') == 'goal_outcome']
                 self.assertTrue(events)
                 self.assertTrue(events[-1]['data']['success'])
+                runtime.execute_verified_goal('lifecycle demo settings', 'good_action', None, 'correct')
+                runtime.execute_verified_goal('lifecycle demo report', 'good_action', None, 'correct')
+                transfer_events = [e for e in runtime.events.recent(300) if e.get('event') == 'transfer_pattern_applied']
+                self.assertTrue(transfer_events)
             finally:
                 runtime.close()
 

@@ -16,7 +16,8 @@ class LearningEngine:
     def __init__(self,path):
         self.path=Path(path); self.path.parent.mkdir(parents=True,exist_ok=True)
         self.rules_path=self.path.with_name('learned_rules.json')
-        self.experiences=[]; self.rules=[]; self._load(); self._load_rules()
+        self.patterns_path=self.path.with_name('learned_patterns.json')
+        self.experiences=[]; self.rules=[]; self.patterns=[]; self._load(); self._load_rules(); self._load_patterns()
 
     def _load(self):
         if self.path.exists():
@@ -33,6 +34,14 @@ class LearningEngine:
 
     def _save_rules(self):
         tmp=self.rules_path.with_suffix('.tmp'); tmp.write_text(json.dumps(self.rules,ensure_ascii=False,indent=2),encoding='utf-8'); tmp.replace(self.rules_path)
+
+    def _load_patterns(self):
+        if self.patterns_path.exists():
+            try: self.patterns=json.loads(self.patterns_path.read_text(encoding='utf-8'))[-2000:]
+            except Exception: self.patterns=[]
+
+    def _save_patterns(self):
+        tmp=self.patterns_path.with_suffix('.tmp'); tmp.write_text(json.dumps(self.patterns,ensure_ascii=False,indent=2),encoding='utf-8'); tmp.replace(self.patterns_path)
 
     @staticmethod
     def _tokens(text):
@@ -56,8 +65,11 @@ class LearningEngine:
             duplicate['score']=round((float(duplicate.get('score',0))+score)/2,4); duplicate['time']=item.time
         else: self.experiences.append(asdict(item))
         self.experiences=self.experiences[-10000:]; self._save()
-        self.learn_from_experience(asdict(item))
-        return asdict(item)
+        row=asdict(item)
+        self.learn_from_experience(row)
+        pattern=self._update_pattern(row)
+        row['pattern']=pattern
+        return row
 
     def _rows_for(self,goal,intent=None,domain=None):
         rows=[]
@@ -112,7 +124,59 @@ class LearningEngine:
             'success_rate':self.success_rate(goal),
             'learned_rules':self.rules_for(goal,intent,domain,5),
             'strategy_evidence':self.best_strategies(goal,6),
+            'transfer_patterns':self.patterns_for(goal,intent,domain,5),
         }
+
+    def _pattern_key(self, goal, intent, domain, strategy):
+        tokens=sorted(self._tokens(goal))[:12]
+        return '|'.join([str(intent),str(domain),str(strategy),' '.join(tokens)])
+
+    def _update_pattern(self, row):
+        """Extract a reusable pattern from repeated, independently scored experiences."""
+        intent=row.get('intent','general'); domain=row.get('domain','general'); strategy=row.get('strategy','default')
+        related=[r for r in self.experiences
+                 if r.get('intent')==intent and r.get('domain')==domain
+                 and r.get('strategy')==strategy and self._similar(row.get('goal',''),r.get('goal',''))>=.10]
+        distinct={str(r.get('goal','')).strip() for r in related if str(r.get('goal','')).strip()}
+        if len(related)<2 or len(distinct)<2: return None
+        mean=sum(float(r.get('score',0)) for r in related)/len(related)
+        kind='success' if mean>=.75 else 'failure' if mean<.55 else 'mixed'
+        key=self._pattern_key(row.get('goal',''),intent,domain,strategy)
+        pattern=next((p for p in self.patterns if p.get('pattern_key')==key),None)
+        payload={'pattern_key':key,'intent':intent,'domain':domain,'strategy':strategy,
+                 'representative_goal':row.get('goal',''),'sample_count':len(related),
+                 'distinct_goals':len(distinct),'mean_score':round(mean,4),'kind':kind,
+                 'confidence':round(min(.95,.45+len(distinct)*.08+abs(mean-.5)*.25),4),
+                 'updated_at':datetime.now().isoformat(timespec='seconds')}
+        if pattern: pattern.update(payload)
+        else: self.patterns.append(payload)
+        self.patterns=self.patterns[-2000:]; self._save_patterns()
+        return payload
+
+    def patterns_for(self,goal,intent='general',domain='general',limit=5):
+        ranked=[]
+        for pattern in self.patterns:
+            if intent and pattern.get('intent')!=intent: continue
+            if domain and pattern.get('domain') not in (domain,'general'): continue
+            sim=self._similar(goal,pattern.get('representative_goal',''))
+            if sim < .05: continue
+            score=sim*.55+float(pattern.get('confidence',0))*.25+min(1,int(pattern.get('distinct_goals',0))/5)*.20
+            ranked.append((score,pattern))
+        ranked.sort(key=lambda x:x[0],reverse=True)
+        return [p for _,p in ranked[:int(limit)]]
+
+    def transfer_plan(self,goal,intent='general',domain='general'):
+        """Return a future-facing plan based on verified patterns, without claiming success."""
+        patterns=self.patterns_for(goal,intent,domain,5)
+        if not patterns:
+            return {'available':False,'strategy':self.recommended_strategy(goal,intent,domain),
+                    'reason':'no_repeated_pattern','patterns':[]}
+        best=patterns[0]
+        use=best.get('kind')=='success' and float(best.get('confidence',0))>=.55
+        return {'available':True,'strategy':best.get('strategy','evidence-first'),
+                'confidence':best.get('confidence',0),'use_strategy':use,
+                'reason':'verified_repeated_pattern' if use else 'mixed_or_negative_pattern',
+                'patterns':patterns}
 
     def semantic_lessons(self,goal,intent=None,domain=None,limit=8):
         rows=[]
@@ -200,11 +264,15 @@ class LearningEngine:
             if key in old: old[key].update(r)
             else: old[key]=r
         self.rules=list(old.values())[-int(max_rules):]
-        self._save(); self._save_rules()
-        return {'experiences':len(self.experiences),'rules':len(self.rules),'rebuilt':len(rebuilt)}
+        # Rebuild repeated patterns after deduplication so transfer evidence stays consistent.
+        self.patterns=[]
+        for row in self.experiences:
+            self._update_pattern(row)
+        self._save(); self._save_rules(); self._save_patterns()
+        return {'experiences':len(self.experiences),'rules':len(self.rules),'patterns':len(self.patterns),'rebuilt':len(rebuilt)}
 
     def stats(self):
-        return {'experiences':len(self.experiences),'success_rate':self.success_rate(),'failure_patterns':len([x for x in self.experiences if float(x.get('score',0))<.55]),'strategies':len(set(x.get('strategy','default') for x in self.experiences)),'learned_rules':len(self.rules)}
+        return {'experiences':len(self.experiences),'success_rate':self.success_rate(),'failure_patterns':len([x for x in self.experiences if float(x.get('score',0))<.55]),'strategies':len(set(x.get('strategy','default') for x in self.experiences)),'learned_rules':len(self.rules),'transfer_patterns':len(self.patterns)}
 
 
 # v0.27: explicit cross-task learning transfer benchmark primitive.
