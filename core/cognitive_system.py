@@ -55,6 +55,7 @@ class CognitiveSystem:
         )
         self.last_answer = ""
         self.last_trace = None
+        self.last_output = {}
 
     def _get_pipeline(self) -> CognitivePipeline:
         pipeline = getattr(self.dialogue, "cognitive_pipeline", None)
@@ -66,11 +67,31 @@ class CognitiveSystem:
         return pipeline
 
     def turn(self, text: str) -> str:
-        """The only ordinary natural-language entry point."""
+        """The only ordinary natural-language entry point; all cognitive stages share one output envelope."""
         answer = self.pipeline.run(text)
         self.last_answer = answer
         self.last_trace = getattr(self.dialogue, "last_trace", None)
+        self.last_output = self.unified_output()
         return answer
+
+    def unified_output(self) -> dict:
+        """Return the current answer plus the live state of every integrated stage."""
+        trace = self.last_trace
+        runtime = self.runtime
+        return {
+            "version": self.VERSION,
+            "answer": self.last_answer,
+            "trace": trace.__dict__.copy() if trace is not None else {},
+            "architecture": self.architecture_contract(),
+            "components": self.inspect(),
+            "memory": runtime.memory.stats() if getattr(runtime, "memory", None) else {},
+            "knowledge": runtime.knowledge.stats() if getattr(runtime, "knowledge", None) else {},
+            "learning": self.learning_status(),
+            "learning_gate": runtime.learning_status() if hasattr(runtime, "learning_status") else {},
+            "autonomy": self.autonomy_status(),
+            "improvement": self.improvement_status(),
+            "conversation": runtime.conversation_snapshot() if hasattr(runtime, "conversation_snapshot") else {},
+        }
 
     def inspect(self) -> dict:
         """Return a compact live map of the unified dependency graph."""
@@ -135,6 +156,8 @@ class CognitiveSystem:
     def close(self) -> None:
         self.last_answer = ""
         self.last_trace = None
+        self.last_output = {}
+        self.last_output = {}
 
     def architecture_contract(self) -> dict:
         """Expose the canonical order used by the integrated turn."""

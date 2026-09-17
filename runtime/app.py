@@ -205,6 +205,9 @@ class IranRuntime:
     def learning_pending(self, limit=50):
         return self.learning_gate.pending(limit)
 
+    def learning_history(self, limit=200):
+        return self.learning_gate.history(limit)
+
     def learning_status(self):
         return self.learning_gate.stats()
 

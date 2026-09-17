@@ -43,16 +43,20 @@ class LearningEngine:
         return len(x&y)/max(1,len(x|y))
 
     def _lesson_for(self,score):
-        if score>=.82: return 'retain and reuse successful strategy; verify outcome'
-        if score>=.60: return 'keep useful parts; gather stronger evidence next time'
-        return 'change strategy; isolate failure; test a safer alternative'
+        if score>=.82: return 'این راهبرد نتیجه خوبی داده است؛ نکته این است که بخش موفق آن حفظ شود و نتیجه دوباره بررسی شود.'
+        if score>=.60: return 'بخش‌های مفید این راهبرد حفظ شده‌اند؛ برای دفعه بعد شواهد قوی‌تری جمع می‌شود.'
+        return 'این راهبرد نتیجه کافی نداده است؛ باید علت خطا جدا شود و یک روش جایگزین آزمایش شود.'
+
 
     def record(self,goal,action,result,score,intent='general',strategy='default',domain='general'):
         score=max(0,min(1,float(score)))
         item=Experience(str(goal),str(action),str(result)[:4000],score,self._lesson_for(score),datetime.now().isoformat(timespec='seconds'),intent,strategy,domain)
         if self.gate is not None:
-            proposal=self.gate.request('learning.record_experience',asdict(item), f'Learning experience: {goal}')
+            proposal=self.gate.request('learning.record_experience',asdict(item), f'یادگیری جدید درباره «{goal}»')
             if proposal is not None: return proposal
+            # None outside the explicit bypass means this exact approved learning
+            # already exists; do not silently commit it a second time.
+            if not self.gate.bypassed: return None
         # Avoid storing exact duplicate traces repeatedly.
         duplicate=next((r for r in reversed(self.experiences[-80:]) if r.get('goal')==item.goal and r.get('action')==item.action and r.get('result','')[:250]==item.result[:250]),None)
         if duplicate:

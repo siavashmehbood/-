@@ -56,6 +56,25 @@ class CognitivePipeline:
             self.runtime.orchestrator.metrics.record("response", .0)
         except Exception:
             pass
+        # Every route, including early deterministic routes, emits the same trace shape.
+        trace = TurnTrace(
+            user_text=text,
+            intent="general",
+            topic=getattr(e.state, "current_topic", ""),
+            memory_count=0,
+            knowledge_count=0,
+            reasoning_status="NOT_RUN",
+            answer_status=answer_type,
+            verification_status="PASS",
+            verification_reasons=[],
+            missing_units=[],
+            confidence=float(score),
+            sources=["local_deterministic"] ,
+            elapsed_ms=0.0,
+        )
+        e.last_trace = trace
+        e.turn_traces.append(trace.__dict__)
+        e.turn_traces = e.turn_traces[-50:]
         return answer
 
     def run(self, text):

@@ -1,4 +1,4 @@
-﻿import json
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -32,6 +32,17 @@ class LearningGateTests(unittest.TestCase):
         finally:
             memory.close()
 
+    def test_request_count_and_xp_are_locked_to_one_million_per_request(self):
+        root,gate,memory,knowledge,learning=self.make()
+        try:
+            for i in range(3):
+                learning.record(f'goal-{i}','respond',f'result-{i}',1.0)
+            stats=gate.stats()
+            self.assertEqual(stats['requests'],3)
+            self.assertEqual(stats['xp_units'],stats['requests'])
+            self.assertEqual(stats['xp'],stats['requests'] * 1_000_000)
+        finally:
+            memory.close()
     def test_approval_is_the_only_commit_path(self):
         root,gate,memory,knowledge,learning=self.make()
         try:
@@ -42,6 +53,33 @@ class LearningGateTests(unittest.TestCase):
             gate.decide(proposal['proposal_id'],'approved')
             self.assertEqual(len(knowledge.query('s')),1)
             self.assertEqual(gate.stats()['approved'],1)
+        finally:
+            memory.close()
+
+    def test_distinct_learning_creates_new_proposal(self):
+        root,gate,memory,knowledge,learning=self.make()
+        try:
+            first=learning.record('آب چه دمایcc میجوشد؟','respond','۱۰۰ درجه سانتی‌گراد',1.0,intent='general',strategy='conversation',domain='dialogue')
+            self.assertEqual(first['status'],'pending')
+            gate.decide(first['proposal_id'],'approved')
+            second=learning.record('پایتخت فرانسه چیست؟','respond','پاریس',1.0,intent='general',strategy='conversation',domain='dialogue')
+            self.assertIsNotNone(second)
+            self.assertEqual(second['status'],'pending')
+            self.assertNotEqual(first['proposal_id'],second['proposal_id'])
+        finally:
+            memory.close()
+
+    def test_approved_learning_is_not_proposed_again(self):
+        root,gate,memory,knowledge,learning=self.make()
+        try:
+            first=learning.record('آب چه دمایی میجوشد؟','respond','۱۰۰ درجه سانتی‌گراد',1.0,intent='general',strategy='conversation',domain='dialogue')
+            self.assertEqual(first['status'],'pending')
+            gate.decide(first['proposal_id'],'approved')
+            with gate.bypass():
+                learning.record('آب چه دمایی میجوشد؟','respond','۱۰۰ درجه سانتی‌گراد',1.0,intent='general',strategy='conversation',domain='dialogue')
+            second=learning.record('آب چه دمایی میجوشد؟','respond','۱۰۰ درجه سانتی‌گراد',1.0,intent='general',strategy='conversation',domain='dialogue')
+            self.assertIsNone(second)
+            self.assertEqual(len(gate.pending()),0)
         finally:
             memory.close()
 
