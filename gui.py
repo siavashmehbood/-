@@ -3,7 +3,7 @@ from datetime import datetime
 from pathlib import Path
 import sys
 import threading
-from PySide6.QtCore import QEvent, Qt, Signal, QObject
+from PySide6.QtCore import QEvent, Qt, Signal, QObject, QTimer
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
  QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
@@ -36,7 +36,12 @@ class ChatWindow(QMainWindow):
         self.setLayoutDirection(Qt.RightToLeft)
         self.runtime = IranRuntime(ROOT)
         self.last_answer = ""; self.messages = []; self.busy = False
+        self.autonomy_busy = False
         self.build(); self.load_session()
+        self.autonomy_timer = QTimer(self)
+        self.autonomy_timer.timeout.connect(self.run_autonomous_learning)
+        self.autonomy_timer.start(7000)
+        QTimer.singleShot(1200, self.run_autonomous_learning)
     def build(self):
         root = QWidget(); self.setCentralWidget(root); outer = QVBoxLayout(root)
         outer.setContentsMargins(14, 14, 14, 14); outer.setSpacing(10)
@@ -267,6 +272,23 @@ class ChatWindow(QMainWindow):
     def save_chat(self):
         d = ROOT / "logs"; d.mkdir(exist_ok=True); p = d / f"conversation_{datetime.now():%Y%m%d_%H%M%S}.txt"
         p.write_text(self.chat.toPlainText(), encoding="utf-8"); self.status.setText(f"ذخیره شد: {p.name}")
+    def run_autonomous_learning(self):
+        if self.autonomy_busy or self.busy:
+            return
+        self.autonomy_busy = True
+        try:
+            report = self.runtime.autonomous_supervisor_step()
+            request = report.get("learning_request") if isinstance(report, dict) else None
+            if request and request.get("status") == "pending":
+                self.status.setText("یادگیری خودکار: یک تجربه برای تأیید آماده است")
+            else:
+                self.status.setText("یادگیری خودکار: در حال کاوش و آزمایش")
+            self.refresh_learning_stats(); self.refresh_events()
+        except Exception as e:
+            self.status.setText(f"یادگیری خودکار: خطا — {type(e).__name__}")
+        finally:
+            self.autonomy_busy = False
+
     def refresh_learning_stats(self):
         try:
             stats = self.runtime.learning_status()

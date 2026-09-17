@@ -51,6 +51,19 @@ class LearningEngine:
     def record(self,goal,action,result,score,intent='general',strategy='default',domain='general'):
         score=max(0,min(1,float(score)))
         item=Experience(str(goal),str(action),str(result)[:4000],score,self._lesson_for(score),datetime.now().isoformat(timespec='seconds'),intent,strategy,domain)
+        if self.gate is not None and intent == 'autonomous':
+            # Keep one autonomous learning item in the human-approval queue at a time.
+            pending = [r for r in self.gate.pending(5000) if r.get('kind') == 'learning.record_experience'
+                       and (r.get('payload') or {}).get('intent') == 'autonomous']
+            if pending:
+                return dict(pending[0])
+            # Autonomous cycles must not create the same durable experience again.
+            for row in self.gate.history(5000):
+                payload = row.get('payload') or {}
+                if (payload.get('goal') == item.goal and payload.get('action') == item.action
+                    and payload.get('result') == item.result and payload.get('strategy') == item.strategy
+                    and payload.get('domain') == item.domain and row.get('status') in {'pending', 'approved'}):
+                    return dict(row)
         if self.gate is not None:
             proposal=self.gate.request('learning.record_experience',asdict(item), f'یادگیری جدید درباره «{goal}»')
             if proposal is not None: return proposal

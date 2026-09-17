@@ -366,7 +366,7 @@ def _step_v3(self):
     except Exception as exc:
         report_outcome = {'error': type(exc).__name__}
     reflection = self.runtime.reflector.reflect(selected.goal if selected else 'observe', action, score, signals)
-    self.runtime.learning.record(selected.goal if selected else 'observe', action, str(reflection.lessons), score, 'autonomous', 'evidence-first', 'local')
+    learning_result = self.runtime.learning.record(selected.goal if selected else 'observe', action, str(reflection.lessons), score, 'autonomous', 'evidence-first', 'local')
     report = {
         'cycle': self.cycle_count,
         'signals': [asdict(x) for x in signals],
@@ -381,6 +381,7 @@ def _step_v3(self):
         'observation': result,
         'verified': verified,
         'reflection': asdict(reflection),
+        'learning_request': learning_result,
         'learning': self.runtime.learning.adapt(selected.goal if selected else 'observe', 'autonomous', 'local'),
         'time': datetime.now().isoformat(timespec='seconds'),
     }
@@ -393,7 +394,8 @@ def _step_v3(self):
     self.runtime.events.emit('self_evaluation_completed', report['self_evaluation'])
     self.runtime.events.emit('self_evaluation_outcome', report['self_evaluation_outcome'])
     self.runtime.events.emit('reflection', report['reflection'])
-    self.runtime.events.emit('learning_update', {'goal': selected.goal if selected else 'observe', 'strategy': report['learning'].get('recommended_strategy')})
+    self.runtime.events.emit('learning_update', {'goal': selected.goal if selected else 'observe', 'strategy': report['learning'].get('recommended_strategy'), 'request': learning_result})
+    self.runtime.events.emit('autonomous_learning_request', {'request': learning_result, 'goal': selected.goal if selected else 'observe'})
     self.runtime.events.emit('supervisor_cycle', report)
     return report
 
