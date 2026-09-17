@@ -75,7 +75,7 @@ class ChatWindow(QMainWindow):
     def rightbar(self):
         w = QWidget(); l = QVBoxLayout(w); l.setSpacing(7); l.addWidget(QLabel("وضعیت شناختی"))
         self.conf = QLabel("اطمینان: —"); self.quality = QLabel("کیفیت: —"); self.intent = QLabel("هدف: —"); self.elapsed = QLabel("زمان: —"); self.experience_xp = QLabel("XP این نشست: ۱,۰۰۰,۰۰۰ | تجربه جدید: ۰")
-        for x in (self.conf, self.quality, self.intent, self.elapsed, self.experience_xp): l.addWidget(x)
+        for x in (self.conf, self.quality, self.intent, self.elapsed, self.experience_xp, self.chatgpt_pending): l.addWidget(x)
         l.addSpacing(8); l.addWidget(QLabel("آخرین رویدادها")); self.events = QListWidget(); l.addWidget(self.events, 1)
         buttons = [("حافظه", self.show_memory), ("ردیابی پاسخ", self.show_trace),
                    ("بازبینی ChatGPT", self.show_chatgpt_reviews),
@@ -176,6 +176,31 @@ class ChatWindow(QMainWindow):
         outer.addWidget(close)
         d.exec()
 
+    def queue_chatgpt_review(self, answer):
+        path = ROOT / "data" / "chatgpt_reviews.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        try: rows = json.loads(path.read_text(encoding="utf-8")) if path.exists() else []
+        except Exception: rows = []
+        if not isinstance(rows, list): rows = []
+        question = ""
+        for m in reversed(self.messages):
+            if m.get("who") == "???": question = str(m.get("text", "")); break
+        if not question: return
+        import hashlib
+        item_id = hashlib.sha256((question + "|" + str(answer)).encode("utf-8")).hexdigest()[:20]
+        if any(r.get("id") == item_id for r in rows): return
+        rows.append({"id": item_id, "question": question, "answer": str(answer), "review": "", "status": "pending", "created_at": datetime.now().isoformat(timespec="seconds")})
+        path.write_text(json.dumps(rows[-500:], ensure_ascii=False, indent=2), encoding="utf-8")
+
+    def refresh_chatgpt_count(self):
+        try:
+            path = ROOT / "data" / "chatgpt_reviews.json"
+            rows = json.loads(path.read_text(encoding="utf-8")) if path.exists() else []
+            pending = sum(r.get("status", "pending") == "pending" for r in rows)
+            self.chatgpt_pending.setText(f"??????? ??????? ChatGPT: {pending:,}")
+        except Exception:
+            self.chatgpt_pending.setText("??????? ??????? ChatGPT: ???")
+
     def show_chatgpt_reviews(self):
         # The current IRAN build is offline-only: do not create an external API path.
         path=ROOT/'data'/'chatgpt_reviews.json'
@@ -226,7 +251,7 @@ class ChatWindow(QMainWindow):
                 for m in reversed(self.messages):
                     if m.get("who") == "ایران": self.last_answer = str(m.get("text", "")); break
         except Exception: pass
-        self.update_title_stats(); self.refresh_learning_stats()
+        self.update_title_stats(); self.refresh_learning_stats(); self.refresh_chatgpt_count()
     def clear_display(self):
         self.chat.clear(); self.last_answer = ""; self.messages = []; self.update_title_stats(); self.persist_session(); self.status.setText("گفت‌وگو پاک شد")
     def new_chat(self):
