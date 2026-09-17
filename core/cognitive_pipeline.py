@@ -393,11 +393,10 @@ def _run_v41c(self, text):
         pass
     return answer
 
-CognitivePipeline.run = _run_v41c
 
 
 # v0.41d: Persian UI numbering for compound answers.
-_pipeline_run_v41c = CognitivePipeline.run
+_pipeline_run_v41c = _run_v41c
 
 def _run_v41d(self, text):
     answer = _pipeline_run_v41c(self, text)
@@ -408,13 +407,12 @@ def _run_v41d(self, text):
         self.engine.state.save(self.engine.state_path)
     return answer
 
-CognitivePipeline.run = _run_v41d
 
 
 # v0.55: deep conversational memory adapter. It sits above the canonical pipeline,
 # answers explicit memory/reference questions from durable local state, and never
 # invents facts. The adapter is deterministic and offline-only.
-_pipeline_v55_base = CognitivePipeline.run
+_pipeline_v55_base = _run_v41d
 
 def _v55_user_rows(runtime, limit=120):
     rows = []
@@ -554,11 +552,10 @@ def _run_v55(self, text):
         state.save(e.state_path)
     return answer
 
-CognitivePipeline.run = _run_v55
 
 
 # v0.56: session-aware topic/goal/reference repair after the first 50-turn probe.
-_pipeline_v56_base = CognitivePipeline.run
+_pipeline_v56_base = _run_v55
 
 def _v56_users(runtime, limit=160):
     try:
@@ -645,11 +642,10 @@ def _run_v56(self,text):
     state.save(e.state_path)
     return answer
 
-CognitivePipeline.run=_run_v56
 
 
 # v0.57: goal-query and correction normalization found by the second probe.
-_pipeline_v57_base = CognitivePipeline.run
+_pipeline_v57_base = _run_v56
 
 def _v57_project_goal(self):
     state=self.engine.state
@@ -715,11 +711,10 @@ def _run_v57(self,text):
                 return self._persist_answer(clean_text,f'موضوع {"اول" if idx==0 else "دوم"}: «{topics[idx]}».','MEMORY',.99)
     return _pipeline_v57_base(self,clean_text)
 
-CognitivePipeline.run=_run_v57
 
 
 # v0.58: protect active topic from memory questions and make corrections semantic.
-_pipeline_v58_base = CognitivePipeline.run
+_pipeline_v58_base = _run_v57
 
 def _v58_meta(low):
     return any(x in low for x in ('موضوع قبلی','موضوع اول','موضوع دوم','موضوع فعال','آخرین موضوع',
@@ -770,11 +765,10 @@ def _run_v58(self,text):
         state.save(e.state_path)
     return answer
 
-CognitivePipeline.run=_run_v58
 
 
 # v0.59: final conversational polish from the third 50-turn pass.
-_pipeline_v59_base = CognitivePipeline.run
+_pipeline_v59_base = _run_v58
 
 def _run_v59(self,text):
     e=self.engine; state=e.state; clean_text=clean(text); low=clean_text.lower()
@@ -806,11 +800,10 @@ def _run_v59(self,text):
         return f'حتماً؛ ادامه را از «{preserved}» می‌دهم و همان موضوع را مبنا می‌گیرم.'
     return answer
 
-CognitivePipeline.run=_run_v59
 
 
 # v0.60: regression fix for previous-topic restoration and meta corrections.
-_pipeline_v60_base = CognitivePipeline.run
+_pipeline_v60_base = _run_v59
 
 def _run_v60(self,text):
     e=self.engine; state=e.state; clean_text=clean(text); low=clean_text.lower()
@@ -828,11 +821,10 @@ def _run_v60(self,text):
             return f'حتماً؛ ادامه را از «{topic}» می‌دهم و همان موضوع را مبنا می‌گیرم.'
     return answer
 
-CognitivePipeline.run=_run_v60
 
 
 # v0.61: explicit topic declarations now preserve the full semantic referent.
-_pipeline_v61_base = CognitivePipeline.run
+_pipeline_v61_base = _run_v60
 
 def _run_v61(self,text):
     import re
@@ -844,11 +836,10 @@ def _run_v61(self,text):
         return self._persist_answer(clean_text,f'موضوع اصلی ثبت شد: «{topic}».','REFERENCE',.99)
     return _pipeline_v61_base(self,clean_text)
 
-CognitivePipeline.run=_run_v61
 
 
 # v0.62: durable project/constraint recall must prefer semantic state over noisy recent turns.
-_pipeline_v62_base = CognitivePipeline.run
+_pipeline_v62_base = _run_v61
 
 def _run_v62(self,text):
     clean_text=clean(text); low=clean_text.lower(); state=self.engine.state
@@ -871,11 +862,10 @@ def _run_v62(self,text):
             return self._persist_answer(clean_text,'بله؛ محدودیت «آفلاین» در حافظه مکالمه ثبت شده است.','MEMORY',.99)
     return _pipeline_v62_base(self,clean_text)
 
-CognitivePipeline.run=_run_v62
 
 
 # v0.63: memory queries are read-only with respect to the active conversation topic.
-_pipeline_v63_base = CognitivePipeline.run
+_pipeline_v63_base = _run_v62
 
 def _run_v63(self,text):
     clean_text=clean(text); low=clean_text.lower(); e=self.engine; state=e.state
@@ -903,7 +893,6 @@ def _run_v63(self,text):
             return answer
     return _pipeline_v63_base(self,clean_text)
 
-CognitivePipeline.run=_run_v63
 
 
 # v0.64: outcome-backed conversational self-correction.
@@ -911,7 +900,7 @@ CognitivePipeline.run=_run_v63
 # the next related response; storing a mistake alone is never treated as learning.
 from core.self_correction import SelfCorrectionEngine
 
-_pipeline_self_correction_base = CognitivePipeline.run
+_pipeline_self_correction_base = _run_v63
 
 def _self_correction_run(self, text):
     e = self.engine
@@ -1003,11 +992,10 @@ def _self_correction_run(self, text):
         pass
     return answer
 
-CognitivePipeline.run = _self_correction_run
 
 
 # v0.65: deterministic high-confidence comparison/fact realization.
-_pipeline_v65_base = CognitivePipeline.run
+_pipeline_v65_base = _self_correction_run
 
 def _v65_run(self, text):
     clean_text = clean(text)
@@ -1021,11 +1009,10 @@ def _v65_run(self, text):
         return self._persist_answer(clean_text, answer, "COMPARISON", .98)
     return _pipeline_v65_base(self, clean_text)
 
-CognitivePipeline.run = _v65_run
 
 
 # v0.66: procedural realization for explicit Python-learning questions.
-_pipeline_v66_base = CognitivePipeline.run
+_pipeline_v66_base = _v65_run
 
 def _v66_run(self, text):
     clean_text = clean(text)
@@ -1036,11 +1023,10 @@ def _v66_run(self, text):
         return self._persist_answer(clean_text, answer, "PROCEDURE", .98)
     return _pipeline_v66_base(self, clean_text)
 
-CognitivePipeline.run = _v66_run
 
 
 # v0.67: deterministic navigation repair for previous-topic and constraint recall.
-_pipeline_v67_base = CognitivePipeline.run
+_pipeline_v67_base = _v66_run
 
 def _v67_run(self, text):
     clean_text = clean(text)
@@ -1066,11 +1052,10 @@ def _v67_run(self, text):
         return self._persist_answer(clean_text, answer, "FOLLOW_UP", .96)
     return _pipeline_v67_base(self, clean_text)
 
-CognitivePipeline.run = _v67_run
 
 
 # v0.68: final conversation navigation/constraint boundary.
-_pipeline_v68_base = CognitivePipeline.run
+_pipeline_v68_base = _v67_run
 
 def _v68_run(self, text):
     import re
@@ -1120,12 +1105,11 @@ def _v68_run(self, text):
         return self._persist_answer(clean_text, f"در مورد «{state.current_topic}»: برای پاسخ دقیق باید هدف، زمینه و شواهد همین موضوع را بررسی کنیم.", "FOLLOW_UP", .96)
     return _pipeline_v68_base(self, clean_text)
 
-CognitivePipeline.run = _v68_run
 
 
 # v0.69: memory-question firewall. Meta-memory reads must not consume
 # conversational correction evidence as if they were ordinary subject queries.
-_pipeline_v69_base = CognitivePipeline.run
+_pipeline_v69_base = _v68_run
 
 def _v69_run(self, text):
     clean_text = clean(text)
@@ -1159,12 +1143,11 @@ def _v69_run(self, text):
             return self._persist_answer(clean_text, f"هدف ثبت‌شده برای «دانا»: «{goal}»." , "MEMORY", .99)
     return _pipeline_v69_base(self, clean_text)
 
-CognitivePipeline.run = _v69_run
 
 
 # v0.70: terminal semantic-topic contract. These are explicit state transitions,
 # not prose patches: the resolved topic is stored and all follow-ups consume it.
-_pipeline_v70_base = CognitivePipeline.run
+_pipeline_v70_base = _v69_run
 
 def _v70_run(self, text):
     import re
@@ -1225,13 +1208,12 @@ def _v70_run(self, text):
         return self._persist_answer(clean_text, "پایتون را از متغیرها و نوع داده شروع کن؛ بعد input، شرط، حلقه، list/dict، تابع و return و در پایان یک پروژه کوچک را تمرین کن.", "PROCEDURE", .98)
     return _pipeline_v70_base(self, clean_text)
 
-CognitivePipeline.run = _v70_run
 
 
 # v0.71: terminal state-integrity guard. Memory/meta/correction turns are
 # read-only for the active topic; explicit topic declarations are the only
 # turns allowed to replace it in this boundary.
-_pipeline_v71_base = CognitivePipeline.run
+_pipeline_v71_base = _v70_run
 
 def _v71_run(self, text):
     import re
@@ -1304,11 +1286,10 @@ def _v71_run(self, text):
         state.save(self.engine.state_path)
     return answer
 
-CognitivePipeline.run = _v71_run
 
 
 # v0.72: final deterministic regression fixes for previous-topic and constraints.
-_pipeline_v72_base = CognitivePipeline.run
+_pipeline_v72_base = _v71_run
 
 def _v72_run(self, text):
     clean_text = clean(text)
@@ -1351,12 +1332,11 @@ def _v72_run(self, text):
         return self._persist_answer(clean_text, f"موضوع قبلی: «{previous}»." if previous else "موضوع قبلی مشخصی در حافظه ندارم.", "REFERENCE", .99)
     return _pipeline_v72_base(self, clean_text)
 
-CognitivePipeline.run = _v72_run
 
 
 # v0.73: contextual previous-topic resolution uses the immediately preceding
 # semantic turn before falling back to the topic stack.
-_pipeline_v73_base = CognitivePipeline.run
+_pipeline_v73_base = _v72_run
 
 def _v73_run(self, text):
     clean_text = clean(text)
@@ -1391,11 +1371,10 @@ def _v73_run(self, text):
         return self._persist_answer(clean_text, f"موضوع قبلی: «{previous}»." if previous else "موضوع قبلی مشخصی در حافظه ندارم.", "REFERENCE", .99)
     return _pipeline_v73_base(self, clean_text)
 
-CognitivePipeline.run = _v73_run
 
 
 # v0.74: final previous-topic distinction for explicit "new topic: book" turns.
-_pipeline_v74_base = CognitivePipeline.run
+_pipeline_v74_base = _v73_run
 
 def _v74_run(self, text):
     clean_text = clean(text)
@@ -1411,11 +1390,10 @@ def _v74_run(self, text):
             return self._persist_answer(clean_text, f"موضوع قبلی: «{previous}»." , "REFERENCE", .99)
     return _pipeline_v74_base(self, clean_text)
 
-CognitivePipeline.run = _v74_run
 
 
 # v0.75: distinguish "book as the active continuation" from "new topic: book".
-_pipeline_v75_base = CognitivePipeline.run
+_pipeline_v75_base = _v74_run
 
 def _v75_run(self, text):
     clean_text = clean(text)
@@ -1429,12 +1407,11 @@ def _v75_run(self, text):
         return self._persist_answer(clean_text, f"موضوع قبلی: «{previous}»." , "REFERENCE", .99)
     return _pipeline_v75_base(self, clean_text)
 
-CognitivePipeline.run = _v75_run
 
 
 # v0.76: restore legacy conversational contracts through semantic state,
 # without reintroducing hard-coded topic lists into the general resolver.
-_pipeline_v76_base = CognitivePipeline.run
+_pipeline_v76_base = _v75_run
 
 def _v76_run(self, text):
     import re
@@ -1475,4 +1452,8 @@ def _v76_run(self, text):
                 state.save(self.engine.state_path)
     return _pipeline_v76_base(self, clean_text)
 
-CognitivePipeline.run = _v76_run
+
+
+# Canonical public entry point. All historical adapters are private implementation stages.
+CognitivePipeline.handle = _v76_run
+CognitivePipeline.run = CognitivePipeline.handle
