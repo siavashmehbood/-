@@ -428,11 +428,11 @@ def _benchmark_taskc(self):
 IranRuntime.benchmark_run = _benchmark_taskc
 
 
-def _learn_procedure_skill(self, goal, strategy, source_experiences=None, domain='general'):
+def _learn_procedure_skill(self, goal, strategy, source_experiences=None, domain='general', expected_outcome='verified successful outcome'):
     proc = self.procedural_memory.upsert(
         name=strategy, goal=goal,
         steps=['inspect evidence','apply strategy','observe outcome','verify outcome','update learning'],
-        preconditions=['evidence_available'], expected_outcome='verified successful outcome',
+        preconditions=['evidence_available'], expected_outcome=expected_outcome,
         verification_conditions=['outcome_verified'], failure_conditions=['verification_failed'],
         source_experiences=source_experiences or [], confidence=.65)
     skill = self.skills.upsert(
@@ -1937,3 +1937,32 @@ def _final_canonical_runtime_handle(self, text):
     return pipeline.run(clean_text)
 
 IranRuntime.handle = _final_canonical_runtime_handle
+
+
+# v0.55: goal lifecycle is now durable and outcome-backed.
+# Goal -> evidence -> verification -> outcome -> learning -> future reuse.
+if not hasattr(IranRuntime, '_goal_lifecycle_base'):
+    IranRuntime._goal_lifecycle_base = IranRuntime.execute_verified_goal
+
+_goal_lifecycle_base = IranRuntime._goal_lifecycle_base
+
+def _execute_verified_goal_lifecycle(self, goal, primary, alternative=None, expected_effect='', kwargs=None):
+    result = _goal_lifecycle_base(self, goal, primary, alternative, expected_effect, kwargs)
+    goal_row = next((g for g in reversed(self.goals.list()) if g.get('title') == str(goal)), None)
+    if goal_row:
+        task = result.get('task', {}) or {}
+        primary_result = result.get('primary', {}) or {}
+        alternative_result = result.get('alternative') or {}
+        success = bool(primary_result.get('success') or alternative_result.get('success'))
+        self.goals.record_evidence(goal_row['id'], {'phase':'verification','task_id':task.get('task_id'),
+            'primary':primary_result,'alternative':alternative_result,'expected':expected_effect})
+        learning = result.get('learning') or {}
+        score = 1.0 if success else 0.0
+        self.goals.record_outcome(goal_row['id'], success, {'task_id':task.get('task_id'),'verified':success}, score)
+        self.goals.record_learning(goal_row['id'], learning)
+        self.events.emit('goal_outcome', {'goal_id':goal_row['id'],'success':success,
+            'score':score,'task_id':task.get('task_id'),'learning_recorded':bool(learning)})
+        result['goal'] = next((g for g in self.goals.list() if g.get('id') == goal_row['id']), goal_row)
+    return result
+
+IranRuntime.execute_verified_goal = _execute_verified_goal_lifecycle
