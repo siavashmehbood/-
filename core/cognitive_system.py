@@ -18,6 +18,9 @@ class CognitiveComponents:
     verification: Any
     autonomy: Any
     improvement: Any
+    self_directed_learning: Any
+    trusted_knowledge: Any
+    learning_gate: Any
 
 
 class CognitiveSystem:
@@ -46,6 +49,9 @@ class CognitiveSystem:
             autonomy=getattr(runtime, "autonomous_supervisor", None)
             or getattr(runtime, "autonomy", None),
             improvement=getattr(runtime, "improvement", None),
+            self_directed_learning=getattr(runtime, "self_directed_learning", None),
+            trusted_knowledge=getattr(runtime, "trusted_knowledge", None),
+            learning_gate=getattr(runtime, "learning_gate", None),
         )
         self.last_answer = ""
         self.last_trace = None
@@ -87,6 +93,9 @@ class CognitiveSystem:
                 or getattr(runtime, "autonomy", None)
             ),
             "self_improvement": type(getattr(runtime, "improvement", None)).__name__,
+            "self_directed_learning": type(getattr(runtime, "self_directed_learning", None)).__name__,
+            "trusted_knowledge": type(getattr(runtime, "trusted_knowledge", None)).__name__,
+            "learning_gate": type(getattr(runtime, "learning_gate", None)).__name__,
         }
 
     def learning_status(self) -> dict:
@@ -142,5 +151,8 @@ class CognitiveSystem:
             "learning": "LearningEngine + OutcomeBackedLearning",
             "autonomy": "AutonomousSupervisor / AutonomousController",
             "improvement": "SelfImprovementLoop with sandbox/rollback",
+            "self_directed_learning": "goal - - - - action",
+            "trusted_knowledge": "source agreement - proposal - consolidation",
+            "learning_gate": "approval boundary for durable learning",
             "entrypoint": "CognitiveSystem.turn",
         }

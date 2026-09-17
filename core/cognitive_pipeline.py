@@ -218,7 +218,16 @@ class CognitivePipeline:
         learner = getattr(self.runtime, "self_directed_learning", None)
         known_text = " ".join([str(c.get("content", "")) for c in memory_context.get("selected", [])] + [str(k) for k in knowledge])
         learning_plan = learner.plan_turn(text, parsed, e.state.current_topic, known_text) if learner is not None else None
-        if learning_plan: self._emit("learning_goal_created", {"goal": learning_plan["goal"], "next_action": learning_plan["next_action"], "canonical": True})
+        learning_adaptation = None
+        if learning_plan:
+            engine = getattr(self.runtime, "learning", None)
+            goal_topic = learning_plan["goal"].get("topic", text)
+            if engine is not None:
+                try:
+                    learning_adaptation = engine.adapt(goal_topic, parsed.get("intent", "general"), learning_plan["goal"].get("domain", "general"))
+                except Exception:
+                    learning_adaptation = None
+            self._emit("learning_goal_created", {"goal": learning_plan["goal"], "next_action": learning_plan["next_action"], "adaptation": learning_adaptation, "canonical": True})
         # Symbolic chain reasoning.
         chain_result = None
         if getattr(e, "chain_reasoner", None):

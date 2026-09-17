@@ -197,7 +197,10 @@ class IranRuntime:
             if not claim: continue
             self.knowledge.add_fact(bundle["topic"], "trusted_claim", claim, float(bundle["confidence"]), "trusted_knowledge:" + str(bundle["proposal_id"]))
             self.memory.add_semantic_fact(bundle["topic"], "trusted_claim", claim, float(bundle["confidence"]), "trusted_knowledge:" + str(bundle["proposal_id"]))
-        return {"stored": True, "proposal_id": bundle["proposal_id"], "agreements": len(bundle["agreements"]), "sources": len(bundle["sources"])}
+        goals = [g for g in self.self_directed_learning.goals if g.topic == str(bundle["topic"]) ]
+        for goal in goals:
+            self.self_directed_learning.update_outcome(goal.goal_id, "testing", len(bundle["agreements"]), success=False)
+        return {"stored": True, "proposal_id": bundle["proposal_id"], "agreements": len(bundle["agreements"]), "sources": len(bundle["sources"]), "learning_goals_updated": len(goals)}
 
     def learning_pending(self, limit=50):
         return self.learning_gate.pending(limit)
