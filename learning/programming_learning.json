@@ -1,0 +1,100 @@
+{
+  "completed": [
+    "py01",
+    "py02",
+    "py03",
+    "py04",
+    "py05",
+    "py06",
+    "py07"
+  ],
+  "attempts": [
+    {
+      "lesson_id": "py01",
+      "code": "print(\"HELLO IRAN\")",
+      "stdout": "HELLO IRAN",
+      "stderr": "",
+      "returncode": 0,
+      "passed": true,
+      "score": 1.0,
+      "elapsed_ms": 109,
+      "reason": "verified output matches oracle"
+    },
+    {
+      "lesson_id": "py02",
+      "code": "x = 7\nprint(x + 5)",
+      "stdout": "12",
+      "stderr": "",
+      "returncode": 0,
+      "passed": true,
+      "score": 1.0,
+      "elapsed_ms": 37,
+      "reason": "verified output matches oracle"
+    },
+    {
+      "lesson_id": "py03",
+      "code": "x = 10\nif x > 5:\n    print(\"BIG\")",
+      "stdout": "BIG",
+      "stderr": "",
+      "returncode": 0,
+      "passed": true,
+      "score": 1.0,
+      "elapsed_ms": 35,
+      "reason": "verified output matches oracle"
+    },
+    {
+      "lesson_id": "py04",
+      "code": "for i in range(1, 4):\n    print(i)",
+      "stdout": "1\n2\n3",
+      "stderr": "",
+      "returncode": 0,
+      "passed": true,
+      "score": 1.0,
+      "elapsed_ms": 35,
+      "reason": "verified output matches oracle"
+    },
+    {
+      "lesson_id": "py05",
+      "code": "def add(a, b):\n    return a + b\n\nprint(add(4, 6))",
+      "stdout": "10",
+      "stderr": "",
+      "returncode": 0,
+      "passed": true,
+      "score": 1.0,
+      "elapsed_ms": 35,
+      "reason": "verified output matches oracle"
+    },
+    {
+      "lesson_id": "py06",
+      "code": "numbers = [2, 3, 5]\nprint(sum(numbers))",
+      "stdout": "10",
+      "stderr": "",
+      "returncode": 0,
+      "passed": true,
+      "score": 1.0,
+      "elapsed_ms": 41,
+      "reason": "verified output matches oracle"
+    },
+    {
+      "lesson_id": "py07",
+      "code": "person = {\"name\": \"IRAN\"}\nprint(person[\"name\"])",
+      "stdout": "IRAN",
+      "stderr": "",
+      "returncode": 0,
+      "passed": true,
+      "score": 1.0,
+      "elapsed_ms": 57,
+      "reason": "verified output matches oracle"
+    }
+  ],
+  "mastery": {
+    "py01": 1.0,
+    "py02": 1.0,
+    "py03": 1.0,
+    "py04": 1.0,
+    "py05": 1.0,
+    "py06": 1.0,
+    "py07": 1.0
+  },
+  "last_lesson": "py07"
+}

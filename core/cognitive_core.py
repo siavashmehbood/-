@@ -13,6 +13,7 @@ from pathlib import Path
 from core.learning_loop import OutcomeBackedLearning
 from core.procedural_skills import ProceduralSkillMemory
 from core.state import CognitiveState
+from core.programming_learner import ProgrammingLearner
 
 @dataclass
 class CognitiveEvidence:
@@ -33,6 +34,14 @@ class AdvancedCognitiveCore:
         self.outcome_learning = OutcomeBackedLearning(learning_path, learning_engine)
         skill_path = Path(learning_path).with_name("procedural_skills.json")
         self.procedural_skills = ProceduralSkillMemory(skill_path)
+        programming_path = getattr(runtime, 'programming_learning_path', 'learning')
+        self.programming_learner = ProgrammingLearner(programming_path, self.outcome_learning)
+
+    def practice_programming(self, cycles=1):
+        return self.programming_learner.practice(cycles)
+
+    def programming_status(self):
+        return self.programming_learner.status()
 
     def _parse(self, text):
         parser = getattr(self.runtime, "dialogue", None)
