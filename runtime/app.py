@@ -68,6 +68,18 @@ class IranRuntime:
     def health(self):return self.brain.health()
     def online_learning_snapshot(self):
         return self.online_learning.session_status()
+    def propose_online_lesson(self, query='IRAN trusted knowledge bootstrap'):
+        result=self.online_learning.acquire(str(query))
+        self.events.emit('online_learning_proposal', {'count':result.get('count',0),'query':query})
+        return result
+    def approve_online_lesson(self, lesson):
+        result=self.online_learning.approve_lesson(lesson)
+        self.events.emit('online_learning_approved', result)
+        return result
+    def reject_online_lesson(self, lesson):
+        result=self.online_learning.reject_lesson(lesson)
+        self.events.emit('online_learning_rejected', result)
+        return result
     def approve_online_learning(self):
         result=self.online_learning.approve_session()
         self.events.emit('online_learning_consent', result)

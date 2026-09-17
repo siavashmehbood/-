@@ -93,28 +93,30 @@ class OnlineLearning:
         if len(text)<80: return None
         title=' '.join(parser.title[:8]).strip() or url
         return WebLesson(url,title,text,(urlparse(url).hostname or ''),self._trust(url),datetime.now().isoformat(timespec='seconds'))
-    def learn_url(self,url,query=''):
+    def learn_url(self,url,query='',commit=True):
         if not self.enabled: return None
         lesson=self._fetch(url)
         if not lesson: return None
         lesson.query=query
+        item=asdict(lesson)
+        if not commit: return item
         key=lesson.url
         self.lessons=[x for x in self.lessons if x.get('url')!=key]
-        self.lessons.append(asdict(lesson)); self.lessons=self.lessons[-500:]; self._save(); return asdict(lesson)
+        self.lessons.append(item); self.lessons=self.lessons[-500:]; self._save(); return item
     def search(self,query):
         """Search trusted public knowledge, then cache the retrieved evidence."""
         if not self.enabled or not query.strip(): return []
         hits=[]
         try:
             for title in self._wiki_search(query)[:self.max_sources]:
-                item=self.learn_url(self._wiki_page_url(title),query)
+                item=self.learn_url(self._wiki_page_url(title),query,commit=False)
                 if item: hits.append(item)
         except Exception:
             pass
         if not hits:
             for url in self.DEFAULT_SOURCES[:self.max_sources]:
                 if any(part in url.lower() for part in re.findall(r'[a-z0-9]{3,}',query.lower())):
-                    item=self.learn_url(url,query)
+                    item=self.learn_url(url,query,commit=False)
                     if item: hits.append(item)
         return hits or self.retrieve(query,self.max_sources)
 
@@ -131,19 +133,30 @@ class OnlineLearning:
 
     def acquire(self,query,urls=None):
         if not self.enabled: return {'enabled':False,'learned':[],'reason':'online_learning_disabled'}
-        if not self.cfg.get('session_approved',False): return {'enabled':True,'learned':[],'reason':'user_consent_required'}
         if self.fetches >= self.max_fetches: return {'enabled':True,'learned':[],'count':0,'query':query,'reason':'session_fetch_limit'}
         self.fetches += 1
         if urls:
             learned=[]
             for url in list(urls)[:self.max_sources]:
                 try:
-                    item=self.learn_url(url,query)
+                    item=self.learn_url(url,query,commit=False)
                     if item: learned.append(item)
                 except Exception: continue
         else:
             learned=self.search(query)[:self.max_sources]
-        return {'enabled':True,'learned':learned,'count':len(learned),'query':query}
+        return {'enabled':True,'learned':learned,'count':len(learned),'query':query,'pending':bool(learned),'reason':'user_approval_required' if learned else 'no_new_lesson'}
+
+    def approve_lesson(self, lesson):
+        if not lesson: return {'approved':False,'reason':'empty_lesson'}
+        item=dict(lesson); key=item.get('url','')
+        if not key: return {'approved':False,'reason':'missing_url'}
+        self.lessons=[x for x in self.lessons if x.get('url')!=key]
+        self.lessons.append(item); self.lessons=self.lessons[-500:]; self._save()
+        self.last_sync=datetime.now().isoformat(timespec='seconds')
+        return {'approved':True,'lesson':item,'lessons':len(self.lessons)}
+
+    def reject_lesson(self, lesson):
+        return {'approved':False,'rejected':bool(lesson),'url':(lesson or {}).get('url','')}
 
     def startup_sync(self):
         if not self.enabled or not self.cfg.get('startup_sync',False): return {'count':0}
