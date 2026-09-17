@@ -29,6 +29,7 @@ from language_intelligence import PersianIntelligence
 from memory.store import Memory
 from knowledge.knowledge_graph import KnowledgeGraph
 from learning.learning_engine import LearningEngine
+from learning.trusted_knowledge import TrustedKnowledgeBootstrap
 from learning.procedural_memory import ProceduralMemory
 from learning.skill_system import SkillSystem
 from providers.factory import create_provider
@@ -55,6 +56,8 @@ class IranRuntime:
         self.config = json.loads((self.root / "config.json").read_text(encoding="utf-8-sig"))
         self.provider = create_provider(self.config)
         self.learning_gate = LearningGate(self.root / "data/learning_proposals.json")
+        self.trusted_knowledge = TrustedKnowledgeBootstrap()
+        self.trusted_knowledge_path = self.root / "data/trusted_knowledge.json"
         self.memory = Memory(self.root / self.config["memory"]["db"], gate=self.learning_gate)
         self.events = EventLog(self.root / self.config["runtime"]["event_log"])
         self.goals = GoalStore(self.root / self.config["runtime"].get("goals", "data/goals.json"))
@@ -144,6 +147,48 @@ class IranRuntime:
             return self.learning.record(p.get("goal",""),p.get("action",""),p.get("result",""),p.get("score",0),intent="verified_outcome",strategy=p.get("strategy","default"),domain=p.get("domain","general"))
         return {"recorded":True,"verified":False,"learned":False}
 
+    def bootstrap_trusted_knowledge(self, topic, sources):
+        """Evaluate supplied source text and create a review proposal only when evidence is usable."""
+        proposal = self.trusted_knowledge.build(topic, sources)
+        if proposal.get("status") != "ready_for_review":
+            return proposal
+        gated = self.learning_gate.request(
+            "trusted_knowledge.bootstrap", proposal,
+            f"Trusted knowledge bootstrap: {topic}",
+        )
+        return gated or proposal
+
+    def _apply_trusted_knowledge(self, proposal):
+        rows = []
+        path = self.trusted_knowledge_path
+        try:
+            rows = json.loads(path.read_text(encoding="utf-8")) if path.exists() else []
+        except Exception:
+            rows = []
+        if not isinstance(rows, list): rows = []
+        payload = proposal.get("payload") or proposal
+        bundle = {
+            "proposal_id": payload.get("proposal_id"),
+            "topic": payload.get("topic"),
+            "confidence": payload.get("confidence", 0),
+            "agreements": payload.get("agreements", []),
+            "sources": payload.get("sources", []),
+            "approved_at": __import__("datetime").datetime.now().isoformat(timespec="seconds"),
+        }
+        if not bundle["proposal_id"]:
+            return {"stored": False, "reason": "missing_proposal_id"}
+        if any(r.get("proposal_id") == bundle["proposal_id"] for r in rows):
+            return {"stored": True, "duplicate": True, "proposal_id": bundle["proposal_id"]}
+        rows.append(bundle)
+        from persistence import atomic_write_json
+        atomic_write_json(path, rows[-1000:])
+        for agreement in bundle["agreements"]:
+            claim = str(agreement.get("claim", "")).strip()
+            if not claim: continue
+            self.knowledge.add_fact(bundle["topic"], "trusted_claim", claim, float(bundle["confidence"]), "trusted_knowledge:" + str(bundle["proposal_id"]))
+            self.memory.add_semantic_fact(bundle["topic"], "trusted_claim", claim, float(bundle["confidence"]), "trusted_knowledge:" + str(bundle["proposal_id"]))
+        return {"stored": True, "proposal_id": bundle["proposal_id"], "agreements": len(bundle["agreements"]), "sources": len(bundle["sources"])}
+
     def learning_pending(self, limit=50):
         return self.learning_gate.pending(limit)
 
@@ -157,6 +202,7 @@ class IranRuntime:
         kind=proposal.get("kind"); p=proposal.get("payload") or {}
         with self.learning_gate.bypass():
             if kind == "knowledge.add_fact": result=self.knowledge.add_fact(p["subject"],p["predicate"],p["object"],p.get("confidence",1.0),p.get("source","approved"))
+            elif kind == "trusted_knowledge.bootstrap": result=self._apply_trusted_knowledge(proposal)
             elif kind == "learning.record_experience": result=self.learning.record(p["goal"],p["action"],p["result"],p["score"],p.get("intent","general"),p.get("strategy","default"),p.get("domain","general"))
             elif kind == "outcome.record": result=self._apply_approved_outcome(p)
             elif kind == "memory.add_semantic_fact": result=self.memory.add_semantic_fact(p["subject"],p["predicate"],p["value"],p.get("confidence",.65),p.get("source","approved"))
