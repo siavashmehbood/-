@@ -65,3 +65,15 @@ def test_recommendation_uses_only_verified_history(tmp_path):
     recommendation = loop.recommend("ساخت گزارش", "report")
     assert recommendation["recommended_strategy"] == "artifact-first"
     assert recommendation["evidence_samples"] == 1
+
+
+def test_verified_history_changes_future_action_choice(tmp_path):
+    loop = OutcomeBackedLearning(tmp_path / "outcomes.json")
+    loop.record_outcome(
+        "recover a task", "slow_safe", "ok", "correct",
+        {"verified": True, "source": "test-verifier", "score": 1.0},
+        strategy="verified-recovery", domain="task",
+    )
+    choice = loop.recommend_action("recover a task again", ["fast_wrong", "slow_safe"], "task")
+    assert choice["selected"] == "slow_safe"
+    assert choice["ranked"][0]["verified_samples"] >= 1

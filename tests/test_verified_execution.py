@@ -40,6 +40,25 @@ class VerifiedExecutionIntegrationTests(unittest.TestCase):
             self.assertIn('verified_task_completed', events)
             runtime.close()
 
+    def test_verified_history_changes_next_action_choice(self):
+        with tempfile.TemporaryDirectory() as directory:
+            runtime = self._runtime(directory)
+            runtime.registry.register(Tool('primary_wrong', 'primary', lambda: 'wrong', safe=True))
+            runtime.registry.register(Tool('alternative_right', 'alternative', lambda: 'correct', safe=True))
+            first = runtime.execute_verified_goal(
+                'recover repeated demo', 'primary_wrong', 'alternative_right', 'correct')
+            self.assertTrue(first['alternative']['success'])
+            try:
+                second = runtime.execute_verified_goal(
+                    'recover repeated demo', 'primary_wrong', 'alternative_right', 'correct')
+                self.assertTrue(second['primary']['success'])
+                recent = runtime.events.recent(200)
+                reused = [e for e in recent if e.get('event') == 'strategy_reused' and e.get('data', {}).get('source') == 'outcome_backed_learning']
+                self.assertTrue(reused)
+                self.assertEqual(reused[-1]['data']['selected'], 'alternative_right')
+            finally:
+                runtime.close()
+
     def test_public_run_does_not_mark_failed_verification_as_success(self):
         with tempfile.TemporaryDirectory() as directory:
             runtime = self._runtime(directory)
@@ -52,3 +71,4 @@ class VerifiedExecutionIntegrationTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
