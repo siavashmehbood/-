@@ -86,6 +86,10 @@ class IranGUI:
         self.entry = tk.Entry(bottom, font=self.font, justify='right', relief='solid', bd=1)
         self.entry.pack(side='right', fill='x', expand=True, ipady=11)
         self.entry.bind('<Return>', self.send)
+        self.entry.bind('<Control-v>', self.paste_clipboard)
+        self.entry.bind('<Control-V>', self.paste_clipboard)
+        self.paste_btn = tk.Button(bottom, text='چسباندن', command=self.paste_clipboard, font=self.small, relief='flat', padx=12, pady=10)
+        self.paste_btn.pack(side='right', padx=(0, 6))
         self.send_btn = tk.Button(bottom, text='ارسال', command=self.send, font=self.bold, bg='#315a9b', fg='white', relief='flat', padx=25, pady=10)
         self.send_btn.pack(side='right', padx=(0, 8))
         actions = tk.Frame(main, bg='#eef1f5')
@@ -104,6 +108,16 @@ class IranGUI:
         self.chat.insert('end', '\n', 'iran')
         self.chat.see('end')
         self.chat.configure(state='disabled')
+
+    def paste_clipboard(self, event=None):
+        try:
+            text = self.root.clipboard_get()
+        except tk.TclError:
+            return 'break'
+        text = str(text).replace(chr(13), ' ').replace(chr(10), ' ').strip()
+        if text:
+            self.entry.insert('insert', text)
+        return 'break'
 
     def send(self, event=None):
         if self.busy:
