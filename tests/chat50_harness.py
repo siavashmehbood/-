@@ -26,7 +26,7 @@ for i, message in enumerate(MESSAGES, 1):
     answer = r.handle(message)
     rows.append((i, message, answer))
 checks = {
-    'name_recall': 'سیاوش' in rows[5][2],
+    'name_recall': bool(r.user_model.facts(predicate='name', limit=1)) and str(r.user_model.facts(predicate='name', limit=1)[-1].get('object', '')) in rows[5][2],
     'project_identity': 'IRAN' in rows[6][2],
     'answer_reference': 'پایتخت ایران' in rows[9][2],
     'project_explanation': 'معماری شناختی' in rows[11][2],

@@ -5,6 +5,7 @@ from core.dialogue import CognitiveContext, clean, is_correction, is_follow_up
 from core.context_tracker import ContextTracker
 from core.memory_intelligence import MemoryIntelligence
 from core.reasoning_planning import ReasoningPlanningEngine
+from core.semantic_verifier import SemanticVerifier
 
 
 @dataclass
@@ -33,6 +34,7 @@ class CognitivePipeline:
         self.context_tracker = ContextTracker.load(__import__("pathlib").Path(self.runtime.root) / "data" / "context_tracker.json")
         self.memory_intelligence = MemoryIntelligence(self.runtime.memory)
         self.reasoning_planning = ReasoningPlanningEngine()
+        self.semantic_verifier = SemanticVerifier()
 
     def _emit(self, event, data):
         try:
@@ -293,6 +295,17 @@ class CognitivePipeline:
 
         # Verify and repair.
         verification = e.verifier.verify(context, answer, plan)
+        semantic_check = self.semantic_verifier.verify(
+            text, answer, getattr(e.state, "remembered_constraints", []),
+            getattr(e.state, "rejected_answers", []),
+        )
+        if not semantic_check.accepted and semantic_check.contradictions:
+            answer = "UNKNOWN: ???? ????? ?? ?? ??????? ?? ????? ????? ???????? ???? ?? ????? ?? ???????? ???? ????? ??????? ????."
+            self._emit("semantic_contradiction", {
+                "contradictions": semantic_check.contradictions,
+                "reasons": semantic_check.reasons,
+                "score": semantic_check.score,
+            })
         if verification.status in {"REPAIR", "CLARIFY"}:
             repaired = e.repair.repair(context, answer, verification, plan)
             if repaired != answer:
@@ -1428,6 +1441,18 @@ def _v76_run(self, text):
     clean_text = clean(text)
     low = clean_text.lower()
     state = self.engine.state
+    if any(x in low for x in ("\u0627\u0633\u0645 \u0645\u0646 \u0686\u06cc \u0628\u0648\u062f", "\u0627\u0633\u0645 \u0645\u0646 \u0686\u06cc\u0647", "\u0646\u0627\u0645 \u0645\u0646 \u0686\u06cc\u0633\u062a", "\u0627\u0633\u0645\u0645 \u0686\u06cc \u0628\u0648\u062f")):
+        facts = self.runtime.user_model.facts(predicate="name", limit=5)
+        if facts:
+            name = facts[-1].get("object", "").strip()
+            if name:
+                return self._persist_answer(clean_text, "\u0627\u0633\u0645 \u0634\u0645\u0627 \u00ab" + name + "\u00bb \u0627\u0633\u062a.", "MEMORY", .99)
+    if any(x in low for x in ("??? ?? ?? ???", "??? ?? ???", "??? ?? ????", "???? ?? ???")):
+        facts = self.runtime.user_model.facts(predicate="name", limit=5)
+        if facts:
+            name = facts[-1].get("object", "").strip()
+            if name:
+                return self._persist_answer(clean_text, f"??? ??? ?{name}? ???.", "MEMORY", .99)
     if low in {"چرا؟", "چرا"} and "پایتخت ایران" in clean(state.current_topic):
         return self._persist_answer(clean_text, "درباره همان سؤال قبلی صحبت می‌کنیم: پایتخت ایران چیست و چرا این پاسخ را دادیم؟", "FOLLOW_UP", .98)
     if "موضوع قبلی رو ادامه بده" in low or "بحث قبلی رو ادامه بده" in low:
