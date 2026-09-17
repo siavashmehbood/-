@@ -1,5 +1,6 @@
 class SecurityPolicy:
-    def __init__(self, config):
+    def __init__(self, config, internet_access=None):
+        self.internet_access = internet_access
         security = config.get('security', {})
         self.safe_mode = bool(security.get('safe_mode', True))
         improvement = config.get('self_improvement', {})
@@ -11,6 +12,8 @@ class SecurityPolicy:
         if permission == 'read':
             return True
         if permission == 'network':
+            if self.internet_access is not None:
+                return bool(self.internet_access.status().get('enabled'))
             return bool(self.config_network)
         if self.safe_mode and permission in {'write', 'shell', 'deploy'}:
             return False

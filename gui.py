@@ -64,7 +64,15 @@ class IranGUI:
             var = tk.StringVar(value=value)
             self.metric_vars[key] = var
             tk.Label(row, textvariable=var, bg='#f6f8fb', fg='#172033', font=('Segoe UI', 10, 'bold')).pack(anchor='e', padx=8, pady=(0, 5))
-        tk.Label(sidebar, text='هدف‌های فعال', bg='#ffffff', fg='#172033', font=('Segoe UI', 11, 'bold')).pack(anchor='e', padx=16, pady=(18, 4))
+        net = tk.Frame(sidebar, bg='#eef5ff', bd=1, relief='solid')
+        net.pack(fill='x', padx=12, pady=(14, 8))
+        tk.Label(net, text='دسترسی اینترنت', bg='#eef5ff', fg='#172033', font=('Segoe UI', 11, 'bold')).pack(anchor='e', padx=10, pady=(8, 2))
+        self.internet_var = tk.StringVar()
+        tk.Label(net, textvariable=self.internet_var, bg='#eef5ff', fg='#315a9b', font=self.small).pack(anchor='e', padx=10)
+        self.internet_btn = tk.Button(net, text='خاموش کردن', command=self.toggle_internet, relief='flat', padx=12, pady=5)
+        self.internet_btn.pack(fill='x', padx=10, pady=8)
+        tk.Label(sidebar, text='یادگیری دائمی همچنان نیازمند تأیید شماست.', bg='#ffffff', fg='#768399', font=('Segoe UI', 8), wraplength=250, justify='right').pack(anchor='e', padx=16, pady=(0, 4))
+        tk.Label(sidebar, text='هدف‌های فعال', bg='#ffffff', fg='#172033', font=('Segoe UI', 11, 'bold')).pack(anchor='e', padx=16, pady=(10, 4))
         self.goals_box = tk.Listbox(sidebar, height=6, font=self.small, justify='right', bg='#f6f8fb', relief='flat')
         self.goals_box.pack(fill='x', padx=12)
         tk.Label(sidebar, text='آخرین رویدادها', bg='#ffffff', fg='#172033', font=('Segoe UI', 11, 'bold')).pack(anchor='e', padx=16, pady=(18, 4))
@@ -149,8 +157,22 @@ class IranGUI:
         rows = [e for e in events if e.get('event') == name]
         return rows[-1].get('data', {}) if rows else {}
 
+    def toggle_internet(self):
+        try:
+            current = runtime.internet_access.status().get('enabled', False)
+            result = runtime.internet_access.disable() if current else runtime.internet_access.enable()
+            runtime.events.emit('internet_access_changed', result)
+            self.refresh_sidebar()
+            self.status.config(text='آماده | اینترنت روشن' if result['enabled'] else 'آماده | اینترنت خاموش',
+                               fg='#79e2a1' if result['enabled'] else '#f0b35b')
+        except Exception as exc:
+            messagebox.showerror('دسترسی اینترنت', str(exc), parent=self.root)
+
     def refresh_sidebar(self, events=None, elapsed=None):
         events = events or runtime.events.recent(40)
+        net = runtime.internet_access.status()
+        self.internet_var.set('فعال — دسترسی شبکه مجاز است' if net['enabled'] else 'خاموش — بدون دسترسی شبکه')
+        self.internet_btn.config(text='خاموش کردن' if net['enabled'] else 'روشن کردن اینترنت')
         response = self._event(events, 'response_generated')
         quality = self._event(events, 'evaluation_completed').get('quality', {})
         language = self._event(events, 'language_analysis')

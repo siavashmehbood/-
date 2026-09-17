@@ -6,9 +6,13 @@ import urllib.request
 from .registry import Tool, ToolRegistry
 
 
-def build_registry(root, memory):
+def build_registry(root, memory, internet_access=None):
     registry = ToolRegistry()
     root = Path(root)
+
+    def require_internet():
+        if internet_access is not None:
+            internet_access.require()
 
     registry.register(Tool('time_now', 'زمان و تاریخ سیستم', lambda: datetime.now().isoformat(timespec='seconds'), safe=True, permission='read'))
     registry.register(Tool('memory_search', 'جستجوی حافظه', lambda query, limit=8: memory.search(query, int(limit)), safe=True, permission='read'))
@@ -40,6 +44,7 @@ def build_registry(root, memory):
     registry.register(Tool('project_summary', 'خلاصه ساختار پروژه', project_summary, safe=True, permission='read'))
 
     def web_fetch(url, max_chars=8000):
+        require_internet()
         if not str(url).lower().startswith(('http://', 'https://')):
             raise ValueError('فقط URLهای http/https مجاز هستند')
         req = urllib.request.Request(str(url), headers={'User-Agent': 'IranAI/0.9'})

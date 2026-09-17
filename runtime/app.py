@@ -40,6 +40,7 @@ from runtime.task_runtime import TaskRuntime, TaskStatus
 from runtime.conversation_router import ConversationRouter
 from security.policy import SecurityPolicy
 from security.learning_gate import LearningGate
+from security.internet_access import InternetAccessManager
 from tools.builtin import build_registry
 from self.evaluator import Evaluator
 from self.benchmark import CognitiveBenchmark
@@ -57,8 +58,9 @@ class IranRuntime:
         self.memory = Memory(self.root / self.config["memory"]["db"], gate=self.learning_gate)
         self.events = EventLog(self.root / self.config["runtime"]["event_log"])
         self.goals = GoalStore(self.root / self.config["runtime"].get("goals", "data/goals.json"))
-        self.policy = SecurityPolicy(self.config)
-        self.registry = build_registry(self.root, self.memory)
+        self.internet_access = InternetAccessManager(self.root / "data/internet_access.json")
+        self.policy = SecurityPolicy(self.config, internet_access=self.internet_access)
+        self.registry = build_registry(self.root, self.memory, self.internet_access)
         self.brain = Brain(self.provider)
         self.agent = Agent(self.brain, self.memory, self.config["memory"]["max_history"])
         self.evaluator = Evaluator(self.root)
@@ -388,6 +390,17 @@ class IranRuntime:
         parts = shlex.split(text)
         if not parts:
             return ""
+        if parts[0] in {"/internet", "/network"}:
+            action = parts[1].lower() if len(parts) > 1 else "status"
+            if action in {"on", "enable", "روشن"}:
+                result = self.internet_access.enable()
+                self.events.emit("internet_access_changed", result)
+                return json.dumps(result, ensure_ascii=False)
+            if action in {"off", "disable", "خاموش"}:
+                result = self.internet_access.disable()
+                self.events.emit("internet_access_changed", result)
+                return json.dumps(result, ensure_ascii=False)
+            return json.dumps(self.internet_access.status(), ensure_ascii=False)
         if parts[0] in {"/learn", "/learning"}:
             if len(parts) < 2 or parts[1] in {"pending", "list"}:
                 rows=self.learning_pending()
