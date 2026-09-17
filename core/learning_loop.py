@@ -45,8 +45,8 @@ class OutcomeBackedLearning:
     self-score is never sufficient evidence of task success.
     """
 
-    def __init__(self, path, learning_engine=None):
-        self.path = Path(path)
+    def __init__(self, path, learning_engine=None, gate=None):
+        self.path = Path(path); self.gate = gate
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.learning = learning_engine
         self.records = []
@@ -155,6 +155,10 @@ class OutcomeBackedLearning:
             episode_id=str(episode_id), phase=str(phase), attempt=int(attempt or 0),
             timestamp=datetime.now().isoformat(timespec="seconds"),
         )
+        if self.gate is not None:
+            proposal=self.gate.request("outcome.record",asdict(outcome),f"Verified outcome: {outcome.goal}")
+            if proposal is not None:
+                return {"recorded":False,"verified":verified,"learned":False,"pending_approval":True,"proposal":proposal,"score":score,"verification_source":source}
         self.records.append(asdict(outcome))
         self._save()
 

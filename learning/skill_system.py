@@ -7,9 +7,9 @@ from .procedural_memory import ProceduralMemory
 
 class SkillSystem:
     """Persistent skill registry over procedural memory; policy remains external."""
-    def __init__(self, path, procedures=None):
-        self.path = Path(path); self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.procedures = procedures or ProceduralMemory(self.path.with_name('procedures.json'))
+    def __init__(self, path, procedures=None, gate=None):
+        self.path = Path(path); self.path.parent.mkdir(parents=True, exist_ok=True); self.gate = gate
+        self.procedures = procedures or ProceduralMemory(self.path.with_name('procedures.json'), gate=gate)
         self.skills = []; self.compositions = []; self._load(); self._load_compositions()
 
     def _load(self):
@@ -45,6 +45,9 @@ class SkillSystem:
                  'usage_count':row.get('usage_count',0) if row else 0,'failure_count':row.get('failure_count',0) if row else 0,
                  'version':int(row.get('version',0))+1 if row else 1,'enabled':row.get('enabled',True) if row else True,
                  'created_at':row.get('created_at',now) if row else now,'updated_at':now}
+        if self.gate is not None:
+            proposal=self.gate.request('skills.upsert',payload,f'Skill: {name}')
+            if proposal is not None: return proposal
         if row: row.update(payload)
         else: self.skills.append(payload)
         self._save(); return payload
@@ -123,6 +126,9 @@ class SkillSystem:
     def promote_composition(self, composition, verified=True):
         """Persist a verified composition as a reusable higher-order procedure."""
         if not composition or not verified: return None
+        if self.gate is not None:
+            proposal=self.gate.request('skills.promote_composition',dict(composition),f'Promote composition: {composition.get("composition_id","")}')
+            if proposal is not None: return proposal
         now=datetime.now().isoformat(timespec='seconds')
         existing=next((x for x in self.compositions if x.get('composition_id')==composition.get('composition_id')),None)
         if existing:
@@ -212,9 +218,12 @@ class SkillSystem:
         row['updated_at']=datetime.now().isoformat(timespec='seconds'); self._save(); return row
 
     def record_execution(self, skill_id, success, verified=True, reason=''):
-        """Record a verified execution and update trust without bypassing policy."""
+        """Record a verified execution and update trust through the approval gate."""
         row=next((x for x in self.skills if x.get('skill_id')==skill_id),None)
         if not row: return None
+        if self.gate is not None:
+            proposal=self.gate.request('skills.execution_outcome',{'skill_id':skill_id,'success':bool(success),'verified':bool(verified),'reason':str(reason)},f'Skill execution outcome: {skill_id}')
+            if proposal is not None: return proposal
         row['execution_count']=int(row.get('execution_count',0))+1
         row['usage_count']=int(row.get('usage_count',0))+1
         if verified:

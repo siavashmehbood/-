@@ -178,6 +178,7 @@ class IranGUI:
                     self.add_message('ایران', answer, meta)
                     self.status.config(text=f'آماده | {response.get("mode", "پاسخ نمادین")}', fg='#79e2a1')
                     self.refresh_sidebar(events, elapsed)
+                    self.root.after(100, self.review_pending_learning)
                 else:
                     self.add_message('ایران', 'خطا در پردازش:\n' + answer)
                     self.status.config(text='خطا — گزارش در logs ثبت شد', fg='#e36b6b')
@@ -187,6 +188,28 @@ class IranGUI:
         except queue.Empty:
             pass
         self.root.after(50, self.poll_results)
+
+    def review_pending_learning(self):
+        pending=runtime.learning_pending(20)
+        if not pending: return
+        proposal=pending[0]
+        win=tk.Toplevel(self.root); win.title('IRAN | Learning Approval'); win.geometry('760x560'); win.transient(self.root); win.grab_set()
+        tk.Label(win,text='New permanent learning proposal',font=('Segoe UI',15,'bold')).pack(anchor='e',padx=18,pady=(16,6))
+        tk.Label(win,text='Nothing has been written to permanent learned knowledge yet.',font=self.small).pack(anchor='e',padx=18,pady=(0,10))
+        box=scrolledtext.ScrolledText(win,wrap='word',font=('Segoe UI',10),height=22)
+        box.pack(fill='both',expand=True,padx=18,pady=8)
+        payload=json.dumps(proposal.get('payload',{}),ensure_ascii=False,indent=2)
+        box.insert('1.0',f"Proposal ID: {proposal.get('proposal_id')}\nType: {proposal.get('kind')}\nSummary: {proposal.get('summary')}\n\nProposed change:\n{payload}")
+        box.configure(state='disabled')
+        buttons=tk.Frame(win); buttons.pack(fill='x',padx=18,pady=14)
+        def decide(action):
+            result=runtime.approve_learning(proposal['proposal_id']) if action=='approve' else runtime.reject_learning(proposal['proposal_id'])
+            if result.get('ok'):
+                win.destroy(); self.status.config(text='Learning approved' if action=='approve' else 'Learning rejected',fg='#79e2a1' if action=='approve' else '#e36b6b'); self.root.after(100,self.review_pending_learning)
+            else:
+                messagebox.showerror('Learning approval',str(result),parent=win)
+        tk.Button(buttons,text='Reject',command=lambda:decide('reject'),padx=24,pady=8).pack(side='left')
+        tk.Button(buttons,text='Approve ? add to permanent knowledge',command=lambda:decide('approve'),padx=24,pady=8).pack(side='right')
 
     def run_benchmark(self):
         try:

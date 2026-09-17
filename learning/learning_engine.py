@@ -13,8 +13,8 @@ class LearningEngine:
     """Continual local learning: experiences -> patterns -> rules -> strategy priors.
     Learning is automatic and local. It never calls an external model/service.
     """
-    def __init__(self,path):
-        self.path=Path(path); self.path.parent.mkdir(parents=True,exist_ok=True)
+    def __init__(self,path,gate=None):
+        self.path=Path(path); self.path.parent.mkdir(parents=True,exist_ok=True); self.gate=gate
         self.rules_path=self.path.with_name('learned_rules.json')
         self.experiences=[]; self.rules=[]; self._load(); self._load_rules()
 
@@ -50,6 +50,9 @@ class LearningEngine:
     def record(self,goal,action,result,score,intent='general',strategy='default',domain='general'):
         score=max(0,min(1,float(score)))
         item=Experience(str(goal),str(action),str(result)[:4000],score,self._lesson_for(score),datetime.now().isoformat(timespec='seconds'),intent,strategy,domain)
+        if self.gate is not None:
+            proposal=self.gate.request('learning.record_experience',asdict(item), f'Learning experience: {goal}')
+            if proposal is not None: return proposal
         # Avoid storing exact duplicate traces repeatedly.
         duplicate=next((r for r in reversed(self.experiences[-80:]) if r.get('goal')==item.goal and r.get('action')==item.action and r.get('result','')[:250]==item.result[:250]),None)
         if duplicate:

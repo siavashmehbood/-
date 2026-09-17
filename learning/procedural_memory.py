@@ -5,8 +5,8 @@ from datetime import datetime
 
 class ProceduralMemory:
     """Durable structured procedures derived from verified experience."""
-    def __init__(self, path):
-        self.path = Path(path)
+    def __init__(self, path, gate=None):
+        self.path = Path(path); self.gate = gate
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.procedures = []
         self._load()
@@ -37,6 +37,9 @@ class ProceduralMemory:
                    'source_experiences': list(source_experiences or []),
                    'success_rate': round(float(success_rate), 4), 'confidence': round(float(confidence), 4),
                    'created_at': row.get('created_at', now) if row else now, 'updated_at': now}
+        if self.gate is not None:
+            proposal=self.gate.request('procedural.upsert',payload,f'Procedure: {name}')
+            if proposal is not None: return proposal
         if row: row.update(payload)
         else: self.procedures.append(payload)
         self._save()
@@ -73,6 +76,9 @@ class ProceduralMemory:
     def record_outcome(self, procedure_id, success):
         row = next((x for x in self.procedures if x.get('procedure_id') == procedure_id), None)
         if not row: return None
+        if self.gate is not None:
+            proposal=self.gate.request('procedural.record_outcome',{'procedure_id':procedure_id,'success':bool(success)},f'Update procedure outcome: {procedure_id}')
+            if proposal is not None: return proposal
         old = float(row.get('success_rate', 0)); row['success_rate'] = round(old * .8 + (1.0 if success else 0.0) * .2, 4)
         row['confidence'] = round(max(.05, min(.99, float(row.get('confidence', .5)) + (.03 if success else -.08))), 4)
         row['updated_at'] = datetime.now().isoformat(timespec='seconds'); self._save(); return row

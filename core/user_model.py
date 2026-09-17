@@ -5,8 +5,8 @@ import re
 
 class UserModel:
     """Persistent explicit user facts. Facts are separated from assumptions."""
-    def __init__(self, memory, knowledge_graph, project_name="IRAN"):
-        self.memory = memory
+    def __init__(self, memory, knowledge_graph, project_name="IRAN", gate=None):
+        self.memory = memory; self.gate = gate
         self.knowledge = knowledge_graph
         self.project_name = project_name
 
@@ -75,6 +75,9 @@ class UserModel:
 
     def record(self, text):
         facts = self.extract_explicit_facts(text)
+        if self.gate is not None and facts:
+            proposal=self.gate.request('user_model.record_facts',facts,'User facts extracted from explicit statement')
+            if proposal is not None: return [proposal]
         stored = []
         for fact in facts:
             meta = dict(fact)
@@ -86,6 +89,18 @@ class UserModel:
                 except Exception:
                     pass
             self.memory.add("user_fact", str(meta), importance=.92, confidence=fact["confidence"], source=fact["source"])
+            stored.append(meta)
+        return stored
+
+    def record_from_facts(self, facts):
+        stored=[]
+        for fact in facts or []:
+            meta=dict(fact); meta["timestamp"]=datetime.now().isoformat(timespec="seconds")
+            self.memory.add_semantic_fact(fact["subject"],fact["predicate"],fact["object"],fact["confidence"],fact["source"])
+            if self.knowledge is not None:
+                try: self.knowledge.contradict(fact["subject"],fact["predicate"],fact["object"],fact["confidence"],fact["source"])
+                except Exception: pass
+            self.memory.add("user_fact",str(meta),importance=.92,confidence=fact["confidence"],source=fact["source"])
             stored.append(meta)
         return stored
 

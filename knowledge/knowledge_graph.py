@@ -5,8 +5,8 @@ from persistence import atomic_write_json, load_json_with_backup
 
 class KnowledgeGraph:
     """Local durable knowledge graph with confidence, provenance and contradiction tracking."""
-    def __init__(self,path):
-        self.path=Path(path); self.path.parent.mkdir(parents=True,exist_ok=True); self.facts=[]; self._load()
+    def __init__(self,path,gate=None):
+        self.path=Path(path); self.path.parent.mkdir(parents=True,exist_ok=True); self.gate=gate; self.facts=[]; self._load()
 
     def _load(self):
         self.facts=load_json_with_backup(self.path, [])
@@ -16,12 +16,19 @@ class KnowledgeGraph:
 
     def add_fact(self,subject,predicate,object_,confidence=1.0,source='internal'):
         fact={'subject':str(subject),'predicate':str(predicate),'object':str(object_),'confidence':float(confidence),'source':str(source),'updated_at':datetime.now().isoformat(timespec='seconds')}
+        if self.gate is not None:
+            proposal=self.gate.request('knowledge.add_fact',fact, f'Knowledge: {fact["subject"]} / {fact["predicate"]} / {fact["object"]}')
+            if proposal is not None: return proposal
         for old in self.facts:
             if old['subject']==fact['subject'] and old['predicate']==fact['predicate'] and old['object']==fact['object']:
                 old.update({'confidence':max(old.get('confidence',0),fact['confidence']),'updated_at':fact['updated_at']}); self._save(); return old
         self.facts.append(fact); self._save(); return fact
 
     def contradict(self,subject,predicate,object_,confidence=.7,source='internal'):
+        candidate={'subject':str(subject),'predicate':str(predicate),'object':str(object_),'confidence':float(confidence),'source':str(source)}
+        if self.gate is not None:
+            proposal=self.gate.request('knowledge.contradict',candidate,f'Knowledge contradiction: {candidate["subject"]} / {candidate["predicate"]}')
+            if proposal is not None: return proposal
         for fact in self.facts:
             if fact['subject']==str(subject) and fact['predicate']==str(predicate) and fact['object']!=str(object_):
                 fact['contradicted_by']={'object':str(object_),'confidence':float(confidence),'source':str(source)}
@@ -130,6 +137,10 @@ _old_add_fact_taskc = KnowledgeGraph._taskc_base_add_fact
 
 def _add_fact_taskc(self, subject, predicate, object_, confidence=1.0, source='internal'):
     s,p,o=str(subject),str(predicate),str(object_)
+    if self.gate is not None:
+        candidate={'subject':s,'predicate':p,'object':o,'confidence':float(confidence),'source':str(source)}
+        proposal=self.gate.request('knowledge.add_fact',candidate,f'Knowledge: {s} / {p} / {o}')
+        if proposal is not None: return proposal
     for old in self.facts:
         if old.get('subject')==s and old.get('predicate')==p and old.get('object')!=o:
             old['contradicted_by']={'object':o,'confidence':float(confidence),'source':str(source),'timestamp':datetime.now().isoformat(timespec='seconds')}

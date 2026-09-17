@@ -4,7 +4,8 @@ from datetime import datetime
 
 class Memory:
     """Durable local memory: episodic traces, semantic facts and procedural lessons."""
-    def __init__(self,db_path):
+    def __init__(self,db_path,gate=None):
+        self.gate=gate
         path=Path(db_path); path.parent.mkdir(parents=True,exist_ok=True)
         self.conn=sqlite3.connect(path,check_same_thread=False)
         self.conn.execute('CREATE TABLE IF NOT EXISTS memories (id INTEGER PRIMARY KEY, kind TEXT, content TEXT, importance REAL DEFAULT 0.5, created_at TEXT DEFAULT CURRENT_TIMESTAMP)')
@@ -50,6 +51,10 @@ class Memory:
         return out
     def add_semantic_fact(self,subject,predicate,value,confidence=.65,source='inference'):
         now=datetime.now().isoformat(timespec='seconds'); s=self._norm(subject); p=self._norm(predicate); v=self._norm(value)
+        if self.gate is not None:
+            payload={'subject':s,'predicate':p,'value':v,'confidence':float(confidence),'source':str(source)}
+            proposal=self.gate.request('memory.add_semantic_fact',payload,f'Semantic fact: {s} / {p} / {v}')
+            if proposal is not None: return proposal
         row=self.conn.execute('SELECT id,confidence FROM semantic_facts WHERE subject=? AND predicate=? AND value=?',(s,p,v)).fetchone()
         if row:
             self.conn.execute('UPDATE semantic_facts SET confidence=MAX(confidence,?),source=?,updated_at=? WHERE id=?',(float(confidence),str(source),now,row[0])); self.conn.commit(); return row[0]
@@ -64,6 +69,10 @@ class Memory:
         return [x[1] for x in sorted(scored,key=lambda x:x[0],reverse=True)[:int(limit)]]
     def add_lesson(self,goal,lesson,confidence=.6,source='experience'):
         now=datetime.now().isoformat(timespec='seconds'); g=self._norm(goal); l=self._norm(lesson)
+        if self.gate is not None:
+            payload={'goal':g,'lesson':l,'confidence':float(confidence),'source':str(source)}
+            proposal=self.gate.request('memory.add_lesson',payload,f'Lesson: {g}')
+            if proposal is not None: return proposal
         row=self.conn.execute('SELECT id,uses FROM lessons WHERE goal=? AND lesson=?',(g,l)).fetchone()
         if row:
             self.conn.execute('UPDATE lessons SET confidence=MAX(confidence,?),uses=uses+1,source=?,updated_at=? WHERE id=?',(float(confidence),str(source),now,row[0])); self.conn.commit(); return row[0]
