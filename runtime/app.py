@@ -432,6 +432,9 @@ class IranRuntime:
         return self.autonomous_supervisor.snapshot()
 
     def close(self):
+        if getattr(self, "_closed", False):
+            return
+        self._closed = True
         try:
             self.autonomy.stop()
         except Exception:
@@ -440,7 +443,16 @@ class IranRuntime:
             self.autonomous_supervisor.stop()
         except Exception:
             pass
-        self.memory.close()
+        try:
+            self.memory.close()
+        except Exception:
+            pass
+
+    def __del__(self):
+        try:
+            self.close()
+        except Exception:
+            pass
 
     def architecture(self):
         return self.cognitive_system.architecture_contract()

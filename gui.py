@@ -76,7 +76,7 @@ class ChatWindow(QMainWindow):
         w = QWidget(); l = QVBoxLayout(w); l.setSpacing(7); l.addWidget(QLabel("وضعیت شناختی"))
         self.conf = QLabel("اطمینان: —"); self.quality = QLabel("کیفیت: —"); self.intent = QLabel("هدف: —"); self.elapsed = QLabel("زمان: —"); self.experience_xp = QLabel("XP این نشست: ۱,۰۰۰,۰۰۰ | تجربه جدید: ۰")
         for x in (self.conf, self.quality, self.intent, self.elapsed, self.experience_xp): l.addWidget(x)
-        l.addSpacing(8); l.addWidget(QLabel("رویدادهای اخیر")); self.events = QListWidget(); l.addWidget(self.events, 1)
+        l.addSpacing(8); l.addWidget(QLabel("آخرین رویدادها")); self.events = QListWidget(); l.addWidget(self.events, 1)
         buttons = [("حافظه", self.show_memory), ("ردیابی پاسخ", self.show_trace),
                    ("بازبینی ChatGPT", self.show_chatgpt_reviews),
                    ("آزمون بنچمارک", self.run_benchmark), ("بازبینی یادگیری", self.review_pending_learning),
@@ -110,40 +110,71 @@ class ChatWindow(QMainWindow):
     def on_fail(self, text):
         self.add("خطا", text); self.status.setText("خطا"); self.busy = False; self.send.setEnabled(True); self.persist_session()
     def review_pending_learning(self):
+        """نمایش همه درخواست‌های یادگیری در انتظار تأیید."""
         try:
-            rows=self.runtime.learning_history(200)
+            rows = self.runtime.learning_pending(200)
         except Exception as e:
-            QMessageBox.warning(self, "??????? ???????", f"???: {e}"); return
-        pending=[r for r in rows if r.get("status")=="pending"]
-        if not pending:
-            QMessageBox.information(self, "??????? ???????", "??????? ??????? ?? ?????? ????? ???? ?????.")
-            self.refresh_learning_stats(); return
-        d=QDialog(self); d.setWindowTitle(f"??????? ? {len(pending)} ??????? ?? ?????? ?????"); d.resize(980,720); d.setLayoutDirection(Qt.RightToLeft)
-        outer=QVBoxLayout(d); outer.addWidget(QLabel(f"????? ??????????: {len(pending)} | XP ?? ??????: {len(pending)*1_000_000:,}"))
-        tabs=QTabWidget(); outer.addWidget(tabs,1)
-        for index,row in enumerate(pending,1):
-            page=QWidget(); l=QVBoxLayout(page)
-            payload=row.get('payload',{}) or {}
-            goal=str(payload.get('goal','????? ???? ????')); action=str(payload.get('action','')); result=str(payload.get('result','')); lesson=str(payload.get('lesson',''))
-            l.addWidget(QLabel(f"??????? {index} ?? {len(pending)} | ?????: {row.get('proposal_id','')}"))
-            box=QPlainTextEdit(); box.setReadOnly(True); box.setPlainText(f"?????:\n{goal}\n\n??? ?????????:\n{action}\n\n?????:\n{result}\n\n???? ??? ????? ???:\n{lesson}\n\n?????? ?????: {payload.get('score','?')}\nXP: 1,000,000"); l.addWidget(box,1)
-            buttons=QHBoxLayout(); copy=QPushButton('??? ?????'); reject=QPushButton('?? ?????'); approve=QPushButton('????? ? ??????? ?,???,??? XP'); buttons.addWidget(copy); buttons.addWidget(reject); buttons.addWidget(approve); l.addLayout(buttons)
-            copy.clicked.connect(lambda checked=False, text=box.toPlainText(): (QApplication.clipboard().setText(text), self.status.setText('????? ??? ??')))
-            pid=row.get('proposal_id','')
+            QMessageBox.warning(self, "بازبینی یادگیری", f"خطا: {e}")
+            return
+        if not rows:
+            stats = self.runtime.learning_status()
+            QMessageBox.information(self, "بازبینی یادگیری", f"درخواست در انتظار تأیید وجود ندارد.\n\nکل درخواست‌ها: {stats.get('total', 0):,}\nتأییدشده: {stats.get('approved', 0):,}\nردشده: {stats.get('rejected', 0):,}\nXP کل: {stats.get('xp', 0):,}")
+            self.refresh_learning_stats()
+            return
+        d = QDialog(self)
+        d.setWindowTitle(f"بازبینی یادگیری — {len(rows)} درخواست")
+        d.resize(980, 720)
+        d.setLayoutDirection(Qt.RightToLeft)
+        outer = QVBoxLayout(d)
+        outer.addWidget(QLabel(f"درخواست‌های در انتظار: {len(rows):,} | XP قابل دریافت: {len(rows) * 1_000_000:,}"))
+        tabs = QTabWidget()
+        outer.addWidget(tabs, 1)
+        for index, row in enumerate(rows, 1):
+            page = QWidget()
+            l = QVBoxLayout(page)
+            payload = row.get("payload", {}) or {}
+            goal = str(payload.get("goal", row.get("summary", "هدف مشخص نشده")))
+            action = str(payload.get("action", ""))
+            result = str(payload.get("result", ""))
+            lesson = str(payload.get("lesson", ""))
+            kind = str(row.get("kind", ""))
+            proposal_id = str(row.get("proposal_id", ""))
+            l.addWidget(QLabel(f"درخواست {index} از {len(rows)} | نوع: {kind} | شناسه: {proposal_id}"))
+            box = QPlainTextEdit()
+            box.setReadOnly(True)
+            box.setPlainText(f"هدف:\n{goal}\n\nعمل انجام‌شده:\n{action}\n\nنتیجه:\n{result}\n\nدرس استخراج‌شده:\n{lesson}\n\nامتیاز: {payload.get('score', '?')}\nXP این درخواست: 1,000,000")
+            l.addWidget(box, 1)
+            buttons = QHBoxLayout()
+            copy = QPushButton("کپی درخواست")
+            reject = QPushButton("رد کردن")
+            approve = QPushButton("تأیید و ثبت ۱,۰۰۰,۰۰۰ XP")
+            buttons.addWidget(copy); buttons.addWidget(reject); buttons.addWidget(approve); l.addLayout(buttons)
+            copy.clicked.connect(lambda checked=False, text=box.toPlainText(): (QApplication.clipboard().setText(text), self.status.setText("درخواست کپی شد")))
+            pid = proposal_id
             def do_approve(checked=False, proposal_id=pid, page=page):
-                r=self.runtime.approve_learning(proposal_id)
-                if not r.get('ok'):
-                    QMessageBox.warning(d,'????? ???',str(r)); return
-                self.status.setText('??????? ????? ?? ? ?,???,??? XP ??? ??'); self.refresh_learning_stats(); self.refresh_events(); tabs.removeTab(tabs.indexOf(page))
-                if tabs.count()==0: d.accept()
+                r = self.runtime.approve_learning(proposal_id)
+                if not r.get("ok"):
+                    QMessageBox.warning(d, "تأیید ناموفق", str(r)); return
+                self.status.setText("یادگیری تأیید و با ۱,۰۰۰,۰۰۰ XP ثبت شد")
+                self.refresh_learning_stats(); self.refresh_events()
+                tab_index = tabs.indexOf(page)
+                if tab_index >= 0: tabs.removeTab(tab_index)
+                if tabs.count() == 0: d.accept()
             def do_reject(checked=False, proposal_id=pid, page=page):
-                r=self.runtime.reject_learning(proposal_id)
-                if not r.get('ok'):
-                    QMessageBox.warning(d,'?? ???',str(r)); return
-                self.status.setText('??????? ?? ?? ? ????? ???'); self.refresh_learning_stats(); self.refresh_events(); tabs.removeTab(tabs.indexOf(page))
-                if tabs.count()==0: d.reject()
-            approve.clicked.connect(do_approve); reject.clicked.connect(do_reject); tabs.addTab(page,f'??????? {index}')
-        close=QPushButton('????'); close.clicked.connect(d.reject); outer.addWidget(close); d.exec()
+                r = self.runtime.reject_learning(proposal_id)
+                if not r.get("ok"):
+                    QMessageBox.warning(d, "رد ناموفق", str(r)); return
+                self.status.setText("درخواست یادگیری رد شد")
+                self.refresh_learning_stats(); self.refresh_events()
+                tab_index = tabs.indexOf(page)
+                if tab_index >= 0: tabs.removeTab(tab_index)
+                if tabs.count() == 0: d.reject()
+            approve.clicked.connect(do_approve); reject.clicked.connect(do_reject)
+            tabs.addTab(page, f"درخواست {index}")
+        close = QPushButton("بستن")
+        close.clicked.connect(d.reject)
+        outer.addWidget(close)
+        d.exec()
 
     def show_chatgpt_reviews(self):
         # The current IRAN build is offline-only: do not create an external API path.
@@ -173,6 +204,14 @@ class ChatWindow(QMainWindow):
         if text: QApplication.clipboard().setText(text); self.status.setText("متن انتخاب‌شده کپی شد")
         else: self.status.setText("متنی انتخاب نشده است")
     def update_title_stats(self): self.setWindowTitle(f"ایران — معماری شناختی | {len(self.messages)} پیام")
+    def closeEvent(self, event):
+        try:
+            self.persist_session()
+            self.runtime.close()
+        except Exception:
+            pass
+        event.accept()
+
     def persist_session(self):
         try: (ROOT / "logs" / "current_session.json").write_text(json.dumps(self.messages, ensure_ascii=False, indent=2), encoding="utf-8")
         except Exception: pass
@@ -200,10 +239,14 @@ class ChatWindow(QMainWindow):
         p.write_text(self.chat.toPlainText(), encoding="utf-8"); self.status.setText(f"ذخیره شد: {p.name}")
     def refresh_learning_stats(self):
         try:
-            stats=self.runtime.learning.stats()
-            self.experience_xp.setText(f"XP این نشست: {stats.get('session_xp',1_000_000):,} | تجربه جدید: {stats.get('session_experiences',0):,}")
-        except Exception:
-            self.experience_xp.setText("XP این نشست: ۱,۰۰۰,۰۰۰ | تجربه جدید: ۰")
+            stats = self.runtime.learning_status()
+            self.experience_xp.setText(
+                f"درخواست: {stats.get('total', 0):,} | در انتظار: {stats.get('pending', 0):,} | "
+                f"تأیید: {stats.get('approved', 0):,} | رد: {stats.get('rejected', 0):,} | "
+                f"XP کل: {stats.get('xp', 0):,}"
+            )
+        except Exception as e:
+            self.experience_xp.setText(f"یادگیری: خطا در دریافت وضعیت — {e}")
 
     def refresh_events(self):
         try:
