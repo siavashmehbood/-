@@ -72,6 +72,16 @@ class IranGUI:
         tk.Label(net, textvariable=self.internet_var, bg='#eef5ff', fg='#315a9b', font=self.small).pack(anchor='e', padx=10)
         self.internet_btn = tk.Button(net, text='خاموش کردن', command=self.toggle_internet, relief='flat', padx=12, pady=5)
         self.internet_btn.pack(fill='x', padx=10, pady=8)
+        learn = tk.Frame(sidebar, bg='#fff8e8', bd=1, relief='solid')
+        learn.pack(fill='x', padx=12, pady=(4, 8))
+        tk.Label(learn, text='یادگیری و تجربه', bg='#fff8e8', fg='#172033', font=('Segoe UI', 11, 'bold')).pack(anchor='e', padx=10, pady=(8, 2))
+        self.learning_pending_var = tk.StringVar(value='در انتظار تأیید: ۰')
+        self.learning_total_var = tk.StringVar(value='تجربه‌ها: ۰')
+        self.learning_xp_var = tk.StringVar(value='XP: ۰')
+        for var in (self.learning_pending_var, self.learning_total_var, self.learning_xp_var):
+            tk.Label(learn, textvariable=var, bg='#fff8e8', fg='#5e6b7d', font=self.small).pack(anchor='e', padx=10)
+        self.learning_btn = tk.Button(learn, text='بررسی یادگیری‌ها', command=self.review_pending_learning, relief='flat', padx=12, pady=6)
+        self.learning_btn.pack(fill='x', padx=10, pady=8)
         tk.Label(sidebar, text='یادگیری دائمی همچنان نیازمند تأیید شماست.', bg='#ffffff', fg='#768399', font=('Segoe UI', 8), wraplength=250, justify='right').pack(anchor='e', padx=16, pady=(0, 4))
         tk.Label(sidebar, text='هدف‌های فعال', bg='#ffffff', fg='#172033', font=('Segoe UI', 11, 'bold')).pack(anchor='e', padx=16, pady=(10, 4))
         self.goals_box = tk.Listbox(sidebar, height=6, font=self.small, justify='right', bg='#f6f8fb', relief='flat')
@@ -174,6 +184,14 @@ class IranGUI:
         net = runtime.internet_access.status()
         self.internet_var.set('فعال — دسترسی شبکه مجاز است' if net['enabled'] else 'خاموش — بدون دسترسی شبکه')
         self.internet_btn.config(text='خاموش کردن' if net['enabled'] else 'روشن کردن اینترنت')
+        stats = runtime.learning_status()
+        pending = int(stats.get('pending', 0))
+        total = int(stats.get('total', 0))
+        xp = int(stats.get('xp', total * 1_000_000))
+        self.learning_pending_var.set(f'در انتظار تأیید: {pending:,}')
+        self.learning_total_var.set(f'تجربه‌ها: {total:,}')
+        self.learning_xp_var.set(f'XP: {xp:,}')
+        self.learning_btn.config(text=f'بررسی یادگیری‌ها ({pending})' if pending else 'یادگیری‌ها / تاریخچه')
         response = self._event(events, 'response_generated')
         quality = self._event(events, 'evaluation_completed').get('quality', {})
         language = self._event(events, 'language_analysis')
@@ -201,7 +219,6 @@ class IranGUI:
                     self.add_message('ایران', answer, meta)
                     self.status.config(text=f'آماده | {response.get("mode", "پاسخ نمادین")}', fg='#79e2a1')
                     self.refresh_sidebar(events, elapsed)
-                    self.root.after(100, self.review_pending_learning)
                     self.root.after(100, self.review_pending_learning)
                 else:
                     self.add_message('ایران', 'خطا در پردازش:\n' + answer)
@@ -304,7 +321,7 @@ class IranGUI:
             score = payload.get('score', '\u2014'); intent = str(payload.get('intent', '\u0639\u0645\u0648\u0645\u06cc')); domain = str(payload.get('domain', '\u0639\u0645\u0648\u0645\u06cc'))
             explanation = ('\u0646\u06a9\u062a\u0647\u0654 \u06cc\u0627\u062f\u06af\u06cc\u0631\u06cc\n\n' f'\u0645\u0648\u0636\u0648\u0639:\n{goal}\n\n' f'\u0686\u0647 \u06a9\u0627\u0631\u06cc \u0627\u0646\u062c\u0627\u0645 \u0634\u062f\u061f\n{action}\n\n' f'\u0686\u0647 \u0646\u062a\u06cc\u062c\u0647\u200c\u0627\u06cc \u0628\u0647 \u062f\u0633\u062a \u0622\u0645\u062f\u061f\n{result}\n\n' f'\u0686\u0647 \u0686\u06cc\u0632\u06cc \u06cc\u0627\u062f \u06af\u0631\u0641\u062a\u0647 \u0634\u062f\u061f\n{lesson}\n\n' f'\u0631\u0627\u0647\u0628\u0631\u062f: {strategy}\n\u0642\u0635\u062f: {intent}\n\u062d\u0648\u0632\u0647: {domain}\n\u0627\u0645\u062a\u06cc\u0627\u0632 \u062a\u062c\u0631\u0628\u0647: {score}\n')
             box.configure(state='normal'); box.delete('1.0', 'end'); box.insert('1.0', explanation); box.configure(state='disabled')
-            listbox.selection_clear(0, 'end'); listbox.selection_set(idx); listbox.activate(idx); count_var.set(f'{len(rows)} ├ÿ┬»├ÿ┬▒├ÿ┬«├Ö╦å├ÿ┬º├ÿ┬│├ÿ┬¬ ├ÿ┬»├ÿ┬▒ ├ÿ┬º├ÖΓÇá├ÿ┬¬├ÿ┬╕├ÿ┬º├ÿ┬▒ | XP: {len(rows) * 1_000_000:,} | ├ÖΓÇª├Ö╦å├ÿ┬▒├ÿ┬» {idx + 1}')
+            listbox.selection_clear(0, 'end'); listbox.selection_set(idx); listbox.activate(idx); count_var.set(f'{len(rows):,} درخواست در انتظار | XP: {len(rows) * 1_000_000:,} | مورد {idx + 1}')
 
         def refresh():
             rows = runtime.learning_history(200); state['pending'] = rows
