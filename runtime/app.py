@@ -194,6 +194,7 @@ from core.observation import ObservationEngine
 from core.verification import VerificationEngine
 from core.failure import FailureIntelligence
 from core.replanning import Replanner
+from core.adaptive_execution import AdaptiveExecutionPolicy
 
 _old_init_phase1 = IranRuntime.__init__
 def _init_phase1(self, root):
@@ -205,6 +206,7 @@ def _init_phase1(self, root):
     self.verifier = VerificationEngine(self.events)
     self.failure = FailureIntelligence()
     self.replanner = Replanner(self.events)
+    self.adaptive_execution = AdaptiveExecutionPolicy(max_replans=1)
     self.events.emit('phase1_runtime_ready', {'task_runtime': True, 'action_contracts': True,
                                                'observation': True, 'verification': True,
                                                'failure_intelligence': True, 'replanning': True})
@@ -255,7 +257,12 @@ def _execute_recoverable_task(self, description, primary, alternative, expected_
     self.tasks.transition(task['task_id'], TaskStatus.RUNNING.value, 'primary attempt')
     action = self.actions.execute(task['task_id'], primary, expected_effect, **kwargs)
     observation = self.observer.observe(action, evidence=[])
-    verification = self.verifier.verify(observation)
+    decision = self.adaptive_execution.decide(
+        expected_effect, action.result, observation.evidence, 0
+    )
+    verification = self.verifier.verify(
+        observation, predicate=lambda obs: decision.success
+    )
     self.world.record_observation('action_verification', {
         'task_id': task['task_id'], 'action_id': action.action_id,
         'tool': primary, 'success': verification.success,
@@ -274,7 +281,12 @@ def _execute_recoverable_task(self, description, primary, alternative, expected_
     self.tasks.transition(task['task_id'], TaskStatus.RUNNING.value, 'alternative attempt')
     alt = self.actions.execute(task['task_id'], alternative, expected_effect, **kwargs)
     alt_observation = self.observer.observe(alt, evidence=[{'source': 'independent-recheck', 'tool': alternative}])
-    alt_verification = self.verifier.verify(alt_observation)
+    alt_decision = self.adaptive_execution.decide(
+        expected_effect, alt.result, alt_observation.evidence, 1
+    )
+    alt_verification = self.verifier.verify(
+        alt_observation, predicate=lambda obs: alt_decision.success
+    )
     self.world.record_observation('action_verification', {
         'task_id': task['task_id'], 'action_id': alt.action_id,
         'tool': alternative, 'success': alt_verification.success,

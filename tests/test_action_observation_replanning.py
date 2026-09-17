@@ -32,6 +32,25 @@ class ActionLoopTests(unittest.TestCase):
             self.assertTrue(v.success)
             self.assertEqual(v.action_id, a.action_id)
 
+    def test_recovery_verification_rejects_wrong_alternative_result(self):
+        with tempfile.TemporaryDirectory() as d:
+            events = EventLog(Path(d) / 'events.jsonl')
+            registry = ToolRegistry()
+            registry.register(Tool('primary_wrong', 'test', lambda: 'wrong', safe=True))
+            registry.register(Tool('alternative_wrong', 'test', lambda: 'still wrong', safe=True))
+            action = ActionExecutor(registry, AllowPolicy(), events)
+            observer = ObservationEngine(events)
+            verifier = VerificationEngine(events)
+            primary = action.execute('task-3', 'primary_wrong', 'correct')
+            primary_obs = observer.observe(primary, evidence=[])
+            primary_v = verifier.verify(primary_obs, predicate=lambda obs: bool(obs.evidence) and str(obs.expected).lower() in str(obs.actual).lower())
+            self.assertFalse(primary_v.success)
+            alt = action.execute('task-3', 'alternative_wrong', 'correct')
+            alt_obs = observer.observe(alt, evidence=[{'source': 'independent-recheck'}])
+            alt_v = verifier.verify(alt_obs, predicate=lambda obs: bool(obs.evidence) and str(obs.expected).lower() in str(obs.actual).lower())
+            self.assertFalse(alt_v.success)
+
+
     def test_task_rejects_invalid_transition(self):
         with tempfile.TemporaryDirectory() as d:
             rt = TaskRuntime(Path(d) / 'tasks.json')
