@@ -1,5 +1,5 @@
-import os
 import sys
+import os
 import traceback
 from pathlib import Path
 
@@ -17,8 +17,13 @@ def log_exception(exc_type, exc_value, exc_tb):
 sys.excepthook = log_exception
 
 try:
-    from gui import launch
-    launch()
+    from PySide6.QtWidgets import QApplication
+    from gui_pyside6 import ChatWindow
+    app = QApplication(sys.argv)
+    app.setApplicationName('IRAN Cognitive Workspace')
+    win = ChatWindow()
+    win.show()
+    sys.exit(app.exec())
 except Exception:
     with LOG.open('a', encoding='utf-8') as f:
         traceback.print_exc(file=f)

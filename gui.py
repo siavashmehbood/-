@@ -1,4 +1,4 @@
-﻿import json
+import json
 import queue
 import threading
 import traceback
@@ -20,6 +20,7 @@ class IranGUI:
         self.root = root
         self.busy = False
         self.results = queue.Queue()
+        self.last_answer = ''
         self.font = ('Segoe UI', 12)
         self.small = ('Segoe UI', 9)
         self.bold = ('Segoe UI', 12, 'bold')
@@ -86,11 +87,20 @@ class IranGUI:
         self.entry = tk.Entry(bottom, font=self.font, justify='right', relief='solid', bd=1)
         self.entry.pack(side='right', fill='x', expand=True, ipady=11)
         self.entry.bind('<Return>', self.send)
+        # Paste must stay native to the message input so Ctrl+V is never swallowed.
         self.entry.bind('<Control-v>', self.paste_clipboard)
         self.entry.bind('<Control-V>', self.paste_clipboard)
         self.entry.bind('<Shift-Insert>', self.paste_clipboard)
+        self.entry.bind('<Control-c>', self.copy_entry)
+        self.entry.bind('<Control-C>', self.copy_entry)
+        # Ctrl+C in the chat copies the selected text; if nothing is selected,
+        # the whole latest IRAN answer is copied.
+        self.chat.bind('<Control-c>', self.copy_response)
+        self.chat.bind('<Control-C>', self.copy_response)
         self.paste_btn = tk.Button(bottom, text='چسباندن', command=self.paste_clipboard, font=self.small, relief='flat', padx=10, pady=10)
         self.paste_btn.pack(side='right', padx=(0, 6))
+        self.copy_btn = tk.Button(bottom, text='کپی پاسخ', command=self.copy_response, font=self.small, relief='flat', padx=10, pady=10)
+        self.copy_btn.pack(side='right', padx=(0, 6))
         self.send_btn = tk.Button(bottom, text='ارسال', command=self.send, font=self.bold, bg='#315a9b', fg='white', relief='flat', padx=25, pady=10)
         self.send_btn.pack(side='right', padx=(0, 8))
         actions = tk.Frame(main, bg='#eef1f5')
@@ -101,6 +111,8 @@ class IranGUI:
         self.refresh_sidebar()
 
     def add_message(self, name, text, meta=''):
+        if name == 'ایران' and text:
+            self.last_answer = str(text)
         self.chat.configure(state='normal')
         self.chat.insert('end', name + '\n', 'name')
         self.chat.insert('end', str(text) + '\n', 'iran' if name == 'ایران' else 'user')
@@ -109,6 +121,19 @@ class IranGUI:
         self.chat.insert('end', '\n', 'iran')
         self.chat.see('end')
         self.chat.configure(state='disabled')
+
+    def copy_entry(self, event=None):
+        try:
+            try:
+                self.entry.selection_get()
+            except tk.TclError:
+                return 'break'
+            self.root.clipboard_clear()
+            self.root.clipboard_append(self.entry.selection_get())
+            self.root.update()
+        except tk.TclError:
+            pass
+        return 'break'
 
     def paste_clipboard(self, event=None):
         try:
@@ -126,6 +151,23 @@ class IranGUI:
             self.entry.insert('insert', text)
             self.entry.focus_set()
         return 'break'
+
+    def copy_response(self, event=None):
+        try:
+            try:
+                selected = self.chat.get('sel.first', 'sel.last')
+            except tk.TclError:
+                selected = ''
+            text = selected.strip() or self.last_answer.strip()
+            if not text:
+                return 'break'
+            self.root.clipboard_clear()
+            self.root.clipboard_append(text)
+            self.root.update()
+        except tk.TclError:
+            pass
+        return 'break'
+
     def send(self, event=None):
         if self.busy:
             return 'break'
@@ -216,6 +258,8 @@ class IranGUI:
     def clear_chat(self):
         self.chat.configure(state='normal')
         self.chat.delete('1.0', 'end')
+        self.chat.configure(state='disabled')
+        self.last_answer = ''
         self.chat.configure(state='disabled')
         self.add_message('ایران', 'صفحه گفتگو پاک شد؛ حافظه و یادگیری حذف نشده‌اند.')
 

@@ -101,6 +101,51 @@ class CognitivePipeline:
         parsed = e._parse(text)
         parsed.update(e.analyzer.analyze(text, parsed))
 
+        # Explicit topic declarations become the dialogue anchor.
+        topic = ""
+        for marker in ("موضوع اصلی ما", "موضوع ما", "موضوع اصلی"):
+            if marker in low and "است" in low:
+                candidate = text.split(marker, 1)[1].strip(" :،؛.؟")
+                if candidate.endswith("است"):
+                    candidate = candidate[:-3].strip(" :،؛.؟")
+                if len(candidate) >= 2:
+                    topic = candidate
+                    break
+        if topic:
+            e.state.current_topic = topic
+            e.state.references["latest"] = topic
+            e.state.conversation_confidence = .96
+            e.state.save(e.state_path)
+            answer = f"متوجه شدم؛ موضوع اصلی گفتگو را «{topic}» در نظر می‌گیرم و پیام‌های بعدی را به همین موضوع وصل می‌کنم."
+            result = self._persist_answer(text, answer, "TOPIC_ANCHOR", .98)
+            e.state.current_topic = topic
+            e.state.references["latest"] = topic
+            e.state.save(e.state_path)
+            return result
+
+        # Explicit corrections replace the active topic instead of leaving the old topic active.
+        if is_correction(text):
+            target = text
+            for marker in ("منظورم", "منظور من", "اشتباهه، منظورم", "نه، منظورم"):
+                if marker in low:
+                    target = text.split(marker, 1)[1].strip(" :،؛.؟")
+                    if target.endswith("است"):
+                        target = target[:-3].strip(" :،؛.؟")
+                    break
+            if target and target != text and len(target) >= 2:
+                e.state.current_topic = target
+                e.state.current_question = target
+                e.state.references["latest"] = target
+                e.state.corrections.append(text)
+                e.state.conversation_confidence = .95
+                e.state.save(e.state_path)
+                answer = f"متوجه شدم؛ منظورت «{target}» است. از اینجا به بعد همین را مبنای گفتگو می‌گیرم."
+                result = self._persist_answer(text, answer, "CORRECTION", .98)
+                e.state.current_topic = target
+                e.state.references["latest"] = target
+                e.state.save(e.state_path)
+                return result
+
         # Stable local identity/project facts.
         if low in {"سلام", "درود", "سلام ایران", "هی", "hello", "hi"}:
             answer = "سلام 👋 من ایران هستم؛ یک معماری شناختی مستقل و کاملاً آفلاین. بگو روی چه موضوعی کار کنیم."
@@ -131,6 +176,26 @@ class CognitivePipeline:
         # Conversation reference resolution.
         history = self.runtime.memory.recent(24)
         references, reference = e._references(text, parsed, history)
+
+        # Possessive references such as «حافظه‌اش» / «بخش آن» must inherit
+        # the active topic before retrieval and reasoning.  This is deliberately
+        # deterministic and local: it uses the conversation state, not a model.
+        possessive = (
+            any(x in low for x in ("حافظه‌اش", "حافظه اش", "بخش آن", "بخش این", "قسمت آن", "روش آن", "معماری آن", "ساختار آن"))
+            or any(x in low for x in ("این بخش", "همین بخش", "همون بخش", "این موضوع", "همین موضوع", "همون موضوع"))
+        )
+        if possessive and not reference:
+            active = clean(e.state.current_topic or "")
+            if active and active != text:
+                reference = active
+                references["resolved"] = {"candidate": active, "confidence": .94, "kind": "possessive_topic"}
+                self._emit("reference_resolved", {
+                    "surface": text,
+                    "resolved_to": active,
+                    "confidence": .94,
+                    "kind": "possessive_topic",
+                    "canonical": True,
+                })
         recent_users = []
         for row in reversed(history):
             if isinstance(row, (tuple, list)) and len(row) >= 3 and row[0] == "user":
@@ -142,6 +207,9 @@ class CognitivePipeline:
             reference = technical[-1] if technical else (recent_users[1] if len(recent_users) > 1 else (recent_users[0] if recent_users else reference))
             if reference:
                 references["resolved"] = {"candidate": reference, "confidence": .97}
+        if is_follow_up(text) and e.state.current_topic:
+            reference = clean(e.state.current_topic)
+            references["resolved"] = {"candidate": reference, "confidence": .96, "kind": "active_topic_follow_up"}
         if any(x in low for x in ("همون قبلی", "همونو", "ادامه بده", "بیشتر توضیح بده")) and not reference:
             reference = e.state.current_topic or (recent_users[0] if recent_users else "")
             if reference:
@@ -204,6 +272,10 @@ class CognitivePipeline:
                 answer = "بله؛ برای پروژه IRAN پایتون گزینه مناسبی است و خود پروژه هم با پایتون ساخته شده."
             else:
                 answer = f"اگر منظورت استفاده از «{reference}» در پروژه است، باید آن را با نیاز و معماری فعلی پروژه تطبیق دهیم."
+        elif reference and "حافظه" in low and any(x in low for x in ("اش", "ش", "آن", "این", "همین", "همون")):
+            answer = (f"اگر منظورت بخش حافظه در «{reference}» است: حافظه باید تجربه‌های گفت‌وگو، واقعیت‌های صریح، "
+                      "پاسخ‌های پذیرفته یا ردشده و زمینه فعلی را نگه دارد تا نوبت بعدی فقط بر اساس آخرین پیام تصمیم نگیرد. "
+                      "در IRAN این اطلاعات به‌صورت محلی در وضعیت گفت‌وگو و حافظه ثبت می‌شوند و دوباره در چرخه شناختی بازیابی می‌شوند.")
         elif reference and "موضوع قبلی" in low:
             answer = f"موضوع قبلی: «{reference}». ادامه را از همان موضوع می‌دهم."
         elif any(x in low for x in ("همونو بیشتر", "همون قبلی", "همونو", "ادامه بده", "بیشتر توضیح بده")) and reference:
