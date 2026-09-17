@@ -105,6 +105,7 @@ class ChatWindow(QMainWindow):
         self.worker.done.connect(self.on_done); self.worker.fail.connect(self.on_fail); self.thread.start()
     def on_done(self, text, elapsed):
         self.add("ایران", text); self.elapsed.setText(f"زمان: {elapsed:.3f} ثانیه")
+        self.queue_chatgpt_review(text); self.refresh_chatgpt_count()
         self.conf.setText("اطمینان: محاسبه شد"); self.quality.setText(f"کیفیت: {len(str(text))} نویسه")
         self.status.setText("آماده"); self.busy = False; self.send.setEnabled(True); self.refresh_events(); self.refresh_learning_stats(); self.persist_session()
         if self.autocopy.isChecked(): self.copy_response()
@@ -211,14 +212,17 @@ class ChatWindow(QMainWindow):
                 rows=json.loads(path.read_text(encoding='utf-8'))
         except Exception as e:
             QMessageBox.warning(self, 'بازبینی ChatGPT', f'خطا در خواندن بازبینی‌ها: {e}'); return
+        pending = [r for r in rows if r.get('status', 'pending') == 'pending']
         if not rows:
-            QMessageBox.information(self, 'بازبینی ChatGPT', 'هنوز هیچ بازبینی ChatGPT ثبت نشده است.\n\nاین بخش در نسخه آفلاین ایران فقط بازبینی‌های ثبت‌شده را نمایش می‌دهد.')
+            QMessageBox.information(self, 'بازبینی ChatGPT', 'هنوز درخواستی برای بازبینی ثبت نشده است.\n\nبعد از دریافت هر پاسخ از ایران، اینجا یک درخواست جدید ساخته می‌شود.')
             return
-        d=QDialog(self); d.setWindowTitle(f'بازبینی ChatGPT — {len(rows)} مورد'); d.resize(980,720); d.setLayoutDirection(Qt.RightToLeft)
-        l=QVBoxLayout(d); l.addWidget(QLabel('بازبینی‌های ثبت‌شده را بررسی کنید و پاسخ موردنظر را برای مقایسه کپی کنید.'))
+        d=QDialog(self); d.setWindowTitle(f'درخواست بازبینی ChatGPT — {len(pending)} در انتظار | {len(rows)} کل'); d.resize(980,720); d.setLayoutDirection(Qt.RightToLeft)
+        l=QVBoxLayout(d); l.addWidget(QLabel(f'درخواست‌های آماده برای ارسال به ChatGPT: {len(pending)} | کل درخواست‌ها: {len(rows)}'))
         tabs=QTabWidget(); l.addWidget(tabs,1)
         for i,row in enumerate(rows,1):
-            page=QWidget(); pl=QVBoxLayout(page); q=QPlainTextEdit(); q.setReadOnly(True); q.setPlainText('پرسش:\n'+str(row.get('question',''))+'\n\nپاسخ بازبینی‌شده:\n'+str(row.get('answer',''))); pl.addWidget(q,1); cp=QPushButton('کپی پاسخ'); cp.clicked.connect(lambda checked=False, a=str(row.get('answer','')): QApplication.clipboard().setText(a)); pl.addWidget(cp); tabs.addTab(page,f'مورد {i}')
+            page=QWidget(); pl=QVBoxLayout(page); q=QPlainTextEdit(); q.setReadOnly(True); q.setPlainText('پرسش:\n'+str(row.get('question',''))+'\n\nپاسخ ایران:\n'+str(row.get('answer',''))+'\n\nوضعیت: '+str(row.get('status','pending'))); pl.addWidget(q,1)
+            cp=QPushButton('کپی درخواست برای ChatGPT'); cp.clicked.connect(lambda checked=False, r=row: QApplication.clipboard().setText('این پاسخ ایران را بررسی کن.\n\nپرسش:\n'+str(r.get('question',''))+'\n\nپاسخ ایران:\n'+str(r.get('answer',''))+'\n\nلطفاً خطاها، کمبودها و اصلاح پیشنهادی را مشخص کن.')); pl.addWidget(cp)
+            tabs.addTab(page,f'مورد {i}')
         close=QPushButton('بستن'); close.clicked.connect(d.accept); l.addWidget(close); d.exec()
 
     def paste_clipboard(self):
