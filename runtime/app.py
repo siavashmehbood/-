@@ -1915,3 +1915,24 @@ def _final_canonical_runtime_handle(self, text):
     return pipeline.run(clean_text)
 
 IranRuntime.handle = _final_canonical_runtime_handle
+
+# v1.0-unified: composition root. All ordinary natural-language turns share one
+# dependency graph instead of selecting between historical runtime handlers.
+from core.cognitive_system import CognitiveSystem as _CognitiveSystem
+
+_previous_unified_init = IranRuntime.__init__
+def _unified_system_init(self, root):
+    _previous_unified_init(self, root)
+    self.cognitive_system = _CognitiveSystem(self)
+    self.events.emit('cognitive_system_ready', self.cognitive_system.inspect())
+
+IranRuntime.__init__ = _unified_system_init
+
+_previous_unified_handle = IranRuntime.handle
+def _unified_system_handle(self, text):
+    clean_text = str(text or '').strip()
+    if clean_text.startswith('/'):
+        return _previous_unified_handle(self, clean_text)
+    return self.cognitive_system.turn(clean_text)
+
+IranRuntime.handle = _unified_system_handle
