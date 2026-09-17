@@ -79,7 +79,7 @@ class ChatWindow(QMainWindow):
         l.addSpacing(8); l.addWidget(QLabel("رویدادهای اخیر")); self.events = QListWidget(); l.addWidget(self.events, 1)
         buttons = [("حافظه", self.show_memory), ("ردیابی پاسخ", self.show_trace),
                    ("بازبینی ChatGPT", self.show_chatgpt_reviews),
-                   ("آزمون بنچمارک", self.run_benchmark), ("یادگیری جدید", self.propose_online_lesson),
+                   ("آزمون بنچمارک", self.run_benchmark), ("بازبینی یادگیری", self.review_pending_learning),
                    ("تنظیمات", self.show_settings)]
         for text, fn in buttons:
             b = QPushButton(text); b.clicked.connect(fn); l.addWidget(b)
