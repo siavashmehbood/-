@@ -24,7 +24,8 @@
   },
   "online_learning": {
     "enabled": true,
-    "startup_sync": true,
+    "startup_sync": false,
+    "require_user_consent": true,
     "auto_fetch_on_unknown": true,
     "max_sources": 3,
     "max_fetches_per_session": 1,

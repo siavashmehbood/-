@@ -66,7 +66,12 @@ class IranRuntime:
         self.world.record_observation('response_score',score,1.0);self.world.transition(language.intent,cycle.decision.get('chosen','respond'),answer[:300],score);self.events.emit('reflection',reflection.__dict__)
         return answer
     def health(self):return self.brain.health()
-    def online_learning_snapshot(self):return self.online_learning.stats()
+    def online_learning_snapshot(self):
+        return self.online_learning.session_status()
+    def approve_online_learning(self):
+        result=self.online_learning.approve_session()
+        self.events.emit('online_learning_consent', result)
+        return result
     def learn_online(self, query, urls=None):
         result=self.online_learning.acquire(str(query), urls)
         self.events.emit('online_learning_manual', result)

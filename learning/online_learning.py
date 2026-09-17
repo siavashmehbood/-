@@ -131,6 +131,7 @@ class OnlineLearning:
 
     def acquire(self,query,urls=None):
         if not self.enabled: return {'enabled':False,'learned':[],'reason':'online_learning_disabled'}
+        if not self.cfg.get('session_approved',False): return {'enabled':True,'learned':[],'reason':'user_consent_required'}
         if self.fetches >= self.max_fetches: return {'enabled':True,'learned':[],'count':0,'query':query,'reason':'session_fetch_limit'}
         self.fetches += 1
         if urls:
@@ -175,3 +176,20 @@ class OnlineLearning:
     def stats(self):
         return {'enabled':self.enabled,'lessons':len(self.lessons),'sources':len(set(x.get('source','') for x in self.lessons)),
                 'last_sync':self.last_sync,'store':str(self.path)}
+
+    def approve_session(self):
+        """Explicitly enable network learning for the current runtime session."""
+        if not self.enabled:
+            return {'approved': False, 'reason': 'online_learning_disabled'}
+        self.cfg['session_approved'] = True
+        result = self.acquire('IRAN trusted knowledge bootstrap')
+        self.last_sync = datetime.now().isoformat(timespec='seconds')
+        return {'approved': True, **result}
+
+    def session_status(self):
+        return {
+            'enabled': self.enabled,
+            'approved': bool(self.cfg.get('session_approved', False)),
+            'lessons': len(self.lessons),
+            'sources': len(set(x.get('source','') for x in self.lessons)),
+        }

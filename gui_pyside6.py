@@ -2,7 +2,7 @@
 import sys, threading, json
 from datetime import datetime
 from pathlib import Path
-from PySide6.QtCore import Qt, Signal, QObject, QEvent
+from PySide6.QtCore import Qt, Signal, QObject, QEvent, QTimer
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (QApplication,QMainWindow,QWidget,QVBoxLayout,QHBoxLayout,QLabel,QPushButton,QLineEdit,QPlainTextEdit,QTextBrowser,QListWidget,QComboBox,QCheckBox,QSplitter,QMessageBox,QDialog,QFormLayout,QDialogButtonBox)
 ROOT=Path(__file__).resolve().parent
@@ -22,6 +22,7 @@ class ChatWindow(QMainWindow):
   super().__init__(); self.setWindowTitle('ایران — میزکار شناختی'); self.resize(1440,900)
   self.setLayoutDirection(Qt.RightToLeft); self.runtime=IranRuntime(ROOT)
   self.last_answer=''; self.messages=[]; self.busy=False; self.build(); self.load_session()
+  QTimer.singleShot(350, self.ask_online_learning_consent)
  def build(self):
   root=QWidget(); self.setCentralWidget(root); o=QVBoxLayout(root); o.setContentsMargins(14,14,14,14)
   top=QHBoxLayout(); t=QLabel('ایران — میزکار شناختی'); t.setObjectName('title'); s=QLabel('گفت‌وگوی محلی، حافظه، ردیابی و ارزیابی شناختی'); s.setObjectName('subtitle')
@@ -68,6 +69,36 @@ class ChatWindow(QMainWindow):
  def on_done(self,text,elapsed):
   self.add('ایران',text); self.elapsed.setText(f'زمان: {elapsed:.3f} ثانیه'); self.conf.setText('اعتماد: محلی'); self.quality.setText(f'حجم پاسخ: {len(str(text))} نویسه'); self.status.setText('آماده'); self.busy=False; self.send.setEnabled(True); self.refresh_events(); self.persist_session(); self.copy_response() if self.autocopy.isChecked() else None
  def on_fail(self,text): self.add('سیستم',text); self.status.setText('خطا'); self.busy=False; self.send.setEnabled(True); self.persist_session()
+ def ask_online_learning_consent(self):
+  if not self.runtime.online_learning.enabled: return
+  box=QMessageBox(self); box.setWindowTitle('یادگیری اینترنتی — تأیید کاربر')
+  box.setIcon(QMessageBox.Information)
+  box.setText('ایران می‌تواند در این نشست، با اجازه شما، از اینترنت یاد بگیرد.')
+  box.setInformativeText('قبل از اتصال، دقیقاً مشخص است چه کدی این کار را انجام می‌دهد و چه چیزی ذخیره می‌شود.')
+  details=(
+   'سازوکار فعال‌سازی:\n'
+   'runtime/app.py → approve_online_learning()\n'
+   'learning/online_learning.py → approve_session() → acquire()\n\n'
+   'کد اصلی:\n'
+   "result = self.online_learning.approve_session()\n"
+   "self.online_learning.acquire(query)\n\n"
+   'بعد از تأیید: منابع عمومی مجاز خوانده می‌شوند، متن محلی ذخیره می‌شود و برای پاسخ‌های بعدی قابل بازیابی است.\n'
+   'کد از محتوای وب چیزی را اجرا نمی‌کند و رضایت فقط برای همین نشست معتبر است.\n\n'
+   'مسیر ذخیره: data/web_lessons.json\n'
+   'منابع فعلی: Python Docs، MDN، GitHub Docs، Wikipedia با امتیاز اعتماد منبع.'
+  )
+  box.setDetailedText(details)
+  yes=box.addButton('تأیید و شروع یادگیری', QMessageBox.AcceptRole)
+  no=box.addButton('فعلاً نه', QMessageBox.RejectRole)
+  box.exec()
+  if box.clickedButton() is yes:
+   result=self.runtime.approve_online_learning()
+   self.status.setText(f"یادگیری اینترنتی فعال شد | {result.get('count',0)} منبع جدید")
+   self.events.addItem(f"رضایت کاربر: یادگیری اینترنتی فعال شد ({result.get('count',0)} منبع)")
+  else:
+   self.status.setText('یادگیری اینترنتی بدون تأیید کاربر فعال نشد')
+   self.events.addItem('رضایت کاربر برای یادگیری اینترنتی داده نشد')
+
  def paste_clipboard(self): self.input.insertPlainText(QApplication.clipboard().text()); self.input.setFocus()
  def copy_response(self):
   if self.last_answer.strip(): QApplication.clipboard().setText(self.last_answer.strip()); self.status.setText('آخرین پاسخ کپی شد')
