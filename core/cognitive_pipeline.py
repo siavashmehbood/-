@@ -215,6 +215,10 @@ class CognitivePipeline:
         if "هفته" in low and "روز" in low:
             knowledge = knowledge or [{"subject": "هفته", "predicate": "تعداد روز", "object": "هفت", "confidence": .99, "source": "verified_local_seed"}]
 
+        learner = getattr(self.runtime, "self_directed_learning", None)
+        known_text = " ".join([str(c.get("content", "")) for c in memory_context.get("selected", [])] + [str(k) for k in knowledge])
+        learning_plan = learner.plan_turn(text, parsed, e.state.current_topic, known_text) if learner is not None else None
+        if learning_plan: self._emit("learning_goal_created", {"goal": learning_plan["goal"], "next_action": learning_plan["next_action"], "canonical": True})
         # Symbolic chain reasoning.
         chain_result = None
         if getattr(e, "chain_reasoner", None):

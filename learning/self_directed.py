@@ -138,6 +138,17 @@ class SelfDirectedLearning:
         self._save()
         return asdict(goal)
 
+    def plan_turn(self, text, parsed=None, current_topic="", known_text=""):
+        """Create a bounded learning goal from a live question without injecting domain knowledge."""
+        parsed = parsed or {}
+        question_type = str(parsed.get("question_type", "general"))
+        if question_type not in {"what", "why", "how", "where", "yes_no"}:
+            return None
+        topic = str(current_topic or "").strip() or str(parsed.get("topic", "")).strip() or str(text or "").strip()
+        if not topic:
+            return None
+        goal = self.create_goal(topic, gap="question_requires_grounded_knowledge", objective=f"build_verified_understanding_of:{topic}", priority="medium", domain=self.detect_domain(topic))
+        return {"goal": goal, "next_action": self.next_action(goal), "known_context": bool(known_text)}
     def assess(self, topic, evidence_text, known_text="", source_confidence=0.0):
         rel = self.relevance(topic, evidence_text)
         nov = self.novelty(topic, evidence_text, known_text)
