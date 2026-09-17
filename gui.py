@@ -1,4 +1,5 @@
 import json
+import json
 import queue
 import threading
 import traceback
@@ -201,6 +202,7 @@ class IranGUI:
                     self.status.config(text=f'آماده | {response.get("mode", "پاسخ نمادین")}', fg='#79e2a1')
                     self.refresh_sidebar(events, elapsed)
                     self.root.after(100, self.review_pending_learning)
+                    self.root.after(100, self.review_pending_learning)
                 else:
                     self.add_message('ایران', 'خطا در پردازش:\n' + answer)
                     self.status.config(text='خطا — گزارش در logs ثبت شد', fg='#e36b6b')
@@ -252,6 +254,108 @@ class IranGUI:
         tk.Button(buttons,text='Copy test',command=copy_proposal,padx=18,pady=8).pack(side='left',padx=6)
         tk.Button(buttons,text='Export .txt',command=export_proposal,padx=18,pady=8).pack(side='left',padx=6)
         tk.Button(buttons,text='Approve ? add to permanent knowledge',command=lambda:decide('approve'),padx=24,pady=8).pack(side='right')
+
+    def review_pending_learning(self):
+        pending = runtime.learning_history(200)
+        if not pending:
+            return
+        win = getattr(self, '_learning_window', None)
+        if win is not None:
+            try:
+                if win.winfo_exists():
+                    self._learning_refresh(win, pending)
+                    win.lift(); win.focus_force()
+                    return
+            except tk.TclError:
+                pass
+        win = tk.Toplevel(self.root)
+        self._learning_window = win
+        win.title('\u0627\u06cc\u0631\u0627\u0646 | \u06cc\u0627\u062f\u06af\u06cc\u0631\u06cc \u062c\u062f\u06cc\u062f')
+        win.geometry('820x650')
+        win.transient(self.root)
+        win.protocol('WM_DELETE_WINDOW', win.destroy)
+
+        tk.Label(win, text='\u06cc\u0627\u062f\u06af\u06cc\u0631\u06cc\u200c\u0647\u0627\u06cc \u062c\u062f\u06cc\u062f \u0627\u06cc\u0631\u0627\u0646', font=('Segoe UI', 16, 'bold')).pack(anchor='e', padx=18, pady=(16, 4))
+        tk.Label(win, text='\u0647\u0631 \u0645\u0648\u0631\u062f \u06cc\u06a9 \u0646\u06a9\u062a\u0647\u0654 \u0645\u0633\u062a\u0642\u0644 \u0627\u0633\u062a. \u06a9\u067e\u06cc \u06a9\u0631\u062f\u0646 \u0641\u0642\u0637 \u0645\u062a\u0646 \u0631\u0627 \u06a9\u067e\u06cc \u0645\u06cc\u200c\u06a9\u0646\u062f \u0648 \u062a\u0623\u06cc\u06cc\u062f \u06cc\u0627\u062f\u06af\u06cc\u0631\u06cc \u0631\u0627 \u0627\u0646\u062c\u0627\u0645 \u0646\u0645\u06cc\u200c\u062f\u0647\u062f.', font=self.small, fg='#5e6b7d').pack(anchor='e', padx=18, pady=(0, 10))
+
+        body = tk.Frame(win); body.pack(fill='both', expand=True, padx=18, pady=8)
+        left = tk.Frame(body, width=230); left.pack(side='left', fill='y', padx=(0, 10))
+        tk.Label(left, text='\u0644\u06cc\u0633\u062a \u06cc\u0627\u062f\u06af\u06cc\u0631\u06cc\u200c\u0647\u0627', font=('Segoe UI', 11, 'bold')).pack(anchor='e')
+        count_var = tk.StringVar()
+        tk.Label(left, textvariable=count_var, font=self.small, fg='#315a9b').pack(anchor='e', pady=(2, 6))
+        listbox = tk.Listbox(left, font=('Segoe UI', 10), justify='right', exportselection=False); listbox.pack(fill='both', expand=True)
+
+        right = tk.Frame(body); right.pack(side='right', fill='both', expand=True)
+        box = scrolledtext.ScrolledText(right, wrap='word', font=('Segoe UI', 10), height=25); box.pack(fill='both', expand=True); box.configure(state='disabled')
+        buttons = tk.Frame(win); buttons.pack(fill='x', padx=18, pady=14)
+        state = {'pending': pending, 'selected': 0}
+
+        def render_selected():
+            rows = state['pending']
+            if not rows:
+                win.destroy(); self._learning_window = None; return
+            idx = max(0, min(state['selected'], len(rows) - 1)); state['selected'] = idx
+            payload = rows[idx].get('payload', {}) or {}
+            goal = str(payload.get('goal', '\u0645\u0648\u0636\u0648\u0639 \u0645\u0634\u062e\u0635 \u0646\u0634\u062f\u0647'))
+            action = str(payload.get('action', '\u0631\u0627\u0647\u0628\u0631\u062f \u0645\u0634\u062e\u0635 \u0646\u0634\u062f\u0647'))
+            result = str(payload.get('result', '\u0646\u062a\u06cc\u062c\u0647 \u062b\u0628\u062a \u0646\u0634\u062f\u0647'))
+            lesson = str(payload.get('lesson', '\u0646\u06a9\u062a\u0647\u0654 \u06cc\u0627\u062f\u06af\u06cc\u0631\u06cc \u062b\u0628\u062a \u0646\u0634\u062f\u0647'))
+            strategy = str(payload.get('strategy', '\u0631\u0627\u0647\u0628\u0631\u062f \u067e\u06cc\u0634\u200c\u0641\u0631\u0636'))
+            score = payload.get('score', '\u2014'); intent = str(payload.get('intent', '\u0639\u0645\u0648\u0645\u06cc')); domain = str(payload.get('domain', '\u0639\u0645\u0648\u0645\u06cc'))
+            explanation = ('\u0646\u06a9\u062a\u0647\u0654 \u06cc\u0627\u062f\u06af\u06cc\u0631\u06cc\n\n' f'\u0645\u0648\u0636\u0648\u0639:\n{goal}\n\n' f'\u0686\u0647 \u06a9\u0627\u0631\u06cc \u0627\u0646\u062c\u0627\u0645 \u0634\u062f\u061f\n{action}\n\n' f'\u0686\u0647 \u0646\u062a\u06cc\u062c\u0647\u200c\u0627\u06cc \u0628\u0647 \u062f\u0633\u062a \u0622\u0645\u062f\u061f\n{result}\n\n' f'\u0686\u0647 \u0686\u06cc\u0632\u06cc \u06cc\u0627\u062f \u06af\u0631\u0641\u062a\u0647 \u0634\u062f\u061f\n{lesson}\n\n' f'\u0631\u0627\u0647\u0628\u0631\u062f: {strategy}\n\u0642\u0635\u062f: {intent}\n\u062d\u0648\u0632\u0647: {domain}\n\u0627\u0645\u062a\u06cc\u0627\u0632 \u062a\u062c\u0631\u0628\u0647: {score}\n')
+            box.configure(state='normal'); box.delete('1.0', 'end'); box.insert('1.0', explanation); box.configure(state='disabled')
+            listbox.selection_clear(0, 'end'); listbox.selection_set(idx); listbox.activate(idx); count_var.set(f'{len(rows)} ├ÿ┬»├ÿ┬▒├ÿ┬«├Ö╦å├ÿ┬º├ÿ┬│├ÿ┬¬ ├ÿ┬»├ÿ┬▒ ├ÿ┬º├ÖΓÇá├ÿ┬¬├ÿ┬╕├ÿ┬º├ÿ┬▒ | XP: {len(rows) * 1_000_000:,} | ├ÖΓÇª├Ö╦å├ÿ┬▒├ÿ┬» {idx + 1}')
+
+        def refresh():
+            rows = runtime.learning_history(200); state['pending'] = rows
+            if not rows:
+                win.destroy(); self._learning_window = None; self.status.config(text='\u0647\u0645\u0647 \u06cc\u0627\u062f\u06af\u06cc\u0631\u06cc\u200c\u0647\u0627 \u0628\u0631\u0631\u0633\u06cc \u0634\u062f\u0646\u062f', fg='#79e2a1'); return
+            listbox.delete(0, 'end')
+            for row in rows:
+                goal = str((row.get('payload', {}) or {}).get('goal', '\u0645\u0648\u0636\u0648\u0639 \u0645\u0634\u062e\u0635 \u0646\u0634\u062f\u0647')).strip().replace('\n', ' ')
+                status = str(row.get('status', 'pending'))
+                label = {'approved': '\u062a\u0623\u06cc\u06cc\u062f \u0634\u062f\u0647', 'rejected': '\u0631\u062f \u0634\u062f\u0647', 'pending': '\u062f\u0631 \u0627\u0646\u062a\u0638\u0627\u0631'}.get(status, status)
+                listbox.insert('end', f'{label} | {goal[:27]}')
+            state['selected'] = min(state['selected'], len(rows) - 1); render_selected()
+
+        def select(event=None):
+            sel = listbox.curselection()
+            if sel: state['selected'] = sel[0]; render_selected()
+
+        def copy_proposal():
+            self.root.clipboard_clear(); self.root.clipboard_append(box.get('1.0', 'end-1c')); self.root.update()
+            self.status.config(text='\u0646\u06a9\u062a\u0647\u0654 \u06cc\u0627\u062f\u06af\u06cc\u0631\u06cc \u06a9\u067e\u06cc \u0634\u062f? \u067e\u0646\u062c\u0631\u0647 \u0628\u0633\u062a\u0647 \u0646\u0645\u06cc\u200c\u0634\u0648\u062f', fg='#315a9b'); win.lift(); win.focus_force()
+
+        def export_proposal():
+            from tkinter import filedialog
+            path = filedialog.asksaveasfilename(parent=win, title='\u0630\u062e\u06cc\u0631\u0647 \u0646\u06a9\u062a\u0647\u0654 \u06cc\u0627\u062f\u06af\u06cc\u0631\u06cc', defaultextension='.txt', filetypes=[('\u0641\u0627\u06cc\u0644 \u0645\u062a\u0646\u06cc', '*.txt'), ('\u0647\u0645\u0647 \u0641\u0627\u06cc\u0644\u200c\u0647\u0627', '*.*')], initialfile='\u0646\u06a9\u062a\u0647_\u06cc\u0627\u062f\u06af\u06cc\u0631\u06cc.txt')
+            if path: Path(path).write_text(box.get('1.0', 'end-1c'), encoding='utf-8'); self.status.config(text='\u0646\u06a9\u062a\u0647\u0654 \u06cc\u0627\u062f\u06af\u06cc\u0631\u06cc \u0630\u062e\u06cc\u0631\u0647 \u0634\u062f', fg='#315a9b'); win.lift()
+
+        def decide(action):
+            rows = state['pending']
+            if not rows: return
+            proposal = rows[state['selected']]
+            if proposal.get('status') != 'pending':
+                messagebox.showinfo('\u06cc\u0627\u062f\u06af\06cc\u0631\06cc', '\u0627\u06cc\0646 \u0645\u0648\u0631\u062f \u0642\u0628\u0644\u0627\u064b \u0628\u0631\u0631\u0633\u06cc \u0634\u062f\u0647 \u0648 \u0648\u0636\u0639\u06cc\u062a \u0622\u0646 \u062f\u0631 \u062a\u0627\u0631\u06cc\u062e\u0686\u0647 \u0630\u062e\u06cc\u0631\u0647 \u0634\u062f\u0647 \u0627\u0633\u062a.', parent=win)
+                return
+            result = runtime.approve_learning(proposal['proposal_id']) if action == 'approve' else runtime.reject_learning(proposal['proposal_id'])
+            if result.get('ok'):
+                state['selected'] = min(state['selected'], max(0, len(rows) - 2)); refresh()
+                self.status.config(text='\u06cc\u0627\u062f\u06af\06cc\u0631\u06cc \u062a\u0623\u06cc\u06cc\u062f \u0634\u062f' if action == 'approve' else '\u06cc\u0627\u062f\u06af\06cc\u0631\u06cc \u0631\u062f \u0634\u062f', fg='#79e2a1' if action == 'approve' else '#e36b6b')
+            else: messagebox.showerror('\u06cc\u0627\u062f\u06af\06cc\u0631\u06cc', str(result), parent=win)
+
+        listbox.bind('<<ListboxSelect>>', select)
+        tk.Button(buttons, text='\u0631\u062f \u06a9\u0631\u062f\u0646 \u0627\u06cc\u0646 \u0645\u0648\u0631\u062f', command=lambda: decide('reject'), padx=18, pady=8).pack(side='left')
+        tk.Button(buttons, text='\u06a9\u067e\u06cc \u0646\u06a9\u062a\u0647', command=copy_proposal, padx=18, pady=8).pack(side='left', padx=6)
+        tk.Button(buttons, text='\u0630\u062e\u06cc\u0631\u0647 \u0641\u0627\u06cc\u0644 \u0645\u062a\u0646\u06cc', command=export_proposal, padx=18, pady=8).pack(side='left', padx=6)
+        tk.Button(buttons, text='\u062a\u0623\u06cc\u06cc\u062f \u0648 \u06cc\u0627\u062f\u06af\u06cc\u0631\u06cc', command=lambda: decide('approve'), padx=22, pady=8).pack(side='right')
+        refresh()
+        listbox.focus_set()
+
+    def _learning_refresh(self, win, pending):
+        try:
+            if win.winfo_exists(): self._learning_pending_refresh = pending
+        except tk.TclError: pass
 
     def run_benchmark(self):
         try:
