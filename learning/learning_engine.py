@@ -318,3 +318,25 @@ def _transfer_real(self, task_a, task_b, baseline_fn, transfer_fn, verify_fn, ou
             'skill_applied':bool(applied),'outcome_verified':verified,'rule':rule,'retrieved_rules':retrieved}
 
 LearningEngine.transfer_real=_transfer_real
+
+
+# v0.30: verified pattern feedback closes the transfer loop.
+from learning.pattern_feedback import pattern_feedback as _pattern_feedback
+LearningEngine.pattern_feedback = _pattern_feedback
+
+_base_patterns_for_feedback = LearningEngine.patterns_for
+def _patterns_for_feedback(self, goal, intent='general', domain='general', limit=5):
+    return [p for p in _base_patterns_for_feedback(self, goal, intent, domain, limit * 2)
+            if p.get('status', 'active') != 'retired'][:int(limit)]
+LearningEngine.patterns_for = _patterns_for_feedback
+
+_base_transfer_plan_feedback = LearningEngine.transfer_plan
+def _transfer_plan_feedback(self, goal, intent='general', domain='general'):
+    plan = _base_transfer_plan_feedback(self, goal, intent, domain)
+    if plan.get('patterns'):
+        best = plan['patterns'][0]
+        plan['pattern_key'] = best.get('pattern_key')
+        plan['pattern_status'] = best.get('status', 'active')
+        plan['use_strategy'] = bool(plan.get('use_strategy') and plan['pattern_status'] == 'active')
+    return plan
+LearningEngine.transfer_plan = _transfer_plan_feedback

@@ -1981,3 +1981,34 @@ def _execute_verified_goal_lifecycle(self, goal, primary, alternative=None, expe
     return result
 
 IranRuntime.execute_verified_goal = _execute_verified_goal_lifecycle
+
+
+# v0.56: verified feedback now updates the exact transfer pattern that influenced a goal.
+_previous_goal_lifecycle = IranRuntime.execute_verified_goal
+
+def _execute_verified_goal_with_pattern_feedback(self, goal, primary, alternative=None, expected_effect='', kwargs=None):
+    transfer_before = self.learning.transfer_plan(goal, 'command', 'verified-task') if hasattr(self, 'learning') else {}
+    result = _previous_goal_lifecycle(self, goal, primary, alternative, expected_effect, kwargs)
+    if transfer_before.get('use_strategy') and transfer_before.get('pattern_key'):
+        primary_result = result.get('primary', {}) or {}
+        alternative_result = result.get('alternative') or {}
+        success = bool(primary_result.get('success') or alternative_result.get('success'))
+        feedback = self.learning.pattern_feedback(
+            transfer_before['pattern_key'], 1.0 if success else 0.0,
+            verified=True,
+            reason='verified goal outcome',
+        )
+        if feedback:
+            event = 'pattern_reinforced' if success else ('pattern_weakened' if feedback.get('status') != 'retired' else 'pattern_retired')
+            self.events.emit(event, {
+                'goal': str(goal),
+                'pattern_key': transfer_before['pattern_key'],
+                'confidence': feedback.get('confidence', 0),
+                'status': feedback.get('status'),
+                'success_count': feedback.get('success_count', 0),
+                'failure_count': feedback.get('failure_count', 0),
+            })
+            result['pattern_feedback'] = feedback
+    return result
+
+IranRuntime.execute_verified_goal = _execute_verified_goal_with_pattern_feedback
