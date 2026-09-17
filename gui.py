@@ -225,8 +225,15 @@ class ChatWindow(QMainWindow):
         l=QVBoxLayout(d); l.addWidget(QLabel(f'درخواست‌های آماده برای ارسال به ChatGPT: {len(pending)} | کل درخواست‌ها: {len(rows)}'))
         tabs=QTabWidget(); l.addWidget(tabs,1)
         for i,row in enumerate(rows,1):
-            page=QWidget(); pl=QVBoxLayout(page); q=QPlainTextEdit(); q.setReadOnly(True); q.setPlainText('پرسش:\n'+str(row.get('question',''))+'\n\nپاسخ ایران:\n'+str(row.get('answer',''))+'\n\nوضعیت: '+str(row.get('status','pending'))); pl.addWidget(q,1)
-            cp=QPushButton('کپی درخواست برای ChatGPT'); cp.clicked.connect(lambda checked=False, r=row: QApplication.clipboard().setText('این پاسخ ایران را بررسی کن.\n\nپرسش:\n'+str(r.get('question',''))+'\n\nپاسخ ایران:\n'+str(r.get('answer',''))+'\n\nلطفاً خطاها، کمبودها و اصلاح پیشنهادی را مشخص کن.')); pl.addWidget(cp)
+            page=QWidget(); pl=QVBoxLayout(page); q=QPlainTextEdit(); q.setReadOnly(True)
+            if row.get('source') == 'autonomous_learning':
+                body=('تجربه یادگیری خودکار\n\nهدف:\n'+str(row.get('goal',''))+'\n\nعمل:\n'+str(row.get('action',''))+'\n\nنتیجه:\n'+str(row.get('answer',''))+'\n\nدرس استخراج‌شده:\n'+str(row.get('lesson',''))+'\n\nوضعیت: '+str(row.get('status','pending')))
+                prompt=('این تجربه را برای ایران بررسی کن.\n\nهدف:\n'+str(row.get('goal',''))+'\n\nعمل:\n'+str(row.get('action',''))+'\n\nنتیجه:\n'+str(row.get('answer',''))+'\n\nدرس استخراج‌شده:\n'+str(row.get('lesson',''))+'\n\nخطاها، کمبودها و اصلاح پیشنهادی را مشخص کن.')
+            else:
+                body=('پرسش:\n'+str(row.get('question',''))+'\n\nپاسخ ایران:\n'+str(row.get('answer',''))+'\n\nوضعیت: '+str(row.get('status','pending')))
+                prompt=('این پاسخ ایران را بررسی کن.\n\nپرسش:\n'+str(row.get('question',''))+'\n\nپاسخ ایران:\n'+str(row.get('answer',''))+'\n\nلطفاً خطاها، کمبودها و اصلاح پیشنهادی را مشخص کن.')
+            q.setPlainText(body); pl.addWidget(q,1)
+            cp=QPushButton('کپی بسته بازبینی برای ChatGPT'); cp.clicked.connect(lambda checked=False, prompt=prompt: QApplication.clipboard().setText(prompt)); pl.addWidget(cp)
             tabs.addTab(page,f'مورد {i}')
         close=QPushButton('بستن'); close.clicked.connect(d.accept); l.addWidget(close); d.exec()
 
@@ -280,6 +287,7 @@ class ChatWindow(QMainWindow):
             report = self.runtime.autonomous_supervisor_step()
             request = report.get("learning_request") if isinstance(report, dict) else None
             if request and request.get("status") == "pending":
+                self.queue_autonomous_review(request)
                 self.status.setText("یادگیری خودکار: یک تجربه برای تأیید آماده است")
             else:
                 self.status.setText("یادگیری خودکار: در حال کاوش و آزمایش")
@@ -288,6 +296,34 @@ class ChatWindow(QMainWindow):
             self.status.setText(f"یادگیری خودکار: خطا — {type(e).__name__}")
         finally:
             self.autonomy_busy = False
+
+    def queue_autonomous_review(self, request):
+        path = ROOT / "data" / "chatgpt_reviews.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            rows = json.loads(path.read_text(encoding="utf-8")) if path.exists() else []
+        except Exception:
+            rows = []
+        if not isinstance(rows, list): rows = []
+        payload = request.get("payload") or {}
+        proposal_id = str(request.get("proposal_id", ""))
+        if not proposal_id or any(r.get("proposal_id") == proposal_id for r in rows):
+            return
+        rows.append({
+            "id": "autonomous_" + proposal_id,
+            "proposal_id": proposal_id,
+            "question": "بازبینی تجربه یادگیری خودکار ایران",
+            "answer": str(payload.get("result", "")),
+            "goal": str(payload.get("goal", "")),
+            "action": str(payload.get("action", "")),
+            "lesson": str(payload.get("lesson", "")),
+            "review": "",
+            "status": "pending",
+            "source": "autonomous_learning",
+            "created_at": datetime.now().isoformat(timespec="seconds")
+        })
+        path.write_text(json.dumps(rows[-500:], ensure_ascii=False, indent=2), encoding="utf-8")
+        self.refresh_chatgpt_count()
 
     def refresh_learning_stats(self):
         try:
