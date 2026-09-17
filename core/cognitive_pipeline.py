@@ -4,6 +4,7 @@ from datetime import datetime
 from core.dialogue import CognitiveContext, clean, is_correction, is_follow_up
 from core.context_tracker import ContextTracker
 from core.memory_intelligence import MemoryIntelligence
+from core.reasoning_planning import ReasoningPlanningEngine
 
 
 @dataclass
@@ -17,6 +18,8 @@ class TurnTrace:
     reasoning_status: str = "NOT_RUN"
     answer_status: str = "UNKNOWN"
     verification_status: str = "NOT_RUN"
+    verification_reasons: list = field(default_factory=list)
+    missing_units: list = field(default_factory=list)
     confidence: float = 0.0
     sources: list = field(default_factory=list)
     elapsed_ms: float = 0.0
@@ -29,6 +32,7 @@ class CognitivePipeline:
         self.runtime = engine.runtime
         self.context_tracker = ContextTracker.load(__import__("pathlib").Path(self.runtime.root) / "data" / "context_tracker.json")
         self.memory_intelligence = MemoryIntelligence(self.runtime.memory)
+        self.reasoning_planning = ReasoningPlanningEngine()
 
     def _emit(self, event, data):
         try:
@@ -220,6 +224,18 @@ class CognitivePipeline:
                 e.last_chain_result = None
 
         reasoning = e._reason(text, parsed, memory, knowledge, reference)
+        # Explicit deterministic reasoning/planning trace: subgoals, evidence,
+        # hypotheses, assumptions, decision gates and replan signal all stay
+        # inside the canonical pipeline.
+        try:
+            reasoning_trace = self.reasoning_planning.analyze(
+                text, parsed, memory, knowledge, reference, chain_result
+            )
+            reasoning = self.reasoning_planning.as_reasoning_dict(reasoning_trace)
+            e.last_reasoning_trace = reasoning_trace
+        except Exception:
+            reasoning_trace = None
+            e.last_reasoning_trace = None
         context = CognitiveContext(
             user_message=text,
             question_type=parsed.get("question_type", "general"),
@@ -303,7 +319,10 @@ class CognitivePipeline:
             reference=reference, memory_count=len(memory), knowledge_count=len(knowledge),
             reasoning_status=getattr(chain_result, "status", "NOT_RUN"),
             answer_status=getattr(synthesis, "status", plan.answer_type),
-            verification_status=verification.status, confidence=float(verification.score),
+            verification_status=verification.status,
+            verification_reasons=list(getattr(verification, "reasons", []) or []),
+            missing_units=list(getattr(verification, "missing_units", []) or []),
+            confidence=float(verification.score),
             sources=list(getattr(synthesis, "sources", []) or []),
             elapsed_ms=round((datetime.now() - started).total_seconds() * 1000, 2),
         )
@@ -318,7 +337,13 @@ class CognitivePipeline:
         e.turn_traces = e.turn_traces[-50:]
         self._emit("language_analysis", {"intent": context.intent, "confidence": context.confidence, "entities": context.entities, "constraints": context.constraints, "canonical": True})
         self._emit("cognitive_cycle", {"intent": context.intent, "confidence": context.confidence, "decision": {"chosen": "respond"}, "canonical": True})
-        self._emit("plan_created", {"goal": text, "version": 1, "steps": [str(getattr(s, "title", s)) for s in plan.steps], "canonical": True})
+        self._emit("plan_created", {
+            "goal": text, "version": 1,
+            "steps": [str(getattr(s, "title", s)) for s in plan.steps],
+            "reasoning_steps": list(getattr(reasoning_trace, "steps", []) if reasoning_trace else []),
+            "reasoning_status": getattr(reasoning_trace, "status", "NOT_RUN"),
+            "canonical": True,
+        })
         self._emit("reflection", {"score": verification.score, "canonical": True})
         self._emit("learning_update", {"score": verification.score, "canonical": True})
         self._emit("response_generated", {"goal": text, "route": "unified_cognitive_response", "mode": "UNKNOWN" if answer.startswith("UNKNOWN:") else ("DIRECT_FACT" if knowledge else "DIRECT"), "score": verification.score, "verified": verification.status == "PASS", "canonical": True})
