@@ -240,37 +240,27 @@ class QuestionAnalyzer:
 
 class ReferenceResolver:
     def resolve(self, text, state, history=None):
-        t = bare(text)
-        history = history or []
-        if "موضوع قبلی" in t or "روش قبلی" in t or "حرف قبلی" in t:
+        t=bare(text); history=history or []
+        if any(x in t for x in ('\u0645\u0648\u0636\u0648\0639 \u0642\u0628\u0644\u06cc','\u0628\u062d\u062b \u0642\u0628\u0644\u06cc','\u0647\u0645\u0648\0646 \u0642\u0628\u0644\u06cc')):
             return state.topic_stack[-1] if state.topic_stack else state.current_topic
-        if "بحث اول" in t:
-            return state.topic_by_index(1)
-        if "بحث دوم" in t:
-            return state.topic_by_index(2)
-        if "موضوع بعدی" in t:
-            return state.current_topic
-        if is_follow_up(t) or any(self._has_marker(t, m) for m in REF_MARKERS):
-            if state.current_topic and substantive(state.current_topic):
-                return state.current_topic
-            if state.active_goal and substantive(state.active_goal):
-                return state.active_goal
+        if any(x in t for x in ('\u0628\u062d\u062b \u0627\u0648\u0644','\u0645\u0648\u0631\u062f \u0627\u0648\0644','\u0627\u0648\u0644\u06cc')): return state.topic_by_index(1)
+        if any(x in t for x in ('\u0628\u062d\u062b \u062f\u0648\u0645','\u0645\u0648\u0631\u062f \u062f\u0648\u0645','\u062f\u0648\u0645\u06cc')): return state.topic_by_index(2)
+        if any(x in t for x in ('\u0645\u0648\u0636\u0648\u0639 \u0641\u0639\u0644\u06cc','\u0647\u0645\u06cc\u0646 \u0645\u0648\u0636\u0648\u0639')): return state.current_topic or state.active_goal
+        if is_follow_up(t) or any(self._has_marker(t,m) for m in REF_MARKERS):
+            if state.current_topic and substantive(state.current_topic): return state.current_topic
+            latest=state.references.get('latest','')
+            if latest and substantive(latest): return latest
+            if state.active_goal and substantive(state.active_goal): return state.active_goal
             for item in reversed(history):
-                content = self._content(item)
-                if substantive(content) and not is_follow_up(content):
-                    return content
-        return ""
-
+                content=self._content(item)
+                if substantive(content) and not is_follow_up(content): return content
+        return ''
     @staticmethod
-    def _has_marker(text, marker):
-        return bool(re.search(rf"(?<![آ-یA-Za-z0-9‌]){re.escape(marker)}(?![آ-یA-Za-z0-9‌])", text))
-
+    def _has_marker(text,marker): return bool(re.search(rf'(?<![آ-یA-Za-z0-9‌]){re.escape(marker)}(?![آ-یA-Za-z0-9‌])',text))
     @staticmethod
     def _content(item):
-        if isinstance(item, (tuple, list)) and len(item) > 1:
-            return str(item[1])
-        if isinstance(item, dict):
-            return str(item.get("content", ""))
+        if isinstance(item,(tuple,list)) and len(item)>1: return str(item[1])
+        if isinstance(item,dict): return str(item.get('content',item.get('text','')))
         return str(item)
 
 
@@ -1448,3 +1438,24 @@ def _canonical_pipeline_handle(self, text):
     return pipeline.run(text)
 
 LocalDialogueEngine.handle = _canonical_pipeline_handle
+
+# REFERENCE_RESOLUTION_STAGE_1
+
+
+
+class ReferenceResolverStage1:
+    def resolve(self, text, state, history=None):
+        t=bare(text); history=history or []
+        def fa(*n): return ''.join(map(chr,n))
+        prev=fa(1605,1608,1590,1608,1593,32,1602,1576,1604,1740)
+        if prev in t or fa(1576,1581,1579,32,1602,1576,1604,1740) in t or fa(1607,1605,1608,1606,32,1602,1576,1604,1740) in t:
+            return state.topic_stack[-1] if state.topic_stack else state.current_topic
+        if any(x in t for x in (fa(1576,1581,1579,32,1575,1608,1604),fa(1605,1608,1585,1583,32,1575,1608,1604),fa(1575,1608,1604,1740))): return state.topic_by_index(1)
+        if any(x in t for x in (fa(1576,1581,1579,32,1583,1608,1605),fa(1605,1608,1585,1583,32,1583,1608,1605),fa(1583,1608,1605,1740))): return state.topic_by_index(2)
+        if any(x in t for x in (fa(1605,1608,1590,1608,1593,32,1601,1593,1604,1740),fa(1607,1605,1740,1606,32,1605,1608,1590,1608,1593))): return state.current_topic or state.active_goal
+        if is_follow_up(t) or any(self._has_marker(t,m) for m in REF_MARKERS):
+            return state.current_topic or state.references.get('latest','') or state.active_goal
+        return ''
+    @staticmethod
+    def _has_marker(text,marker): return bool(re.search(rf'(?<![آ-یA-Za-z0-9‌]){re.escape(marker)}(?![آ-یA-Za-z0-9‌])',text))
+ReferenceResolver=ReferenceResolverStage1
