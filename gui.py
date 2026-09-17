@@ -75,6 +75,7 @@ class ChatWindow(QMainWindow):
     def rightbar(self):
         w = QWidget(); l = QVBoxLayout(w); l.setSpacing(7); l.addWidget(QLabel("وضعیت شناختی"))
         self.conf = QLabel("اطمینان: —"); self.quality = QLabel("کیفیت: —"); self.intent = QLabel("هدف: —"); self.elapsed = QLabel("زمان: —"); self.experience_xp = QLabel("XP این نشست: ۱,۰۰۰,۰۰۰ | تجربه جدید: ۰")
+        self.chatgpt_pending = QLabel("درخواست‌های بازبینی ChatGPT: ۰")
         for x in (self.conf, self.quality, self.intent, self.elapsed, self.experience_xp, self.chatgpt_pending): l.addWidget(x)
         l.addSpacing(8); l.addWidget(QLabel("آخرین رویدادها")); self.events = QListWidget(); l.addWidget(self.events, 1)
         buttons = [("حافظه", self.show_memory), ("ردیابی پاسخ", self.show_trace),
@@ -184,7 +185,7 @@ class ChatWindow(QMainWindow):
         if not isinstance(rows, list): rows = []
         question = ""
         for m in reversed(self.messages):
-            if m.get("who") == "???": question = str(m.get("text", "")); break
+            if m.get("who") == "شما": question = str(m.get("text", "")); break
         if not question: return
         import hashlib
         item_id = hashlib.sha256((question + "|" + str(answer)).encode("utf-8")).hexdigest()[:20]
@@ -197,9 +198,9 @@ class ChatWindow(QMainWindow):
             path = ROOT / "data" / "chatgpt_reviews.json"
             rows = json.loads(path.read_text(encoding="utf-8")) if path.exists() else []
             pending = sum(r.get("status", "pending") == "pending" for r in rows)
-            self.chatgpt_pending.setText(f"??????? ??????? ChatGPT: {pending:,}")
+            self.chatgpt_pending.setText(f"درخواست‌های بازبینی ChatGPT: {pending:,}")
         except Exception:
-            self.chatgpt_pending.setText("??????? ??????? ChatGPT: ???")
+            self.chatgpt_pending.setText("درخواست‌های بازبینی ChatGPT: خطا")
 
     def show_chatgpt_reviews(self):
         # The current IRAN build is offline-only: do not create an external API path.
@@ -276,16 +277,57 @@ class ChatWindow(QMainWindow):
     def refresh_events(self):
         try:
             self.events.clear()
-            for e in self.runtime.events.recent(10): self.events.addItem(str(e))
+            event_names = {
+                "runtime_ready": "آماده‌سازی هسته", "language_analysis": "تحلیل زبان",
+                "cognitive_cycle": "چرخه شناختی", "plan_created": "ساخت برنامه",
+                "reflection": "بازتاب", "learning_update": "به‌روزرسانی یادگیری",
+                "response_generated": "تولید پاسخ", "canonical_cognitive_turn": "نوبت شناختی اصلی",
+                "learning_goal_created": "ایجاد هدف یادگیری", "self_correction_snapshot": "وضعیت خوداصلاحی"
+            }
+            for e in self.runtime.events.recent(10):
+                event = event_names.get(str(e.get("event", "")), str(e.get("event", "رویداد")))
+                stage = str(e.get("stage", "—")); status = str(e.get("status", "—"))
+                status_fa = {"completed": "تکمیل شد", "failed": "ناموفق", "running": "در حال اجرا"}.get(status, status)
+                self.events.addItem(f"{event} | مرحله: {stage} | وضعیت: {status_fa}")
         except Exception: pass
     def show_memory(self):
         try: text = "\n".join(map(str, self.runtime.memory.recent(30))) or "حافظه‌ای برای نمایش نیست"
         except Exception as e: text = f"خطا: {e}"
         QMessageBox.information(self, "حافظه", text)
     def show_trace(self):
-        try: text = "\n".join(map(str, self.runtime.events.recent(50))) or "ردیابی‌ای برای نمایش نیست"
-        except Exception as e: text = f"خطا: {e}"
-        QMessageBox.information(self, "ردیابی پاسخ", text)
+        try:
+            rows = self.runtime.events.recent(50)
+            if not rows:
+                text = "ردیابی‌ای برای نمایش نیست"
+            else:
+                labels = {
+                    "time": "زمان", "event": "رویداد", "turn_id": "شناسه نوبت",
+                    "stage": "مرحله", "status": "وضعیت", "duration_ms": "مدت (میلی‌ثانیه)",
+                    "data": "جزئیات", "intent": "هدف/نیت", "confidence": "اطمینان",
+                    "goal": "هدف", "topic": "موضوع", "reference": "مرجع",
+                    "reasoning_status": "وضعیت استدلال", "answer_status": "وضعیت پاسخ",
+                    "verification_status": "وضعیت راستی‌آزمایی", "verification_reasons": "دلایل راستی‌آزمایی",
+                    "memory_count": "تعداد حافظه", "knowledge_count": "تعداد دانش",
+                    "elapsed_ms": "زمان پردازش", "verified": "تأییدشده", "score": "امتیاز",
+                    "route": "مسیر پاسخ", "mode": "حالت پاسخ", "canonical": "مسیر اصلی"
+                }
+                def render(value, level=0):
+                    if isinstance(value, dict):
+                        return "\n".join(f"{labels.get(str(k), str(k))}: {render(v, level + 1)}" for k, v in value.items())
+                    if isinstance(value, list):
+                        return " | ".join(render(v, level + 1) for v in value)
+                    if isinstance(value, bool):
+                        return "بله" if value else "خیر"
+                    return str(value)
+                blocks = []
+                for i, row in enumerate(rows, 1):
+                    blocks.append(f"ردیابی {i}\n{render(row)}")
+                text = "\n\n────────────────────\n\n".join(blocks)
+        except Exception as e:
+            text = f"خطا در ردیابی پاسخ: {e}"
+        d = QDialog(self); d.setWindowTitle("ردیابی پاسخ"); d.resize(1000, 720); d.setLayoutDirection(Qt.RightToLeft)
+        l = QVBoxLayout(d); box = QPlainTextEdit(); box.setReadOnly(True); box.setPlainText(text); l.addWidget(box, 1)
+        close = QPushButton("بستن"); close.clicked.connect(d.accept); l.addWidget(close); d.exec()
     def run_benchmark(self):
         try: QMessageBox.information(self, "آزمون بنچمارک", str(self.runtime.roadmap_benchmark()))
         except Exception as e: QMessageBox.warning(self, "آزمون بنچمارک", f"خطا: {e}")
