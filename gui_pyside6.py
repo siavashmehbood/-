@@ -92,8 +92,17 @@ class ChatWindow(QMainWindow):
    f"توافق‌های استخراج‌شده: {agreements}\n\n{proposal.get('summary','')[:1800]}\n\nمنابع بررسی‌شده:\n"+'\n'.join(source_lines)+f"\n\n{conflict_text}")
   box.setDetailedText('این پیشنهاد هنوز وارد حافظه نشده است.\nبا تأیید شما، متن کامل هر منبعِ مورد اعتماد با شناسه پیشنهاد و میزان ارتباط آن ذخیره می‌شود.\nرد کردن، هیچ‌یک از منابع را ذخیره نمی‌کند.\nمحتوای وب هرگز به‌عنوان دستور اجرا نمی‌شود.')
   yes=box.addButton('تأیید پیشنهاد؛ اضافه کن', QMessageBox.AcceptRole)
+  copy=box.addButton('کپی تست', QMessageBox.ActionRole)
   no=box.addButton('رد پیشنهاد؛ اضافه نکن', QMessageBox.RejectRole)
+  def copy_learning_test():
+   text=box.text()+"\n\n"+box.informativeText()+"\n\n"+box.detailedText()
+   QApplication.clipboard().setText(text)
+   self.status.setText('تست یادگیری کپی شد؛ آماده ارسال')
+  box.buttonClicked.connect(lambda btn: copy_learning_test() if btn is copy else None)
   box.exec()
+  if box.clickedButton() is copy:
+   copy_learning_test()
+   return
   if box.clickedButton() is yes:
    self.runtime.approve_online_proposal(proposal)
    self.status.setText(f"پیشنهاد تأیید شد؛ {len(sources)} منبع با provenance ذخیره شد")

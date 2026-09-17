@@ -98,12 +98,22 @@ class OnlineLearning:
         self.timeout=max(2,int(cfg.get("timeout",8)))
         self.max_chars=max(1000,int(cfg.get("max_chars",18000)))
         self.path=self.root/str(cfg.get("store","data/web_lessons.json")); self.path.parent.mkdir(parents=True,exist_ok=True)
-        self.lessons=self._load(); self.last_sync=None
+        self.proposals_path=self.path.with_name('web_learning_proposals.json')
+        self.lessons=self._load(); self.proposals=self._load_proposals(); self.last_sync=None
     def _load(self):
         try: return json.loads(self.path.read_text(encoding="utf-8"))[-500:]
         except Exception: return []
     def _save(self):
         tmp=self.path.with_suffix('.tmp'); tmp.write_text(json.dumps(self.lessons,ensure_ascii=False,indent=2),encoding='utf-8'); tmp.replace(self.path)
+    def _load_proposals(self):
+        try: return json.loads(self.proposals_path.read_text(encoding='utf-8'))[-200:]
+        except Exception: return []
+    def _save_proposals(self):
+        tmp=self.proposals_path.with_suffix('.tmp'); tmp.write_text(json.dumps(self.proposals,ensure_ascii=False,indent=2),encoding='utf-8'); tmp.replace(self.proposals_path)
+    def _proposal_key(self, proposal):
+        import hashlib
+        raw=json.dumps({'query':proposal.get('query',''),'sources':[(x.get('url',''),x.get('relevance',0),x.get('evidence','')) for x in proposal.get('sources',[])]},ensure_ascii=False,sort_keys=True)
+        return hashlib.sha256(raw.encode('utf-8')).hexdigest()[:24]
     def _host_ok(self,url):
         host=(urlparse(url).hostname or '').lower()
         return any(host==d or host.endswith('.'+d) for d in self.TRUST)
@@ -196,10 +206,15 @@ class OnlineLearning:
         by_url={x.get('url'):x for x in self.lessons}
         for item in approved: by_url[item['url']]=item
         self.lessons=list(by_url.values())[-500:]; self._save()
+        key=self._proposal_key(proposal); row=next((x for x in self.proposals if x.get('key')==key),None)
+        if row: row['status']='approved'; row['approved_at']=datetime.now().isoformat(timespec='seconds'); self._save_proposals()
         self.last_sync=datetime.now().isoformat(timespec='seconds')
         return {'approved':True,'proposal':proposal,'committed':len(approved),'lessons':len(self.lessons)}
 
     def reject_proposal(self, proposal):
+        if proposal:
+            key=self._proposal_key(proposal); row=next((x for x in self.proposals if x.get('key')==key),None)
+            if row: row['status']='rejected'; row['rejected_at']=datetime.now().isoformat(timespec='seconds'); self._save_proposals()
         return {'approved':False,'rejected':bool(proposal),'proposal_id':(proposal or {}).get('proposal_id','')}
 
     def search(self,query):
@@ -251,6 +266,16 @@ class OnlineLearning:
         else:
             learned=self.search(query)[:self.max_sources]
         proposal=self.build_proposal(query, learned) if learned else None
+        if proposal:
+            key=self._proposal_key(proposal)
+            existing=next((x for x in self.proposals if x.get('key')==key),None)
+            if existing and existing.get('status')=='approved':
+                return {'enabled':True,'learned':learned,'count':len(learned),'query':query,'pending':False,'proposal':None,'reason':'already_approved'}
+            if existing and existing.get('status')=='pending':
+                proposal=existing.get('proposal') or proposal
+            elif not existing:
+                self.proposals.append({'key':key,'status':'pending','proposal':proposal,'created_at':datetime.now().isoformat(timespec='seconds')})
+                self.proposals=self.proposals[-200:]; self._save_proposals()
         return {'enabled':True,'learned':learned,'count':len(learned),'query':query,
                 'pending':bool(proposal),'proposal':proposal,
                 'reason':'user_approval_required' if proposal else 'no_new_lesson'}
