@@ -29,6 +29,7 @@ from language_intelligence import PersianIntelligence
 from memory.store import Memory
 from knowledge.knowledge_graph import KnowledgeGraph
 from learning.learning_engine import LearningEngine
+from learning.self_directed import SelfDirectedLearning
 from learning.trusted_knowledge import TrustedKnowledgeBootstrap
 from learning.procedural_memory import ProceduralMemory
 from learning.skill_system import SkillSystem
@@ -57,6 +58,7 @@ class IranRuntime:
         self.provider = create_provider(self.config)
         self.learning_gate = LearningGate(self.root / "data/learning_proposals.json")
         self.trusted_knowledge = TrustedKnowledgeBootstrap()
+        self.self_directed_learning = SelfDirectedLearning()
         self.trusted_knowledge_path = self.root / "data/trusted_knowledge.json"
         self.memory = Memory(self.root / self.config["memory"]["db"], gate=self.learning_gate)
         self.events = EventLog(self.root / self.config["runtime"]["event_log"])
@@ -148,8 +150,16 @@ class IranRuntime:
         return {"recorded":True,"verified":False,"learned":False}
 
     def bootstrap_trusted_knowledge(self, topic, sources):
-        """Evaluate supplied source text and create a review proposal only when evidence is usable."""
+        """Learn only evidence that is relevant to the active learning goal."""
+        combined = " ".join(str(s.get("text", "")) for s in (sources or []))
+        confidence = max((float(s.get("source_confidence", 0)) for s in (sources or [])), default=0.0)
+        goal = self.self_directed_learning.goal_for(topic, combined, "", confidence)
+        decision = goal["decision"]
+        if not decision["learn"]:
+            return {"status": "needs_review", "reason": "self_directed_relevance_gate",
+                    "topic": topic, "learning_goal": goal, "sources": len(sources or [])}
         proposal = self.trusted_knowledge.build(topic, sources)
+        proposal["learning_goal"] = goal
         if proposal.get("status") != "ready_for_review":
             return proposal
         gated = self.learning_gate.request(
