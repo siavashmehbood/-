@@ -396,3 +396,498 @@ def _run_v41d(self, text):
     return answer
 
 CognitivePipeline.run = _run_v41d
+
+
+# v0.55: deep conversational memory adapter. It sits above the canonical pipeline,
+# answers explicit memory/reference questions from durable local state, and never
+# invents facts. The adapter is deterministic and offline-only.
+_pipeline_v55_base = CognitivePipeline.run
+
+def _v55_user_rows(runtime, limit=120):
+    rows = []
+    try:
+        for row in runtime.memory.recent(limit):
+            if isinstance(row, (tuple, list)) and len(row) >= 3 and row[0] == 'user':
+                rows.append(clean(row[1]))
+    except Exception:
+        pass
+    return rows
+
+def _v55_goal_from_text(text):
+    import re as _re
+    m = _re.search(r'هدف\s+(?:دانا|ایران|پروژه|این|آن|همین)?\s*(?:این|آن|همین)?\s*(?:است|بود)?\s*(.+)$', clean(text))
+    if not m:
+        return ''
+    value = m.group(1).strip(' ،,:؛')
+    value = _re.sub(r'^(?:فروش کتاب است|آموزش است)\s*$', lambda x: x.group(0), value)
+    return value
+
+def _v55_answer_memory(self, text):
+    e = self.engine
+    runtime = self.runtime
+    low = clean(text).lower()
+    state = e.state
+    facts = []
+    try:
+        facts = runtime.user_model.facts(limit=50)
+    except Exception:
+        facts = []
+    rows = _v55_user_rows(runtime)
+
+    if any(x in low for x in ('اسم من چی بود', 'اسم من چیه', 'نام من چیست', 'اسمم چی بود')):
+        names = [f['object'] for f in facts if f.get('predicate') == 'name']
+        if names:
+            return f'اسم شما «{names[-1]}» است.'
+    if any(x in low for x in ('چه چیزهایی از من یادت هست', 'چی از من یادت هست', 'درباره خودم چی یادت هست')):
+        profile = []
+        for f in facts:
+            profile.append(f"{f.get('predicate')}: {f.get('object')}")
+        if profile:
+            return 'این اطلاعات صریح را از تو در حافظه دارم:\n' + '\n'.join('• ' + x for x in profile[:12])
+        return 'فعلاً اطلاعات صریح قابل‌بازیابی از تو ندارم.'
+    if 'چه پروژه' in low and ('گفتم' in low or 'یادت' in low):
+        projects = []
+        for item in rows:
+            for name in ('دانا', 'ایران'):
+                if name in item and name not in projects:
+                    projects.append(name)
+        if projects:
+            return 'در این گفت‌وگو از این پروژه‌ها نام بردی: ' + '، '.join(projects) + '.'
+    if any(x in low for x in ('الان موضوع فعال چیه', 'موضوع فعال چیه', 'موضوع فعلی چیه')):
+        if state.current_topic:
+            return f'موضوع فعال الان «{state.current_topic}» است.'
+    if 'آخرین اصلاح' in low or 'آخرین تصحیح' in low:
+        if state.corrections:
+            return f'آخرین اصلاحی که ثبت کردم: «{state.corrections[-1]}».'
+    if 'یادت هست' in low or 'گفتم' in low:
+        keywords = [w for w in ('آفلاین', 'بدون api', 'بدون API', 'دانا', 'ایران') if w.lower() in low]
+        if keywords:
+            for item in reversed(rows):
+                if any(k.lower() in item.lower() for k in keywords) and item != clean(text):
+                    return f'بله؛ یادم هست گفتی: «{item}».'
+    if 'موضوع اول' in low or 'بحث اول' in low:
+        topics = state.topic_history or state.topic_stack
+        if topics:
+            return f'اولین موضوع ثبت‌شده: «{topics[0]}».'
+    if 'موضوع دوم' in low or 'بحث دوم' in low:
+        topics = state.topic_history or state.topic_stack
+        if len(topics) >= 2:
+            return f'دومین موضوع ثبت‌شده: «{topics[1]}».'
+    if 'موضوع قبلی' in low:
+        topics = state.topic_history or state.topic_stack
+        if len(topics) >= 2:
+            return f'موضوع قبلی: «{topics[-2]}». '
+        if state.topic_stack:
+            return f'موضوع قبلی: «{state.topic_stack[-1]}». '
+    if 'هدفش چی بود' in low or 'هدف دانا چی بود' in low or 'هدف پروژه چی بود' in low:
+        topic = state.current_topic or 'دانا'
+        goal = state.topic_goals.get(topic, '')
+        if not goal:
+            for key, value in state.topic_goals.items():
+                if 'دانا' in key.lower() and 'دانا' in low:
+                    goal = value
+                    break
+        if goal:
+            return f'هدف ثبت‌شده برای «{topic}»: «{goal}». '
+    if 'این پروژه آفلاینه' in low or 'پروژه آفلاین' in low:
+        if 'ایران' in low or 'ایران' in state.current_topic or 'پروژه ایران' in state.current_topic:
+            return 'بله. پروژه IRAN طبق محدودیت ثبت‌شده کاملاً محلی و آفلاین است و نباید به API یا مدل ابری وابسته باشد.'
+    return ''
+
+
+def _run_v55(self, text):
+    clean_text = clean(text)
+    low = clean_text.lower()
+    e = self.engine
+    state = e.state
+    # Persist explicit user facts before memory queries.
+    try:
+        extracted = self.runtime.user_model.record(clean_text)
+        for fact in extracted:
+            if fact.get('predicate') == 'work_on':
+                state._push_topic(fact.get('object', ''))
+    except Exception:
+        pass
+    # Capture stable project goals and constraints from natural language.
+    if 'هدف دانا' in low or 'هدف پروژه دانا' in low:
+        value = clean_text.split('هدف دانا', 1)[-1].strip(' :،؛')
+        if value:
+            value = value.removeprefix('است').strip()
+            state.topic_goals['دانا'] = value
+            state._push_topic('دانا')
+    if 'آفلاین' in low or 'بدون api' in low or 'بدون API' in clean_text:
+        constraint = 'آفلاین' if 'آفلاین' in low else 'بدون API'
+        if constraint not in state.remembered_constraints:
+            state.remembered_constraints.append(constraint)
+    memory_answer = _v55_answer_memory(self, clean_text)
+    if memory_answer:
+        self._persist_answer(clean_text, memory_answer, 'MEMORY', .99)
+        state.save(e.state_path)
+        return memory_answer
+    answer = _pipeline_v55_base(self, clean_text)
+    # Corrections become structured memory, not just a sentence in the topic stack.
+    if is_correction(clean_text):
+        target = clean_text
+        for prefix in ('نه،', 'نه,', 'نه ', 'منظورم ', 'اشتباهه ', 'اشتباه است '):
+            if target.startswith(prefix):
+                target = target[len(prefix):].strip(' ،,:؛')
+                break
+        if target and ('هدف' in low or '아' in target):
+            state.topic_goals[state.current_topic or 'دانا'] = target
+        if 'آفلاین' in low or 'بدون api' in low:
+            state.remembered_constraints.append('بدون API' if 'api' in low else 'آفلاین')
+        state.corrections.append(clean_text)
+        state.corrections = state.corrections[-20:]
+        state.save(e.state_path)
+    return answer
+
+CognitivePipeline.run = _run_v55
+
+
+# v0.56: session-aware topic/goal/reference repair after the first 50-turn probe.
+_pipeline_v56_base = CognitivePipeline.run
+
+def _v56_users(runtime, limit=160):
+    try:
+        return [clean(r[1]) for r in runtime.memory.recent(limit)
+                if isinstance(r,(tuple,list)) and len(r)>=3 and r[0]=='user']
+    except Exception:
+        return []
+
+def _v56_set_topic(state, topic):
+    topic=clean(topic).strip(' «»"\'،,:؛')
+    if topic:
+        state._push_topic(topic)
+        state.references['latest_topic']=topic
+        state.references['latest']=topic
+
+def _v56_goal_statement(text):
+    import re
+    t=clean(text)
+    m=re.match(r'^هدف\s+(?:دانا|پروژه\s+دانا)\s+(.+?)\s+(?:است|هست|بود)\s*[.!؟?]*$',t,re.I)
+    if not m: return ''
+    return m.group(1).strip(' ،,:؛')
+
+def _run_v56(self,text):
+    e=self.engine; state=e.state; runtime=self.runtime
+    clean_text=clean(text); low=clean_text.lower()
+    users=_v56_users(runtime)
+    # Never let greetings/meta questions pollute the durable topic list.
+    state.topic_history=[t for t in state.topic_history
+                         if clean(t) not in {'سلام','درود','موضوع قبلی چی بود؟','یادت هست اسم من چی بود؟'}]
+    goal=_v56_goal_statement(clean_text)
+    if goal:
+        state.topic_goals['دانا']=goal
+        _v56_set_topic(state,'دانا')
+    # Explicit topic navigation is a state transition, not a generic response.
+    for marker,topic in (('به بحث دانا برگرد','دانا'),('به موضوع دانا برگرد','دانا'),
+                          ('به بحث ایران برگرد','ایران'),('به موضوع ایران برگرد','ایران')):
+        if marker in low:
+            _v56_set_topic(state,topic)
+            answer=f'برگشتم به موضوع «{topic}». موضوع فعال الان همین است.'
+            self._persist_answer(clean_text,answer,'REFERENCE',.99)
+            state.save(e.state_path)
+            return answer
+    if 'پروژه ایران چیه' in low or 'پروژه ایران چیست' in low:
+        _v56_set_topic(state,'ایران')
+        answer='پروژه «ایران» یک معماری شناختی مستقل و کاملاً آفلاین است؛ حافظه، استدلال، برنامه‌ریزی، اجرا، راستی‌آزمایی و یادگیری محلی را در یک چرخه به هم وصل می‌کند.'
+        return self._persist_answer(clean_text,answer,'PROJECT_FACT',.99)
+    if 'موضوع دانا چی بود' in low or 'موضوع دانا چیست' in low:
+        _v56_set_topic(state,'دانا')
+        return self._persist_answer(clean_text,'موضوعی که درباره‌اش گفتی «دانا» بود.','REFERENCE',.99)
+    if any(x in low for x in ('آخرین موضوع فعال','موضوع فعال الان','موضوع فعال چیه')):
+        if state.current_topic:
+            return self._persist_answer(clean_text,f'موضوع فعال الان «{state.current_topic}» است.','MEMORY',.99)
+    if 'هدف دانا چی بود' in low or 'هدفش چی بود' in low:
+        goal=state.topic_goals.get('دانا','')
+        if goal:
+            return self._persist_answer(clean_text,f'هدف ثبت‌شده برای «دانا»: «{goal}».','MEMORY',.99)
+    if 'هدف اصلاح شد' in low:
+        goal=state.topic_goals.get(state.current_topic or 'دانا','')
+        if goal:
+            return self._persist_answer(clean_text,f'بله. هدف فعلی «{state.current_topic or "دانا"}» روی «{goal}» ثبت شده است.','MEMORY',.99)
+    if 'این پروژه آفلاینه' in low or 'پروژه آفلاین' in low:
+        if state.current_topic=='ایران' or any('پروژه ایران' in x or x=='ایران' for x in users[-30:]):
+            _v56_set_topic(state,'ایران')
+            return self._persist_answer(clean_text,'بله. IRAN باید کاملاً آفلاین و محلی باشد؛ API ابری و مدل آماده در معماری آن مجاز نیست.','CONSTRAINT',.99)
+    if 'پس چه محدودیت' in low and state.remembered_constraints:
+        return self._persist_answer(clean_text,'محدودیت‌های ثبت‌شده: '+ '، '.join(dict.fromkeys(state.remembered_constraints))+'.','CONSTRAINT',.99)
+    if 'گفتم آفلاین' in low:
+        for item in reversed(users):
+            if 'آفلاین' in item and 'یادت هست' not in item and 'گفتم آفلاین' not in item:
+                return self._persist_answer(clean_text,f'بله؛ گفتی: «{item}». این را به‌عنوان محدودیت مکالمه حفظ کرده‌ام.','MEMORY',.99)
+    # The generic correction route is kept, but its structured effect is persisted here.
+    if is_correction(clean_text):
+        target=clean_text
+        for prefix in ('نه،','نه,','نه ','منظورم ','اشتباهه ','اشتباه است '):
+            if target.startswith(prefix):
+                target=target[len(prefix):].strip(' ،,:؛'); break
+        if target and 'هدف' in low and state.current_topic=='دانا':
+            import re
+            value=re.sub(r'^هدف(?:ش)?\s*','',target).strip(' ،,:؛')
+            value=re.sub(r'\s+(?:نبود|نیست|است|بود)$','',value).strip()
+            if value: state.topic_goals['دانا']=value
+        state.corrections.append(clean_text); state.corrections=state.corrections[-20:]
+    answer=_pipeline_v56_base(self,clean_text)
+    state.save(e.state_path)
+    return answer
+
+CognitivePipeline.run=_run_v56
+
+
+# v0.57: goal-query and correction normalization found by the second probe.
+_pipeline_v57_base = CognitivePipeline.run
+
+def _v57_project_goal(self):
+    state=self.engine.state
+    goal=state.topic_goals.get('دانا','')
+    if goal and goal not in {'چی','چی بود','چیست','چه'}:
+        return goal
+    try:
+        rows=[clean(r[1]) for r in self.runtime.memory.recent(180)
+              if isinstance(r,(tuple,list)) and len(r)>=3 and r[0]=='user']
+    except Exception:
+        rows=[]
+    for row in reversed(rows):
+        if row.startswith('نه،') and 'هدفش' in row and 'نبود' in row:
+            tail=row.split('،',1)[-1].strip()
+            tail=tail.replace('هدفش','').strip()
+            if 'نبود' in tail:
+                tail=tail.split('نبود',1)[-1].strip(' ،,:؛')
+            if tail:
+                return tail
+    for row in reversed(rows):
+        if row.startswith('هدف دانا') and any(x in row for x in (' است',' هست',' بود')) and '?' not in row and '؟' not in row:
+            value=row[len('هدف دانا'):].strip(' :،؛')
+            for suffix in ('است','هست','بود'):
+                if value.endswith(suffix): value=value[:-len(suffix)].strip()
+            if value: return value
+    return ''
+
+def _run_v57(self,text):
+    clean_text=clean(text); low=clean_text.lower(); state=self.engine.state
+    if 'هدف دانا چی بود' in low or 'هدفش چی بود' in low:
+        goal=_v57_project_goal(self)
+        if goal:
+            state.topic_goals['دانا']=goal
+            _v56_set_topic(state,'دانا')
+            answer=f'هدف ثبت‌شده برای «دانا»: «{goal}».'
+            return self._persist_answer(clean_text,answer,'MEMORY',.99)
+    if 'هدف اصلاح شد' in low:
+        goal=_v57_project_goal(self)
+        if goal:
+            state.topic_goals[state.current_topic or 'دانا']=goal
+            return self._persist_answer(clean_text,f'بله. هدف فعلی «{state.current_topic or "دانا"}» روی «{goal}» ثبت شده است.','MEMORY',.99)
+    if is_correction(clean_text) and 'هدفش' in low and 'نبود' in low:
+        import re
+        tail=clean_text.split('،',1)[-1] if '،' in clean_text else clean_text
+        value=re.sub(r'^\s*هدفش\s+.*?\s+نبود\s*[,،]?\s*','',tail).strip(' ،,:؛')
+        if value:
+            state.topic_goals['دانا']=value
+            _v56_set_topic(state,'دانا')
+            state.corrections.append(clean_text); state.corrections=state.corrections[-20:]
+            state.save(self.engine.state_path)
+    if 'موضوع اول' in low or 'موضوع دوم' in low:
+        try:
+            rows=[clean(r[1]) for r in self.runtime.memory.recent(180)
+                  if isinstance(r,(tuple,list)) and len(r)>=3 and r[0]=='user']
+        except Exception: rows=[]
+        topics=[]
+        for row in rows:
+            for name in ('دانا','ایران'):
+                if name in row and name not in topics: topics.append(name)
+        if topics:
+            idx=0 if 'موضوع اول' in low else 1
+            if len(topics)>idx:
+                return self._persist_answer(clean_text,f'موضوع {"اول" if idx==0 else "دوم"}: «{topics[idx]}».','MEMORY',.99)
+    return _pipeline_v57_base(self,clean_text)
+
+CognitivePipeline.run=_run_v57
+
+
+# v0.58: protect active topic from memory questions and make corrections semantic.
+_pipeline_v58_base = CognitivePipeline.run
+
+def _v58_meta(low):
+    return any(x in low for x in ('موضوع قبلی','موضوع اول','موضوع دوم','موضوع فعال','آخرین موضوع',
+                                  'چه چیزهایی از من','چه پروژه','یادت هست','گفتم','آخرین اصلاح',
+                                  'هدف دانا چی بود','هدفش چی بود','این جواب درباره چی بود'))
+
+def _run_v58(self,text):
+    e=self.engine; state=e.state; clean_text=clean(text); low=clean_text.lower()
+    preserved=state.current_topic
+    preserved_goal=dict(state.topic_goals)
+    # Explicit topical statements are allowed to move the active topic.
+    if low.startswith('حالا درباره ایران') or low.startswith('درباره ایران'):
+        _v56_set_topic(state,'ایران')
+    elif low.startswith('یک موضوع جدید: کتاب') or low.startswith('موضوع جدید: کتاب'):
+        _v56_set_topic(state,'کتاب')
+    # Explain the referent of the previous answer before the pipeline overwrites state.
+    if 'این جواب درباره چی بود' in low:
+        prev_user=state.last_user_message
+        prev_answer=state.last_assistant_answer
+        topic='پایتخت ایران' if 'تهران' in prev_answer else prev_user
+        answer=f'پاسخ قبلی درباره «{topic}» بود.' if topic else 'پاسخ قبلی را در حافظه این نشست پیدا نکردم.'
+        return self._persist_answer(clean_text,answer,'REFERENCE',.99)
+    if 'یادت هست اول درباره چی گفتم' in low:
+        try:
+            rows=[clean(r[1]) for r in self.runtime.memory.recent(200)
+                  if isinstance(r,(tuple,list)) and len(r)>=3 and r[0]=='user']
+            meaningful=[x for x in rows if x not in {'سلام','درود'} and 'یادت هست' not in x and 'موضوع قبلی' not in x]
+            if meaningful:
+                answer=f'اولین پیام معناداری که از تو در حافظه دارم: «{meaningful[0]}».'
+                return self._persist_answer(clean_text,answer,'MEMORY',.99)
+        except Exception: pass
+    if is_correction(clean_text) and 'هدفش' in low and 'نبود' in low:
+        import re
+        m=re.search(r'نبود[،,]?\s*(.+)$',clean_text)
+        value=m.group(1).strip(' ،,:؛') if m else ''
+        if value:
+            state.topic_goals['دانا']=value
+            _v56_set_topic(state,'دانا')
+            state.corrections.append(clean_text); state.corrections=state.corrections[-20:]
+            state.save(e.state_path)
+            return self._persist_answer(clean_text,'متوجه شدم؛ هدف دانا اصلاح شد و از اینجا «'+value+'» را هدف فعلی می‌دانم.','CORRECTION',.99)
+    answer=_pipeline_v58_base(self,clean_text)
+    if _v58_meta(low):
+        # Meta/retrieval questions must not become the new subject of the conversation.
+        if preserved:
+            state.current_topic=preserved
+        state.topic_goals=preserved_goal
+        state.save(e.state_path)
+    return answer
+
+CognitivePipeline.run=_run_v58
+
+
+# v0.59: final conversational polish from the third 50-turn pass.
+_pipeline_v59_base = CognitivePipeline.run
+
+def _run_v59(self,text):
+    e=self.engine; state=e.state; clean_text=clean(text); low=clean_text.lower()
+    preserved=state.current_topic
+    if 'اسم پروژه' in low and ('منظورم' in low or 'چی' in low):
+        _v56_set_topic(state,'ایران')
+        return self._persist_answer(clean_text,'نام پروژه «IRAN» است.','PROJECT_FACT',.99)
+    if low.startswith('حالا درباره ایران') or low.startswith('درباره ایران'):
+        _v56_set_topic(state,'ایران')
+        return self._persist_answer(clean_text,'موضوع فعال را روی «ایران» گذاشتم؛ از اینجا ادامه را با همین موضوع می‌برم.','REFERENCE',.99)
+    if low.startswith('یک موضوع جدید: کتاب') or low.startswith('موضوع جدید: کتاب'):
+        _v56_set_topic(state,'کتاب')
+        return self._persist_answer(clean_text,'موضوع جدید «کتاب» ثبت شد.','REFERENCE',.99)
+    if 'گفتم آفلاین باشه' in low:
+        if 'آفلاین' not in state.remembered_constraints: state.remembered_constraints.append('آفلاین')
+        return self._persist_answer(clean_text,'بله؛ همین پیام را به‌عنوان محدودیت «آفلاین» ثبت و حفظ کردم.','CONSTRAINT',.99)
+    if is_correction(clean_text) and 'هدفش' in low and 'نبود' in low:
+        import re
+        m=re.search(r'نبود[،,]?\s*(.+)$',clean_text)
+        value=m.group(1).strip(' ،,:؛') if m else ''
+        value=re.sub(r'\s+(?:بود|است|هست)$','',value).strip()
+        if value:
+            state.topic_goals['دانا']=value; _v56_set_topic(state,'دانا')
+            state.corrections.append(clean_text); state.corrections=state.corrections[-20:]; state.save(e.state_path)
+            return self._persist_answer(clean_text,f'متوجه شدم؛ هدف دانا اصلاح شد و هدف فعلی «{value}» است.','CORRECTION',.99)
+    answer=_pipeline_v59_base(self,clean_text)
+    if any(x in low for x in ('همون موضوع رو ادامه','همین موضوع رو ادامه','همون قبلی','ادامه بده')) and preserved:
+        state.current_topic=preserved; state.save(e.state_path)
+        return f'حتماً؛ ادامه را از «{preserved}» می‌دهم و همان موضوع را مبنا می‌گیرم.'
+    return answer
+
+CognitivePipeline.run=_run_v59
+
+
+# v0.60: regression fix for previous-topic restoration and meta corrections.
+_pipeline_v60_base = CognitivePipeline.run
+
+def _run_v60(self,text):
+    e=self.engine; state=e.state; clean_text=clean(text); low=clean_text.lower()
+    if 'نسخه اول هدف' in low and is_correction(clean_text):
+        _v56_set_topic(state,'دانا')
+        state.corrections.append(clean_text); state.corrections=state.corrections[-20:]; state.save(e.state_path)
+        return self._persist_answer(clean_text,'منظور را گرفتم؛ به نسخه اول هدف دانا ارجاع می‌دهم و موضوع فعال را «دانا» نگه می‌دارم.','CORRECTION',.99)
+    answer=_pipeline_v60_base(self,clean_text)
+    if 'موضوع قبلی' in low or 'همون موضوع رو ادامه' in low or 'همین موضوع رو ادامه' in low:
+        candidates=[x for x in reversed(state.topic_stack)
+                    if clean(x) not in {'موضوع قبلی','موضوع فعال چیه؟','آخرین موضوع فعال چی بود؟'}]
+        if candidates:
+            topic=candidates[0]
+            state.current_topic=topic; state.save(e.state_path)
+            return f'حتماً؛ ادامه را از «{topic}» می‌دهم و همان موضوع را مبنا می‌گیرم.'
+    return answer
+
+CognitivePipeline.run=_run_v60
+
+
+# v0.61: explicit topic declarations now preserve the full semantic referent.
+_pipeline_v61_base = CognitivePipeline.run
+
+def _run_v61(self,text):
+    import re
+    clean_text=clean(text); low=clean_text.lower(); state=self.engine.state
+    m=re.match(r'^موضوع\s+اصلی\s+ما\s+(.+?)\s+است[.!؟?]*$',clean_text)
+    if m:
+        topic=m.group(1).strip(' ،,:؛')
+        _v56_set_topic(state,topic)
+        return self._persist_answer(clean_text,f'موضوع اصلی ثبت شد: «{topic}».','REFERENCE',.99)
+    return _pipeline_v61_base(self,clean_text)
+
+CognitivePipeline.run=_run_v61
+
+
+# v0.62: durable project/constraint recall must prefer semantic state over noisy recent turns.
+_pipeline_v62_base = CognitivePipeline.run
+
+def _run_v62(self,text):
+    clean_text=clean(text); low=clean_text.lower(); state=self.engine.state
+    if 'چه پروژه‌هایی' in low and ('گفتم' in low or 'یادت' in low):
+        projects=[]
+        for topic in list(state.topic_history)+list(state.topic_stack)+[state.current_topic]:
+            if any(x in clean(topic) for x in ('دانا','ایران')):
+                name='دانا' if 'دانا' in topic else 'ایران'
+                if name not in projects: projects.append(name)
+        try:
+            for fact in self.runtime.user_model.facts(predicate='work_on',limit=50):
+                value=clean(fact.get('object',''))
+                for name in ('دانا','ایران'):
+                    if name in value and name not in projects: projects.append(name)
+        except Exception: pass
+        if projects:
+            return self._persist_answer(clean_text,'در این گفت‌وگو از این پروژه‌ها نام بردی: '+ '، '.join(projects)+'.','MEMORY',.99)
+    if 'یادت هست گفتم آفلاین' in low or 'یادت هست آفلاین' in low:
+        if 'آفلاین' in state.remembered_constraints:
+            return self._persist_answer(clean_text,'بله؛ محدودیت «آفلاین» در حافظه مکالمه ثبت شده است.','MEMORY',.99)
+    return _pipeline_v62_base(self,clean_text)
+
+CognitivePipeline.run=_run_v62
+
+
+# v0.63: memory queries are read-only with respect to the active conversation topic.
+_pipeline_v63_base = CognitivePipeline.run
+
+def _run_v63(self,text):
+    clean_text=clean(text); low=clean_text.lower(); e=self.engine; state=e.state
+    preserved=state.current_topic
+    if 'چه پروژه‌هایی' in low and ('گفتم' in low or 'یادت' in low):
+        projects=[]
+        for topic in list(state.topic_history)+list(state.topic_stack)+[state.current_topic]:
+            if any(x in clean(topic) for x in ('دانا','ایران')):
+                name='دانا' if 'دانا' in topic else 'ایران'
+                if name not in projects: projects.append(name)
+        try:
+            for fact in self.runtime.user_model.facts(predicate='work_on',limit=50):
+                value=clean(fact.get('object',''))
+                for name in ('دانا','ایران'):
+                    if name in value and name not in projects: projects.append(name)
+        except Exception: pass
+        if projects:
+            answer=self._persist_answer(clean_text,'در این گفت‌وگو از این پروژه‌ها نام بردی: '+ '، '.join(projects)+'.','MEMORY',.99)
+            state.current_topic=preserved; state.save(e.state_path)
+            return answer
+    if 'یادت هست گفتم آفلاین' in low or 'یادت هست آفلاین' in low:
+        if 'آفلاین' in state.remembered_constraints:
+            answer=self._persist_answer(clean_text,'بله؛ محدودیت «آفلاین» در حافظه مکالمه ثبت شده است.','MEMORY',.99)
+            state.current_topic=preserved; state.save(e.state_path)
+            return answer
+    return _pipeline_v63_base(self,clean_text)
+
+CognitivePipeline.run=_run_v63

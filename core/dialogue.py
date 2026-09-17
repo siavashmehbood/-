@@ -71,6 +71,9 @@ class ConversationState:
     rejected_answers: list = field(default_factory=list)
     active_constraints: list = field(default_factory=list)
     conversation_confidence: float = 0.0
+    topic_history: list = field(default_factory=list)
+    topic_goals: dict = field(default_factory=dict)
+    remembered_constraints: list = field(default_factory=list)
 
     def _push_topic(self, topic):
         topic = clean(topic)
@@ -79,6 +82,9 @@ class ConversationState:
         if self.current_topic and self.current_topic != topic:
             if self.current_topic not in self.topic_stack:
                 self.topic_stack.append(self.current_topic)
+        if topic not in self.topic_history:
+            self.topic_history.append(topic)
+            self.topic_history = self.topic_history[-30:]
         self.topic_stack = self.topic_stack[-12:]
         self.current_topic = topic
 
