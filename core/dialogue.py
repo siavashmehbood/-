@@ -1457,6 +1457,7 @@ def _canonical_pipeline_handle(self, text):
     if pipeline is None:
         pipeline = CognitivePipeline(self)
         self.cognitive_pipeline = pipeline
+    self._canonical_pipeline = pipeline
     return pipeline.run(text)
 
 LocalDialogueEngine.handle = _canonical_pipeline_handle
