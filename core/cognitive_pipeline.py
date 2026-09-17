@@ -3,6 +3,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from core.dialogue import CognitiveContext, clean, is_correction, is_follow_up
 from core.context_tracker import ContextTracker
+from core.memory_intelligence import MemoryIntelligence
 
 
 @dataclass
@@ -27,6 +28,7 @@ class CognitivePipeline:
         self.engine = engine
         self.runtime = engine.runtime
         self.context_tracker = ContextTracker.load(__import__("pathlib").Path(self.runtime.root) / "data" / "context_tracker.json")
+        self.memory_intelligence = MemoryIntelligence(self.runtime.memory)
 
     def _emit(self, event, data):
         try:
@@ -177,7 +179,8 @@ class CognitivePipeline:
             references["resolved"] = {"candidate": reference, "confidence": .9}
 
         # Local retrieval.
-        memory = e._memory(text)
+        memory_context = self.memory_intelligence.build_context(text, e.state, limit=8)
+        memory = [(c["kind"], c["content"], c["created_at"]) for c in memory_context["selected"]]
         knowledge = e._knowledge(text, parsed)
 
         # Small verified local facts that are part of the symbolic seed.
@@ -269,6 +272,7 @@ class CognitivePipeline:
             e.state.reject(e.state.last_assistant_answer)
         elif verification.status == "PASS":
             e.state.accept(answer)
+        self.memory_intelligence.record_outcome(answer, verification.status == "PASS", e.state)
         e.state.update(text, answer, plan.answer_type, parsed, verification.score, reference)
         e.state.save(e.state_path)
         e._commit_memory(text, answer, context, verification)
@@ -284,6 +288,7 @@ class CognitivePipeline:
             elapsed_ms=round((datetime.now() - started).total_seconds() * 1000, 2),
         )
         e.last_trace = trace
+        e.memory_context = memory_context
         e.context_snapshot = context_snapshot.__dict__
         try:
             self.context_tracker.save(__import__("pathlib").Path(self.runtime.root) / "data" / "context_tracker.json")
