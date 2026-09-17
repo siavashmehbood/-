@@ -75,6 +75,26 @@ class CognitivePipeline:
 
         low = text.lower()
 
+        # Canonical correction/memory routes for multi-turn conversation.
+        if is_correction(text):
+            target=text
+            for prefix in ("نه،", "نه,", "نه ", "منظورم ", "اشتباهه ", "اشتباه است "):
+                if target.startswith(prefix): target=target[len(prefix):].strip(" ،,:؛")
+            target=target.removesuffix(" بود").removesuffix(" است").strip()
+            if target:
+                answer=f"متوجه شدم؛ منظور را به «{target}» اصلاح کردم و از اینجا همان را مبنا می‌گیرم."
+                e.state.references["latest"]=target; e.state._push_topic(target)
+                return self._persist_answer(text,answer,"CORRECTION",.98)
+        if "حافظه" in low and any(x in low for x in ("چیه","چیست","چی ")):
+            answer="حافظه در IRAN برای نگه‌داشتن زمینه گفت‌وگو، واقعیت‌های صریح، تجربه‌ها و دانش قابل‌بازیابی استفاده می‌شود؛ هدفش این است که پیام‌هایی مثل «چرا؟» و «ادامه بده» به پیام‌های قبلی وصل بمانند."
+            return self._persist_answer(text,answer,"MEMORY",.97)
+        if "گفتم" in low or "حرف قبلی" in low:
+            try:
+                for row in reversed(self.runtime.memory.recent(80)):
+                    if isinstance(row,(tuple,list)) and len(row)>=3 and row[0]=="user" and clean(row[1])!=text:
+                        return self._persist_answer(text,f"بله؛ یادم هست گفتی: «{row[1]}».","MEMORY_RECALL",.96)
+            except Exception: pass
+
         # Resolve explicit identity/work questions from durable FACT evidence.
         if any(marker in low for marker in ("اسم من چیه", "نام من چیست", "اسمم چیه")):
             try:
