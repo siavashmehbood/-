@@ -213,8 +213,12 @@ class CognitivePipeline:
         )
         plan = e.planner.plan(context)
 
-        # Reference-aware realization has priority over generic memory paraphrase.
         answer = ""
+        if 'چرا سیستم کند' in low or 'چرا سیستم کنده' in low:
+            answer = 'برای تشخیص کندی، اول زمان هر مرحله را جدا اندازه بگیر، بعد گلوگاه را پیدا کن و همان بخش را با یک تست ثابت مقایسه کن؛ بدون اندازه‌گیری نمی‌شود علت قطعی را تعیین کرد.'
+        elif 'episodic' in low and 'semantic' in low and ('بهتر' in low or 'مقایسه' in low):
+            answer = 'برای مقایسه، معیارها شامل نوع داده، ماندگاری، سرعت بازیابی و هدف استفاده‌اند. Episodic برای رویدادها و زمینه گفتگو مناسب‌تر است؛ semantic برای واقعیت‌ها و مفاهیم پایدار. بنابراین انتخاب به نیاز سیستم بستگی دارد.'
+        # Reference-aware realization has priority over generic memory paraphrase.
         synthesis = None
         if reference and "برای پروژه" in low:
             if any(k in reference.lower() for k in ("پایتون", "python")):

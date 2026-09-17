@@ -107,8 +107,12 @@ class ConversationState:
             candidate = self._topic_from_parsed(parsed) or goal
             if candidate and substantive(candidate):
                 self._push_topic(candidate)
+                self.references['latest_topic'] = candidate
+                self.references['latest'] = candidate
             elif substantive(text) and parsed.get("intent") not in {"question"}:
                 self._push_topic(text)
+        if self.current_topic and not is_follow_up(text) and not is_correction(text):
+            self.references['latest_topic'] = self.current_topic
         self.conversation_confidence = max(0.0, min(1.0, float(confidence or 0.0)))
 
     @staticmethod
@@ -233,6 +237,7 @@ class QuestionAnalyzer:
         elif any(x in low for x in ("چیست", "چیه", "چی ")): qtype = "what"
         elif any(x in low for x in ("کجاست", "کجاست")): qtype = "where"
         elif "آیا" in low: qtype = "yes_no"
+        elif any(x in low for x in ("بهتر است یا", "بهتره یا", "کدام بهتر", "کدوم بهتر", "مقایسه")): qtype = "comparison"
         if is_follow_up(t): qtype = "follow_up"
         if is_correction(t): qtype = "correction"
         return {"question_type": qtype, "question_units": units or ([bare(t)] if substantive(t) else [])}
@@ -241,8 +246,16 @@ class QuestionAnalyzer:
 class ReferenceResolver:
     def resolve(self, text, state, history=None):
         t=bare(text); history=history or []
-        if any(x in t for x in ('\u0645\u0648\u0636\u0648\0639 \u0642\u0628\u0644\u06cc','\u0628\u062d\u062b \u0642\u0628\u0644\u06cc','\u0647\u0645\u0648\0646 \u0642\u0628\u0644\u06cc')):
+        if any(x in t for x in ('موضوع قبلی', 'بحث قبلی')):
             return state.topic_stack[-1] if state.topic_stack else state.current_topic
+        if 'همون قبلی' in t:
+            return state.references.get('latest', '') or (state.topic_stack[-1] if state.topic_stack else state.current_topic)
+        if any(x in t for x in ('بحث اول', 'مورد اول', 'اولی')):
+            return state.topic_by_index(1)
+        if any(x in t for x in ('بحث دوم', 'مورد دوم', 'دومی')):
+            return state.topic_by_index(2)
+        if any(x in t for x in ('موضوع فعلی', 'همین موضوع')):
+            return state.current_topic or state.active_goal
         if any(x in t for x in ('\u0628\u062d\u062b \u0627\u0648\u0644','\u0645\u0648\u0631\u062f \u0627\u0648\0644','\u0627\u0648\u0644\u06cc')): return state.topic_by_index(1)
         if any(x in t for x in ('\u0628\u062d\u062b \u062f\u0648\u0645','\u0645\u0648\u0631\u062f \u062f\u0648\u0645','\u062f\u0648\u0645\u06cc')): return state.topic_by_index(2)
         if any(x in t for x in ('\u0645\u0648\u0636\u0648\u0639 \u0641\u0639\u0644\u06cc','\u0647\u0645\u06cc\u0646 \u0645\u0648\u0636\u0648\u0639')): return state.current_topic or state.active_goal
@@ -838,7 +851,10 @@ def _state_update_v5(self,user_text,answer="",answer_type="",parsed=None,confide
         self.references["latest"]=reference; self._push_topic(reference)
         self.current_question=text if (parsed or {}).get("question_units") or "؟" in text else self.current_question
         self.conversation_confidence=max(0.,min(1.,float(confidence or 0))); return
-    return _prev_state_update_v4(self,user_text,answer,answer_type,parsed,confidence,reference)
+    result=_prev_state_update_v4(self,user_text,answer,answer_type,parsed,confidence,reference)
+    if self.current_topic and not is_follow_up(user_text) and not is_correction(user_text):
+        self.references['latest_topic']=self.current_topic
+    return result
 ConversationState.update=_state_update_v5
 
 
@@ -1448,10 +1464,16 @@ class ReferenceResolverStage1:
         t=bare(text); history=history or []
         def fa(*n): return ''.join(map(chr,n))
         prev=fa(1605,1608,1590,1608,1593,32,1602,1576,1604,1740)
-        if prev in t or fa(1576,1581,1579,32,1602,1576,1604,1740) in t or fa(1607,1605,1608,1606,32,1602,1576,1604,1740) in t:
+        if prev in t or fa(1576,1581,1579,32,1602,1576,1604,1740) in t:
             return state.topic_stack[-1] if state.topic_stack else state.current_topic
-        if any(x in t for x in (fa(1576,1581,1579,32,1575,1608,1604),fa(1605,1608,1585,1583,32,1575,1608,1604),fa(1575,1608,1604,1740))): return state.topic_by_index(1)
-        if any(x in t for x in (fa(1576,1581,1579,32,1583,1608,1605),fa(1605,1608,1585,1583,32,1583,1608,1605),fa(1583,1608,1605,1740))): return state.topic_by_index(2)
+        if 'همون قبلی' in t:
+            return state.references.get('latest_topic', '') or (state.topic_stack[-1] if state.topic_stack else state.current_topic)
+        if any(x in t for x in ('بحث اول', 'مورد اول', 'اولی')):
+            return state.topic_by_index(1)
+        if any(x in t for x in ('بحث دوم', 'مورد دوم', 'دومی')):
+            return state.topic_by_index(2)
+        if any(x in t for x in ('موضوع فعلی', 'همین موضوع')):
+            return state.current_topic or state.active_goal
         if any(x in t for x in (fa(1605,1608,1590,1608,1593,32,1601,1593,1604,1740),fa(1607,1605,1740,1606,32,1605,1608,1590,1608,1593))): return state.current_topic or state.active_goal
         if is_follow_up(t) or any(self._has_marker(t,m) for m in REF_MARKERS):
             return state.current_topic or state.references.get('latest','') or state.active_goal
