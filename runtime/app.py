@@ -58,7 +58,7 @@ class IranRuntime:
         self.provider = create_provider(self.config)
         self.learning_gate = LearningGate(self.root / "data/learning_proposals.json")
         self.trusted_knowledge = TrustedKnowledgeBootstrap()
-        self.self_directed_learning = SelfDirectedLearning()
+        self.self_directed_learning = SelfDirectedLearning(self.root / "data/learning_goals.json")
         self.trusted_knowledge_path = self.root / "data/trusted_knowledge.json"
         self.memory = Memory(self.root / self.config["memory"]["db"], gate=self.learning_gate)
         self.events = EventLog(self.root / self.config["runtime"]["event_log"])
