@@ -184,16 +184,16 @@ class ChatWindow(QMainWindow):
             if path.exists():
                 rows=json.loads(path.read_text(encoding='utf-8'))
         except Exception as e:
-            QMessageBox.warning(self,'??????? ChatGPT',f'??? ?? ?????? ????? ????: {e}'); return
+            QMessageBox.warning(self, 'بازبینی ChatGPT', f'خطا در خواندن بازبینی‌ها: {e}'); return
         if not rows:
-            QMessageBox.information(self,'??????? ChatGPT','????? ??????? ChatGPT ?? ??? ???? ???? ???? ???.\n\n????? ?????? ChatGPT ?? ???? ?????? ???? ???? ???.')
+            QMessageBox.information(self, 'بازبینی ChatGPT', 'هنوز هیچ بازبینی ChatGPT ثبت نشده است.\n\nاین بخش در نسخه آفلاین ایران فقط بازبینی‌های ثبت‌شده را نمایش می‌دهد.')
             return
-        d=QDialog(self); d.setWindowTitle(f'??????? ChatGPT ? {len(rows)} ???? ????'); d.resize(980,720); d.setLayoutDirection(Qt.RightToLeft)
-        l=QVBoxLayout(d); l.addWidget(QLabel('??? ????? ??? ????? ???? ?? ????? ??????? ??? ????? ?????? ?? ????? ????? ???????.'))
+        d=QDialog(self); d.setWindowTitle(f'بازبینی ChatGPT — {len(rows)} مورد'); d.resize(980,720); d.setLayoutDirection(Qt.RightToLeft)
+        l=QVBoxLayout(d); l.addWidget(QLabel('بازبینی‌های ثبت‌شده را بررسی کنید و پاسخ موردنظر را برای مقایسه کپی کنید.'))
         tabs=QTabWidget(); l.addWidget(tabs,1)
         for i,row in enumerate(rows,1):
-            page=QWidget(); pl=QVBoxLayout(page); q=QPlainTextEdit(); q.setReadOnly(True); q.setPlainText('????:\n'+str(row.get('question',''))+'\n\n???? ???????:\n'+str(row.get('answer',''))); pl.addWidget(q,1); cp=QPushButton('??? ????'); cp.clicked.connect(lambda checked=False, a=str(row.get('answer','')): QApplication.clipboard().setText(a)); pl.addWidget(cp); tabs.addTab(page,f'???? {i}')
-        close=QPushButton('????'); close.clicked.connect(d.accept); l.addWidget(close); d.exec()
+            page=QWidget(); pl=QVBoxLayout(page); q=QPlainTextEdit(); q.setReadOnly(True); q.setPlainText('پرسش:\n'+str(row.get('question',''))+'\n\nپاسخ بازبینی‌شده:\n'+str(row.get('answer',''))); pl.addWidget(q,1); cp=QPushButton('کپی پاسخ'); cp.clicked.connect(lambda checked=False, a=str(row.get('answer','')): QApplication.clipboard().setText(a)); pl.addWidget(cp); tabs.addTab(page,f'مورد {i}')
+        close=QPushButton('بستن'); close.clicked.connect(d.accept); l.addWidget(close); d.exec()
 
     def paste_clipboard(self):
         self.input.insertPlainText(QApplication.clipboard().text()); self.input.setFocus()
