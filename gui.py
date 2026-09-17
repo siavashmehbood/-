@@ -224,6 +224,24 @@ class IranGUI:
         box.insert('1.0',f"Proposal ID: {proposal.get('proposal_id')}\nType: {proposal.get('kind')}\nSummary: {proposal.get('summary')}\n\nProposed change:\n{payload}")
         box.configure(state='disabled')
         buttons=tk.Frame(win); buttons.pack(fill='x',padx=18,pady=14)
+        def copy_proposal():
+            text = box.get('1.0', 'end-1c')
+            self.root.clipboard_clear()
+            self.root.clipboard_append(text)
+            self.root.update()
+            self.status.config(text='Learning test copied to clipboard', fg='#315a9b')
+        def export_proposal():
+            from tkinter import filedialog
+            path = filedialog.asksaveasfilename(
+                parent=win,
+                title='Export learning test',
+                defaultextension='.txt',
+                filetypes=[('Text file', '*.txt'), ('All files', '*.*')],
+                initialfile=f"iran_learning_test_{proposal.get('proposal_id', 'proposal')}.txt",
+            )
+            if path:
+                Path(path).write_text(box.get('1.0', 'end-1c'), encoding='utf-8')
+                self.status.config(text='Learning test exported', fg='#315a9b')
         def decide(action):
             result=runtime.approve_learning(proposal['proposal_id']) if action=='approve' else runtime.reject_learning(proposal['proposal_id'])
             if result.get('ok'):
@@ -231,6 +249,8 @@ class IranGUI:
             else:
                 messagebox.showerror('Learning approval',str(result),parent=win)
         tk.Button(buttons,text='Reject',command=lambda:decide('reject'),padx=24,pady=8).pack(side='left')
+        tk.Button(buttons,text='Copy test',command=copy_proposal,padx=18,pady=8).pack(side='left',padx=6)
+        tk.Button(buttons,text='Export .txt',command=export_proposal,padx=18,pady=8).pack(side='left',padx=6)
         tk.Button(buttons,text='Approve ? add to permanent knowledge',command=lambda:decide('approve'),padx=24,pady=8).pack(side='right')
 
     def run_benchmark(self):
