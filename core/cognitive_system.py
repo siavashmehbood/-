@@ -145,10 +145,37 @@ class CognitiveSystem:
                 "dialogue", uncertainty=max(0.0, 1.0-confidence),
                 novelty=0.6 if not learning.adapt(goal, getattr(trace, "intent", "general") or "general", "dialogue").get("learned_rules") else 0.0)
             action = priority.get("action", "observe_and_wait")
-            # Normal turns are observations, not learning evidence. Only an explicit
-            # active experiment or a verified historical reuse is allowed to mutate
-            # effect-learning state. This prevents routine PASS answers from earning
-            # XP or becoming fake training samples.
+            # Every independently verified, meaningful turn may generate a learning
+            # candidate. The candidate is NOT durable learning and earns NO XP until
+            # it passes the existing human approval gate. This keeps the learning
+            # queue rich without turning routine answers into trusted knowledge.
+            verification_status = str(getattr(trace, "verification_status", ""))
+            candidate_score = max(0.0, min(1.0, confidence))
+            if verification_status == "PASS" and candidate_score >= 0.60 and len(str(answer).strip()) >= 12:
+                learning_gate = getattr(self.runtime, "learning_gate", None)
+                if learning_gate is not None:
+                    payload = {
+                        "goal": goal,
+                        "action": "canonical_turn",
+                        "result": str(answer)[:4000],
+                        "score": candidate_score,
+                        "intent": str(intent),
+                        "strategy": str(priority.get("meta", {}).get("strategy") or intent or "evidence-first"),
+                        "domain": "dialogue",
+                    }
+                    proposal = learning_gate.request(
+                        "learning.record_experience", payload,
+                        f"یادگیری از تعامل تأییدشده: {goal}"
+                    )
+                    priority["learning_candidate"] = proposal
+                    priority["learning_candidate_generated"] = proposal is not None
+                    if proposal is not None:
+                        self.runtime.events.emit("learning_candidate_created", {
+                            "proposal_id": proposal.get("proposal_id"),
+                            "goal": goal, "score": candidate_score, "canonical": True,
+                        })
+            # Existing effect-learning remains stricter: only an explicit active
+            # experiment or verified historical reuse can mutate effect-learning state.
             if action not in ("active_experiment", "reuse_best_then_verify"):
                 observation = loop.observe_behavior(
                     goal, answer, strategy="baseline", domain="dialogue",
