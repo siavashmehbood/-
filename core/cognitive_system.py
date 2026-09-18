@@ -162,7 +162,7 @@ class CognitiveSystem:
             "semantic_verification": type(getattr(pipe, "semantic_verifier", None)).__name__,
             "chain_reasoner": bool(getattr(self.dialogue, "chain_reasoner", None)),
             "grounded_synthesis": bool(getattr(self.dialogue, "grounded_synthesizer", None)),
-            "self_correction": bool(getattr(self.dialogue, "self_correction", None)),
+            "self_correction": bool(getattr(self.pipeline, "self_correction", None) or getattr(self.dialogue, "self_correction", None)),
             "autonomy": bool(
                 getattr(runtime, "autonomous_supervisor", None)
                 or getattr(runtime, "autonomy", None)
