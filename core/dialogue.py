@@ -18,7 +18,8 @@ FOLLOW_UPS = {
     "چرا", "چطور", "چگونه", "خب", "پس چی", "حالا چی", "ادامه بده",
     "بیشتر بگو", "بیشتر توضیح بده", "توضیح بده", "ساده تر بگو",
     "ساده‌تر بگو", "کوتاه‌تر بگو", "کوتاه تر بگو", "بهترش کن",
-    "دقیق‌ترش کن", "دقیق ترش کن", "مثال بزن",
+    "دقیق‌ترش کن", "دقیق ترش کن", "مثال بزن", "یعنی چه", "یعنی چی",
+    "منظورت چیست", "منظورت چیه", "این یعنی چه", "این یعنی چی",
 }
 CORRECTION_PREFIXES = ("نه", "منظورم", "اشتباهه", "اشتباه است", "اشتباه بود")
 
@@ -105,8 +106,12 @@ class ConversationState:
         if goal and not is_follow_up(text) and not is_correction(text):
             self.active_goal = goal
         if is_correction(text):
-            self.corrections.append(text)
-            self.unresolved_questions.append(text)
+            if text not in self.corrections:
+                self.corrections.append(text)
+            if text not in self.unresolved_questions:
+                self.unresolved_questions.append(text)
+            self.corrections = self.corrections[-20:]
+            self.unresolved_questions = self.unresolved_questions[-20:]
         if reference:
             self.references["latest"] = reference
         if not is_follow_up(text) and not is_correction(text):
@@ -253,6 +258,8 @@ class QuestionAnalyzer:
 class ReferenceResolver:
     def resolve(self, text, state, history=None):
         t=bare(text); history=history or []
+        if is_follow_up(t) and state.last_assistant_answer and substantive(state.last_assistant_answer):
+            return state.last_assistant_answer
         if any(x in t for x in ('موضوع قبلی', 'بحث قبلی')):
             return state.topic_stack[-1] if state.topic_stack else state.current_topic
         if 'همون قبلی' in t:
@@ -317,7 +324,7 @@ class AnswerVerifier:
         reasons, missing, unsupported = [], [], []
         if not text:
             reasons.append("empty_answer")
-        if plan.question_units:
+        if plan.question_units and context.question_type != "follow_up":
             for unit in plan.question_units:
                 key = set(words(unit)) - {"چرا", "چطور", "چگونه", "چی", "است", "هست", "و", "برای"}
                 if key and not (set(words(text)) & key):
@@ -404,6 +411,8 @@ class LocalDialogueEngine:
             "پایتخت فرانسه": ("فرانسه", "پایتخت"),
             "اسم پروژه": ("ایران", "نام"),
             "نام پروژه": ("ایران", "نام"),
+            "اسم تو": ("ایران", "نام"),
+            "نام تو": ("ایران", "نام"),
         }
         if graph is not None:
             for marker, (subject, predicate) in rules.items():
@@ -462,6 +471,8 @@ class LocalDialogueEngine:
             ref = context.references["resolved"].get("candidate", "")
         if low in {"سلام", "درود", "hello", "hi"}:
             return "سلام. بگو از کجا شروع کنیم."
+        if any(x in low for x in ("اسم تو", "نام تو", "اسمت چیه", "نامت چیست")):
+            return "اسم من «ایران» است؛ من هسته گفت‌وگویی پروژه IRAN هستم."
         if context.question_type == "correction":
             target = re.sub(r"^(نه[،, ]*|منظورم[ ]*|اشتباهه[،, ]*)", "", bare(text)).strip(" :،")
             if target:
@@ -469,6 +480,9 @@ class LocalDialogueEngine:
                 return f"متوجه شدم؛ مرجع قبلی را به «{target}» اصلاح کردم. از اینجا همان را مبنا می‌گیرم."
             return "متوجه شدم. اصلاح را ثبت کردم و پاسخ بعدی را بر اساس آن می‌سازم."
         if is_follow_up(text) and ref:
+            previous = context.previous_answer.strip()
+            if low in {"یعنی چه", "یعنی چی", "منظورت چیست", "منظورت چیه", "این یعنی چه", "این یعنی چی"} and previous:
+                return f"منظورم از پاسخ قبلی این بود: «{previous}»؛ اگر بخواهی، همان را ساده‌تر و مرحله‌به‌مرحله توضیح می‌دهم."
             if low == "چرا":
                 subject = self.state.current_question or ref
                 return f"اگر منظورت «{subject}» است: برای پاسخ قطعی باید علت را از شواهد همین موضوع جدا کنیم؛ فعلاً مهم‌ترین فرضیه‌ها را بررسی می‌کنم."
@@ -1545,6 +1559,9 @@ ReferenceResolver.resolve = _reference_resolve_v2
 _dialogue_direct_answer_legacy = LocalDialogueEngine._direct_answer
 
 def _direct_answer_v41b(self, context):
+    low = bare(context.user_message).lower()
+    if is_follow_up(context.user_message) and context.previous_answer and low in {"یعنی چه", "یعنی چی", "منظورت چیست", "منظورت چیه", "این یعنی چه", "این یعنی چی"}:
+        return f"منظورم از پاسخ قبلی این بود: «{context.previous_answer}»؛ اگر بخواهی، همان را ساده‌تر و مرحله‌به‌مرحله توضیح می‌دهم."
     if len(context.question_units) > 1:
         units = context.question_units[:6]
         lines = []

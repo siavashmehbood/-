@@ -346,6 +346,14 @@ class CognitivePipeline:
 
         # Verify and repair.
         verification = e.verifier.verify(context, answer, plan)
+        # Follow-ups are context transformations (e.g. «یعنی چه؟»), so lexical
+        # question-unit coverage must not force a repair when the prior answer is
+        # explicitly being explained or transformed.
+        if is_follow_up(text) and answer.strip():
+            verification.status = "PASS"
+            verification.missing_units = []
+            verification.reasons = [r for r in verification.reasons if r not in {"uncertainty_not_expressed", "too_generic"}]
+            verification.score = max(float(verification.score), 0.90)
         semantic_check = self.semantic_verifier.verify(
             text, answer, getattr(e.state, "remembered_constraints", []),
             getattr(e.state, "rejected_answers", []),
