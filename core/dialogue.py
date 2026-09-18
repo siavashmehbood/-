@@ -1564,3 +1564,16 @@ def _direct_answer_v41b(self, context):
     return _dialogue_direct_answer_legacy(self, context)
 
 LocalDialogueEngine._direct_answer = _direct_answer_v41b
+
+# v0.41-learning: make learned dialogue policy affect the actual response path.
+_PREV_REPAIR_LEARNING = AnswerRepair.repair
+def _repair_learning(self, context, answer, verification, plan):
+    steps = set(plan.steps or [])
+    if "avoid_recent_failed_pattern" in steps and verification.status == "PASS" and context.uncertainty >= .70 and not context.relevant_knowledge:
+        return "UNKNOWN: اطلاعات محلی کافی برای پاسخ مطمئن ندارم؛ نمی‌خواهم همان الگوی قبلیِ نامطمئن را تکرار کنم."
+    repaired = _PREV_REPAIR_LEARNING(self, context, answer, verification, plan)
+    if "preserve_conversation_context" in steps and context.question_type == "follow_up" and context.current_topic:
+        if context.current_topic not in str(repaired):
+            return f"با توجه به موضوع قبلی «{context.current_topic}»، {str(repaired).lstrip()}"
+    return repaired
+AnswerRepair.repair = _repair_learning
