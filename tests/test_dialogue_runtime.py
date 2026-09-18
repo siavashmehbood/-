@@ -20,6 +20,9 @@ class RuntimeDialogueTests(unittest.TestCase):
         c = json.loads((self.tmp/'config.json').read_text(encoding='utf-8-sig'))
         c['memory']['db'] = 'data/test.db'
         c['runtime']['event_log'] = 'logs/test.jsonl'
+        stale_db = self.tmp/'data'/'test.db'
+        if stale_db.exists():
+            stale_db.unlink()
         (self.tmp/'config.json').write_text(json.dumps(c, ensure_ascii=False), encoding='utf-8')
         self.r = IranRuntime(self.tmp)
 

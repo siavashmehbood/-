@@ -10,7 +10,7 @@ class Memory:
         self.conn=sqlite3.connect(path,check_same_thread=False)
         self.conn.execute('CREATE TABLE IF NOT EXISTS memories (id INTEGER PRIMARY KEY, kind TEXT, content TEXT, importance REAL DEFAULT 0.5, created_at TEXT DEFAULT CURRENT_TIMESTAMP)')
         cols={r[1] for r in self.conn.execute('PRAGMA table_info(memories)').fetchall()}
-        for n,d in [('access_count','INTEGER DEFAULT 0'),('last_access','TEXT'),('confidence','REAL DEFAULT 0.5'),('source','TEXT DEFAULT "local"')]:
+        for n,d in [('importance','REAL DEFAULT 0.5'),('access_count','INTEGER DEFAULT 0'),('last_access','TEXT'),('confidence','REAL DEFAULT 0.5'),('source','TEXT DEFAULT "local"')]:
             if n not in cols:self.conn.execute(f'ALTER TABLE memories ADD COLUMN {n} {d}')
         self.conn.execute('CREATE TABLE IF NOT EXISTS semantic_facts (id INTEGER PRIMARY KEY, subject TEXT, predicate TEXT, value TEXT, confidence REAL, source TEXT, created_at TEXT, updated_at TEXT, UNIQUE(subject,predicate,value))')
         self.conn.execute('CREATE TABLE IF NOT EXISTS lessons (id INTEGER PRIMARY KEY, goal TEXT, lesson TEXT, confidence REAL, source TEXT, uses INTEGER DEFAULT 0, created_at TEXT, updated_at TEXT, UNIQUE(goal,lesson))')
