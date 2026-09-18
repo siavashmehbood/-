@@ -138,3 +138,22 @@ def test_learning_result_requires_behavior_change_verification_and_transfer(tmp_
     assert qualified["qualified"] is True
     assert qualified["xp_eligible"] is True
     assert loop.stats()["xp"] == 0
+
+
+def test_replay_transfer_batch_proves_cross_case_learning_without_xp(tmp_path):
+    engine=LearningEngine(tmp_path/"experiences.json")
+    loop=EffectLearningLoop(tmp_path/"effect.json",engine)
+    loop.observe_behavior("python file reading","baseline","baseline","tools","b0",False)
+    loop.observe_behavior("python file parsing","baseline","baseline","tools","b1",False)
+    cases=[
+        {"source_goal":"python file reading","target_goal":"python file parsing","result":"parsed file safely","expected":"parsed file","verification":{"verified":True,"score":.9}},
+        {"source_goal":"python file reading","target_goal":"python file writing","result":"wrote file safely","expected":"wrote file","verification":{"verified":True,"score":.92}},
+        {"source_goal":"python file parsing","target_goal":"python file loading","result":"loaded file safely","expected":"loaded file","verification":{"verified":True,"score":.88}},
+    ]
+    out=loop.replay_transfer_batch(cases,"tools")
+    assert out["total"]==3
+    assert out["passed"]==3
+    assert out["pass_rate"]==1.0
+    assert out["xp_awarded"]==0
+    assert loop.stats()["xp"]==0
+    assert len(loop.state["transfer_evaluations"])==3
