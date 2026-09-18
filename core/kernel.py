@@ -49,19 +49,17 @@ class CognitiveKernel:
         self.memory.add('cognitive_state',{'goal':state.goal,'intent':state.intent,'hypotheses':state.hypotheses,'decision':decision.chosen,'uncertainty':inference.uncertainty},.55)
         reflection=self.reflector.reflect(state.goal,'cycle completed',decision.confidence,predictions)
         elapsed=round((perf_counter()-started)*1000,3)
-        return CycleResult(state.goal,state.intent,state.confidence,{'reasoning':asdict(reasoning),'evidence_inference':asdict(inference)},[asdict(p) for p in predictions],asdict(anomaly),elapsed,asdict(decision),asdict(reflection),understanding,causal,strategy)
-
-# v0.22: expose the internal evidence graph to the response layer instead of hiding cognition behind templates.
-_old_cycle=CognitiveKernel.cycle
-def _cycle_v2(self,text):
-    result=_old_cycle(self,text)
-    try:
-        knowledge=self.knowledge.query(result.goal,8)
-        result.understanding=result.understanding if isinstance(result.understanding,dict) else {}
-        result.understanding.update({'knowledge':knowledge,'memory_evidence':result.reasoning.get('evidence_inference',{}).get('hypotheses',[]),
-            'world':self.world.infer(result.intent,8),'temporal':self.world.temporal_summary(6)})
-        result.reasoning['evidence_texts']=[x.get('text','') for x in result.reasoning.get('evidence_inference',{}).get('hypotheses',[])[:4] if isinstance(x,dict)]
-        result.reflection['next_steps']=result.reflection.get('next_steps',[])+['update knowledge/world state','calibrate response quality']
-    except Exception: pass
-    return result
-CognitiveKernel.cycle=_cycle_v2
+        result = CycleResult(state.goal,state.intent,state.confidence,
+            {'reasoning':asdict(reasoning),'evidence_inference':asdict(inference)},
+            [asdict(p) for p in predictions],asdict(anomaly),elapsed,asdict(decision),
+            asdict(reflection),understanding,causal,strategy)
+        try:
+            knowledge=self.knowledge.query(result.goal,8)
+            result.understanding=result.understanding if isinstance(result.understanding,dict) else {}
+            result.understanding.update({'knowledge':knowledge,'memory_evidence':result.reasoning.get('evidence_inference',{}).get('hypotheses',[]),
+                'world':self.world.infer(result.intent,8),'temporal':self.world.temporal_summary(6)})
+            result.reasoning['evidence_texts']=[x.get('text','') for x in result.reasoning.get('evidence_inference',{}).get('hypotheses',[])[:4] if isinstance(x,dict)]
+            result.reflection['next_steps']=result.reflection.get('next_steps',[])+['update knowledge/world state','calibrate response quality']
+        except Exception:
+            pass
+        return result

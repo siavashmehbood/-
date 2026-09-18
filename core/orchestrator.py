@@ -16,6 +16,7 @@ class Orchestrator:
         self.agent,self.memory,self.events=agent,memory,events; self.registry=registry; self.policy=policy; self.goals=goals
         self.planner,self.reasoner=Planner(),Reasoner(); self.router,self.intelligence=ToolRouter(),Intelligence(); self.cognition=Cognition(); self.metrics=Metrics(); self.evaluator=evaluator
         self.language=getattr(getattr(agent,'brain',None),'language',PersianLanguageEngine()); self.loop=AgentLoop(self,max_attempts=3)
+        self._user_model = getattr(agent, "_user_model", None)
 
     def run_tool(self,name,**kwargs):
         tool=self.registry.get(name) if self.registry else None
@@ -118,115 +119,7 @@ class Orchestrator:
         self.events.emit('response_generated',{'goal':clean,'intent':cognitive.intent,'decision':decision.actions})
         self.metrics.record('response',time.perf_counter()-started); return answer
 
-    def explain_decision(self,text):
-        c=self.cognition.analyze(text); d=self.intelligence.decide(text); return {'intent':c.intent,'confidence':c.confidence,'needs_model':c.needs_model,'goals':c.goals,'actions':d.actions,'reasons':c.reasons}
-    def run_smart(self,goal): return self.loop.run(goal)
-
-
-# v0.31: make persistent User Model an executive input, not passive metadata.
-def _user_model_context(self, text):
-    model = getattr(self, '_user_model', None)
-    if model is None and getattr(self, 'agent', None) is not None:
-        model = getattr(self.agent, '_user_model', None)
-    if model is None:
-        return []
-    try:
-        facts = model.facts(limit=12)
-        return [
-            ('user_model', f"{f['predicate']}={f['object']} confidence={float(f['confidence']):.2f} source={f['source']}")
-            for f in facts
-        ]
-    except Exception:
-        return []
-
-if not hasattr(Orchestrator, '_iran_v31_handle_base'):
-    Orchestrator._iran_v31_handle_base = Orchestrator.handle
-_base_v31_handle = Orchestrator._iran_v31_handle_base
-
-def _handle_v31(self, text):
-    canonical = getattr(self, "_canonical_system", None)
-    if canonical is not None:
-        return canonical.dispatch(text)
-    model = getattr(self.agent, '_user_model', None)
-    if model is not None:
-        self._user_model = model
-    clean = str(text).strip()
-    if any(marker in clean for marker in ('همونو', 'همون قبلی', 'ادامه بده', 'بیشتر توضیح بده')):
-        provider = getattr(getattr(self.agent, 'brain', None), 'provider', None)
-        topic = str(getattr(provider, 'frame', {}).get('topic', '')) if provider else ''
-        if not topic or any(marker in topic for marker in ('همونو', 'همون قبلی', 'ادامه بده', 'بیشتر توضیح بده')):
-            for _, content, _ in reversed(self.memory.recent(24)):
-                content = str(content)
-                if not any(marker in content for marker in ('همونو', 'همون قبلی', 'ادامه بده', 'بیشتر توضیح بده')):
-                    topic = content
-                    break
-        if topic:
-            answer = f'مرجع «{clean}» را به «{topic[:240]}» وصل کردم. حالا همین موضوع را مبنای پاسخ قرار می‌دهم.'
-            self.memory.add('user', clean, .7)
-            self.memory.add('assistant', answer, .6)
-            self.metrics.record('response')
-            return answer
-    return _base_v31_handle(self, text)
-
-Orchestrator.handle = _handle_v31
-
-if not hasattr(Orchestrator, '_iran_v31_explain_base'):
-    Orchestrator._iran_v31_explain_base = Orchestrator.explain_decision
-_base_v31_explain = Orchestrator._iran_v31_explain_base
-
-def _explain_v31(self, text):
-    context = self.memory.working_context(text, 6)
-    context = list(context) + self._user_model_context(text)
-    r = self.reasoner.analyze(text, context)
-    d = self.intelligence.decide(text)
-    c = self.cognition.analyze(text)
-    return {'intent':c.intent,'confidence':c.confidence,'needs_model':c.needs_model,
-            'goals':c.goals,'actions':d.actions,'reasons':c.reasons,
-            'user_model':self._user_model_context(text),
-            'reasoning':r.__dict__}
-
-Orchestrator.explain_decision = _explain_v31
-
-
-# v0.31b: bind the persistent User Model into the Planner after runtime initialization.
-if not hasattr(Orchestrator, '_iran_v31_init_base'):
-    Orchestrator._iran_v31_init_base = Orchestrator.__init__
-_base_v31_init_orch = Orchestrator._iran_v31_init_base
-
-def _init_v31_orch(self, *args, **kwargs):
-    _base_v31_init_orch(self, *args, **kwargs)
-    model = getattr(self.agent, '_user_model', None)
-    if model is not None:
-        self._user_model = model
-        self.planner.user_model = model
-
-Orchestrator.__init__ = _init_v31_orch
-
-
-# v0.31c: bind User Model to Reasoner for explicit evidence-aware analysis.
-if not hasattr(Orchestrator, '_iran_v31c_init_base'):
-    Orchestrator._iran_v31c_init_base = Orchestrator.__init__
-_base_v31c_init = Orchestrator._iran_v31c_init_base
-
-def _init_v31c(self, *args, **kwargs):
-    _base_v31c_init(self, *args, **kwargs)
-    model = getattr(self.agent, '_user_model', None)
-    if model is not None:
-        self._user_model = model
-        self.planner.user_model = model
-        self.reasoner.user_model = model
-
-Orchestrator.__init__ = _init_v31c
-
-
-# v0.31d: expose the context helper as an Orchestrator method.
-Orchestrator._user_model_context = _user_model_context
-
-
-# v0.31d: ensure User Model context is always available to decision explanation.
-# This compatibility binding is intentionally small and avoids another wrapper chain.
-if not hasattr(Orchestrator, '_user_model_context'):
-    def _compat_user_model_context(self, text):
+    def _user_model_context(self, text):
         model = getattr(self, '_user_model', None) or getattr(getattr(self, 'agent', None), '_user_model', None)
         if model is None:
             return []
@@ -235,4 +128,11 @@ if not hasattr(Orchestrator, '_user_model_context'):
                     for f in model.facts(limit=12)]
         except Exception:
             return []
-    Orchestrator._user_model_context = _compat_user_model_context
+
+    def explain_decision(self,text):
+        c=self.cognition.analyze(text); d=self.intelligence.decide(text)
+        return {'intent':c.intent,'confidence':c.confidence,'needs_model':c.needs_model,
+                'goals':c.goals,'actions':d.actions,'reasons':c.reasons,
+                'user_model':self._user_model_context(text)}
+
+    def run_smart(self,goal): return self.loop.run(goal)
