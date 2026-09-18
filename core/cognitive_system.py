@@ -193,6 +193,41 @@ class CognitiveSystem:
                     pass
         return {"available": True, "type": type(target).__name__}
 
+    def bind_legacy_adapters(self) -> None:
+        """Bind legacy names to this composition root; they remain compatibility adapters."""
+        runtime = self.runtime
+        for name in ("brain", "cognition_engine", "kernel", "cognitive_core", "orchestrator"):
+            component = getattr(runtime, name, None)
+            if component is not None:
+                try:
+                    component._canonical_system = self
+                except Exception:
+                    pass
+
+    def kernel_cycle_compat(self, text: str):
+        """Compatibility view of a kernel cycle without creating a second decision path."""
+        from core.kernel import CycleResult
+        answer = self.pipeline.run(str(text))
+        t = getattr(self.dialogue, "last_trace", None)
+        return CycleResult(
+            goal=str(text),
+            intent=getattr(t, "intent", "general"),
+            confidence=float(getattr(t, "confidence", 0.0)),
+            reasoning={"canonical": True, "trace": getattr(t, "__dict__", {})},
+            predictions=[],
+            anomaly={},
+            elapsed_ms=float(getattr(t, "elapsed_ms", 0.0)),
+            understanding={"answer": answer, "canonical": True},
+            causal={},
+            strategy={"source": "CognitiveSystem"},
+        )
+
+    def advanced_core_compat(self, text: str):
+        """Compatibility view of AdvancedCognitiveCore backed by the canonical turn."""
+        self.pipeline.run(str(text))
+        state = getattr(self.dialogue, "state", None)
+        return state if state is not None else {"text": str(text)}
+
     def close(self) -> None:
         self.last_answer = ""
         self.last_trace = None
