@@ -122,6 +122,7 @@ class IranRuntime:
         self.cognitive_core = AdvancedCognitiveCore(self)
         from core.cognitive_system import CognitiveSystem as _CognitiveSystem
         self.cognitive_system = _CognitiveSystem(self)
+        self.cognitive_system.bind_legacy_adapters()
         self.orchestrator.verified_executor = self.execute_verified_goal
         self._seed_local_knowledge()
         self.events.emit("runtime_ready", {"provider": self.provider.name,
@@ -282,13 +283,14 @@ class IranRuntime:
         return self.orchestrator.metrics.snapshot()
 
     def cognitive_snapshot(self, text):
-        state = self.cognition_engine.analyze(text)
-        cycle = self.kernel.cycle(text)
-        return {"state": state.__dict__, "cycle": cycle.__dict__,
-                "rules": self.rules.explain([str(text)], "نیازمند حافظه و استدلال"),
-                "world": self.world.snapshot(), "knowledge": self.knowledge.stats(),
-                "learning": self.learning.stats(), "memory": self.memory.stats(),
-                "prediction": self.prediction.calibration()}
+        output = self.cognitive_system.unified_output()
+        output["canonical_turn"] = self.cognitive_system.turn(str(text))
+        output["world"] = self.world.snapshot()
+        output["knowledge"] = self.knowledge.stats()
+        output["learning"] = self.learning.stats()
+        output["memory"] = self.memory.stats()
+        output["prediction"] = self.prediction.calibration()
+        return output
 
     def benchmark_run(self):
         return self.benchmark.run(self.brain.language, self.provider, self.brain,
