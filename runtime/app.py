@@ -34,6 +34,7 @@ from learning.trusted_knowledge import TrustedKnowledgeBootstrap
 from learning.procedural_memory import ProceduralMemory
 from learning.skill_system import SkillSystem
 from learning.internet_learning import InternetLearningEngine
+from learning.capability_learning import CapabilityLearningEngine
 from providers.factory import create_provider
 from runtime.events import EventLog
 from runtime.goals import GoalStore
@@ -103,6 +104,7 @@ class IranRuntime:
         self.skills = SkillSystem(self.root / "data/skills.json", self.procedural_memory, gate=self.learning_gate)
         self.user_model = UserModel(self.memory, self.knowledge, "IRAN", gate=self.learning_gate)
         self.internet_learning = InternetLearningEngine(self)
+        self.capability_learning = CapabilityLearningEngine(self)
         self.language_intelligence = PersianIntelligence(self.brain.language)
         self.conversation_router = ConversationRouter(self)
         from core.orchestrator import Orchestrator
@@ -237,6 +239,13 @@ class IranRuntime:
 
     def internet_learning_status(self):
         return self.internet_learning.status()
+
+    def capability_learning_step(self, topic, auto=True):
+        """Drive the canonical internet -> experiment -> skill -> transfer loop."""
+        return self.capability_learning.learn_topic(topic, auto=auto)
+
+    def capability_learning_status(self):
+        return self.capability_learning.status()
 
     def learning_pending(self, limit=50):
         return self.learning_gate.pending(limit)
@@ -615,6 +624,12 @@ class IranRuntime:
             return json.dumps(self.learn_from_internet(topic, urls), ensure_ascii=False)
         if parts[0] in {"/learnstatus", "/learning-status"}:
             return json.dumps(self.internet_learning_status(), ensure_ascii=False)
+        if parts[0] in {"/learncap", "/learn-capability"}:
+            topic = str(parts[1]).strip() if len(parts) > 1 else ""
+            if not topic: return "usage=/learncap <topic>"
+            return json.dumps(self.capability_learning_step(topic), ensure_ascii=False)
+        if parts[0] in {"/capstatus", "/capability-status"}:
+            return json.dumps(self.capability_learning_status(), ensure_ascii=False)
         if parts[0] in {"/learn", "/learning"}:
             if len(parts) < 2 or parts[1] in {"pending", "list"}:
                 rows=self.learning_pending()

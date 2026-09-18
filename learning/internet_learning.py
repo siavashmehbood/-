@@ -156,6 +156,26 @@ class InternetLearningEngine:
         })
         return result
 
+    def learn_batch(self, topics, max_topics=5, auto=True):
+        """Run several bounded low-risk learning cycles and keep failures isolated."""
+        results=[]
+        seen=set()
+        topics=list(topics or [])
+        for topic in topics:
+            key=str(topic).strip().lower()
+            if not key or key in seen or len(results) >= int(max_topics):
+                continue
+            seen.add(key)
+            try:
+                results.append(self.learn(str(topic), auto=auto))
+            except Exception as exc:
+                results.append({"ok":False,"topic":str(topic),"reason":"cycle_error","error":str(exc)[:300]})
+        self.state["batch_cycles"] = int(self.state.get("batch_cycles",0)) + len(results)
+        self.state["successful_cycles"] = int(self.state.get("successful_cycles",0)) + sum(bool(x.get("auto_learned")) for x in results)
+        self._save()
+        return {"ok":True,"requested":len(topics),"processed":len(results),"results":results,
+                "learned":sum(bool(x.get("auto_learned")) for x in results)}
+
     def status(self):
         return {
             **self.state,
