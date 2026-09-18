@@ -176,7 +176,7 @@ class CapabilityLearningEngine:
         if not auto:
             review = self.runtime.learning_gate.request(
                 "capability_learning.candidate", candidate,
-                "بازبینی یادگیری مهارت از دانش اینترنتی")
+                "Ø¨Ø§Ø²Ø¨ÛŒÙ†ÛŒ ÛŒØ§Ø¯Ú¯ÛŒØ±ÛŒ Ù…Ù‡Ø§Ø±Øª Ø§Ø² Ø¯Ø§Ù†Ø´ Ø§ÛŒÙ†ØªØ±Ù†ØªÛŒ")
             return {"ok": True, "status": "gated", "review": review or candidate}
 
         experiment = self._experiment_plan(candidate)
@@ -229,6 +229,12 @@ class CapabilityLearningEngine:
         proposal = result.get("proposal") if isinstance(result, dict) else None
         if not proposal:
             return {"internet": result, "capability": {"ok": False, "reason": "no_proposal"}}
+        # A web proposal must first pass the internet-learning trust gate before
+        # it can drive autonomous experiments or create a durable skill.
+        if auto and not bool(result.get("auto_learned")):
+            return {"internet": result,
+                    "capability": {"ok": False, "reason": "internet_evidence_not_auto_trusted",
+                                   "status": "gated"}}
         capability = self.learn_from_proposal(proposal, auto=auto)
         return {"internet": result, "capability": capability}
 

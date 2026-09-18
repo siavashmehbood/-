@@ -80,6 +80,46 @@ class InternetLearningEngine:
                 break
         return found
 
+    def _trusted_fallback_urls(self, topic: str) -> list[str]:
+        """Fallback to maintained primary/reference sources when search engines return no links."""
+        t = str(topic).lower()
+        if "python" in t or "program" in t:
+            return [
+                "https://docs.python.org/3/tutorial/",
+                "https://docs.python.org/3/library/unittest.html",
+                "https://realpython.com/python-testing/",
+            ]
+        if "test" in t or "debug" in t or "software" in t:
+            return [
+                "https://docs.python.org/3/library/unittest.html",
+                "https://docs.pytest.org/en/stable/getting-started.html",
+                "https://realpython.com/python-testing/",
+            ]
+        if "algorithm" in t or "data structure" in t:
+            return [
+                "https://cp-algorithms.com/",
+                "https://en.wikipedia.org/wiki/Algorithm",
+                "https://docs.python.org/3/howto/sorting.html",
+            ]
+        if "information retrieval" in t or "retrieval" in t:
+            return [
+                "https://nlp.stanford.edu/IR-book/",
+                "https://en.wikipedia.org/wiki/Information_retrieval",
+            ]
+        if "knowledge representation" in t or "reasoning" in t:
+            return [
+                "https://plato.stanford.edu/entries/logic-classical/",
+                "https://en.wikipedia.org/wiki/Knowledge_representation_and_reasoning",
+            ]
+        if "planning" in t:
+            return [
+                "https://en.wikipedia.org/wiki/Automated_planning_and_scheduling",
+                "https://www.cs.cmu.edu/~epxing/Class/10708-19/notes/lecture-1.pdf",
+            ]
+        return [
+            "https://en.wikipedia.org/wiki/" + urllib.parse.quote(str(topic).replace(" ", "_")),
+        ]
+
     def learn(self, topic: str, urls: list[str] | None = None, auto: bool = True) -> dict:
         self.runtime.internet_access.require()
         topic = str(topic).strip()
@@ -89,6 +129,8 @@ class InternetLearningEngine:
         urls = [u for u in (urls or []) if str(u).startswith(("http://", "https://"))]
         if not urls:
             urls = self.search(topic, 5)
+        if not urls:
+            urls = self._trusted_fallback_urls(topic)
 
         sources = []
         errors = []

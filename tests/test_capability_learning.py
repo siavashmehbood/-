@@ -78,6 +78,18 @@ class CapabilityLearningTests(unittest.TestCase):
         b=self.engine.learn_from_proposal(self.proposal())
         self.assertEqual(a["skill"]["skill_id"], b["skill"]["skill_id"])
 
+    def test_untrusted_internet_proposal_is_not_experimented(self):
+        class Internet:
+            def learn(self, topic, auto=True):
+                return {"proposal": internet.proposal, "auto_learned": False}
+        internet = Internet()
+        internet.proposal = self.proposal()
+        self.runtime.internet_learning = internet
+        result = self.engine.learn_topic("python programming fundamentals", auto=True)
+        self.assertFalse(result["capability"]["ok"])
+        self.assertEqual(result["capability"]["reason"], "internet_evidence_not_auto_trusted")
+        self.assertEqual(self.runtime.actions.calls, [])
+
     def test_state_persists(self):
         proposal=self.proposal(); self.engine.learn_from_proposal(proposal)
         other=CapabilityLearningEngine(self.runtime)
