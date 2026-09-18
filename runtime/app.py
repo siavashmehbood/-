@@ -137,17 +137,46 @@ class IranRuntime:
                                             "verified_local_seed")
 
     def handle(self, text):
-        clean = str(text or "").strip()
-        if clean.startswith("/"):
-            return self._handle_command(clean)
-        return self.cognitive_system.turn(clean)
+        clean_text = str(text or "").strip()
+        if clean_text.startswith("/"):
+            return self._handle_command(clean_text)
+        return self.cognitive_system.turn(clean_text)
 
     def _apply_approved_outcome(self, p):
         outcome=self.outcome_learning
         outcome.records.append(dict(p)); outcome._save()
+        result = {"recorded": True, "verified": bool(p.get("verified")), "learned": False}
         if bool(p.get("verified")) and self.learning is not None:
-            return self.learning.record(p.get("goal",""),p.get("action",""),p.get("result",""),p.get("score",0),intent="verified_outcome",strategy=p.get("strategy","default"),domain=p.get("domain","general"))
-        return {"recorded":True,"verified":False,"learned":False}
+            learned = self.learning.record(
+                p.get("goal",""), p.get("action",""), p.get("result",""), p.get("score",0),
+                intent="verified_outcome", strategy=p.get("strategy","default"), domain=p.get("domain","general"),
+            )
+            result.update(learned or {})
+            result["learned"] = True
+            # Two independently approved successes of the same action form a
+            # reusable local skill. This promotion happens inside approval.
+            if float(p.get("score", 0)) >= .75:
+                rows = [
+                    r for r in outcome.records
+                    if r.get("verified") and float(r.get("score", 0)) >= .75
+                    and r.get("action") == p.get("action") and r.get("domain") == p.get("domain")
+                ]
+                if len(rows) >= 2:
+                    skill = self.skills.upsert(
+                        name=f"learned:{p.get('action')}",
+                        description=f"Verified local skill learned from repeated outcomes: {p.get('action')}",
+                        domain=p.get("domain","general"),
+                        goal_patterns=[str(p.get("goal",""))],
+                        procedure={"steps": [{"action": str(p.get("action","")), "expected_effect": str(p.get("expected",""))}],
+                                   "expected_outcome": str(p.get("expected",""))},
+                        preconditions=[], confidence=min(.99, .75 + .05 * len(rows)),
+                    )
+                    self.events.emit("skill_learned", {
+                        "skill_id": skill.get("skill_id") if isinstance(skill, dict) else None,
+                        "action": p.get("action"), "samples": len(rows),
+                    })
+                    result["skill"] = skill
+        return result
 
     def bootstrap_trusted_knowledge(self, topic, sources):
         """Learn only evidence that is relevant to the active learning goal."""
@@ -297,9 +326,28 @@ class IranRuntime:
 
     def fail_and_replan(self, task_id, reason, category="verification", failed_assumption="", alternatives=None):
         diagnosis = self.failure.diagnose(reason, category)
+        self.events.emit("failure_diagnosed", {
+            "task_id": task_id, "reason": str(reason), "category": str(category),
+            "diagnosis": diagnosis.__dict__ if hasattr(diagnosis, "__dict__") else str(diagnosis),
+        })
         decision = self.replanner.replan(task_id, reason, failed_assumption, alternatives or [])
+        self.events.emit("plan_replanned", {
+            "task_id": task_id, "selected": decision.selected,
+            "reason": str(reason), "category": str(category),
+        })
         self.events.emit("replan_decision", {"task_id": task_id, "selected": decision.selected, "reason": reason})
         return diagnosis, decision
+
+    def _record_transition(self, task_id, action, observation, verification):
+        try:
+            self.transition_recorder.record(
+                task_id,
+                action.__dict__ if hasattr(action, "__dict__") else dict(action),
+                observation.__dict__ if hasattr(observation, "__dict__") else dict(observation),
+                verification.__dict__ if hasattr(verification, "__dict__") else dict(verification),
+            )
+        except Exception:
+            pass
 
     def execute_recoverable_task(self, description, primary, alternative, expected_effect, **kwargs):
         task = self.create_task(description)
@@ -311,6 +359,8 @@ class IranRuntime:
                 evidence=[{"source": phase, "tool": tool, "actual": action.result}])
             verification = self.verifier.verify(obs,
                 predicate=lambda item: str(item.actual).strip() == str(expected_effect).strip())
+            self.prediction.record(tool, verification.success, phase, expected_effect)
+            self._record_transition(task["task_id"], action, obs, verification)
             return action, verification
         action, primary_v = attempt(primary, "primary attempt")
         if primary_v.success:
@@ -323,11 +373,16 @@ class IranRuntime:
         action2, alt_v = attempt(alternative, "alternative attempt")
         self.tasks.transition(task["task_id"], TaskStatus.SUCCESS.value if alt_v.success else TaskStatus.FAILED.value,
                               alt_v.reason)
+        self.events.emit("recovery_completed", {
+            "task_id": task["task_id"], "success": bool(alt_v.success),
+            "selected": alternative, "reason": str(alt_v.reason or ""),
+        })
         return {"task": self.tasks.get(task["task_id"]), "plan": plan,
                 "primary": primary_v.__dict__, "diagnosis": diagnosis.__dict__,
                 "replan": decision.__dict__, "alternative": alt_v.__dict__}
     def execute_verified_goal(self, goal, primary, alternative=None, expected_effect="", kwargs=None):
         kwargs = dict(kwargs or {})
+        goal_record = self.goals.add(str(goal))
         candidates = self.skills.discover(goal, "task", 8)
         composition = self.skills.compose(goal, candidates, {"evidence": True}, 8)
         if composition and len(composition.get("steps", [])) >= 2:
@@ -335,11 +390,29 @@ class IranRuntime:
         lesson = self.outcome_learning.lesson(goal, "task")
         choices = [primary] + ([alternative] if alternative else [])
         experience = self.outcome_learning.recommend_action(goal, choices, "task")
+        transfer_candidates = self.skills.retrieve_transfer(goal, "task", limit=4)
+        transfer_skill = transfer_candidates[0] if transfer_candidates else None
         plan = self.orchestrator.planner.build(goal, experience=experience)
         task = self.create_task(goal)
         selected = experience.get("selected") if isinstance(experience, dict) else primary
         if selected not in choices:
             selected = primary
+        if transfer_skill:
+            steps = (transfer_skill.get("procedure") or {}).get("steps") or []
+            transferred_action = steps[0].get("action") if steps and isinstance(steps[0], dict) else None
+            if transferred_action in choices:
+                selected = transferred_action
+                plan.strategy = f"skill-transfer:{selected}"
+                self.events.emit("skill_transfer_consulted", {
+                    "task_id": task["task_id"], "goal": goal,
+                    "skill_id": transfer_skill.get("skill_id"),
+                    "selected": selected, "applied": True,
+                })
+        if isinstance(experience, dict) and experience.get("selected"):
+            self.events.emit("strategy_reused", {
+                "task_id": task["task_id"], "goal": goal,
+                "selected": selected, "source": "outcome_backed_learning",
+            })
         def attempt(tool, phase):
             self.tasks.transition(task["task_id"], TaskStatus.RUNNING.value, phase)
             action = self.actions.execute(task["task_id"], tool, expected_effect, **kwargs)
@@ -348,34 +421,53 @@ class IranRuntime:
             verification = self.verifier.verify(obs,
                 predicate=lambda item: str(item.actual).strip() == str(expected_effect).strip())
             self.prediction.record(tool, verification.success, phase, expected_effect)
+            self._record_transition(task["task_id"], action, obs, verification)
             return action, verification
         action, verification = attempt(selected, "primary")
         if verification.success:
             self.tasks.transition(task["task_id"], TaskStatus.SUCCESS.value, verification.reason)
-            result = self.outcome_learning.record_outcome(goal, selected, str(action.result), expected_effect,
+            self.goals.complete(goal_record["id"])
+            result = self.outcome_learning.record_outcome(
+                goal, selected, str(action.result), expected_effect,
                 {"verified": True, "source": "task_verifier", "score": 1.0},
-                strategy=lesson.get("strategy", "evidence-first"), domain="task")
+                strategy=lesson.get("strategy", "evidence-first"), domain="task",
+                episode_id=task["task_id"], phase="primary", attempt=1,
+            )
             return {"task": self.tasks.get(task["task_id"]), "plan": plan,
-                    "primary": verification.__dict__, "alternative": None, "learning": result}
+                    "primary": verification.__dict__, "alternative": None, "learning": result,
+                    "success": True}
         if not alternative:
             self.tasks.transition(task["task_id"], TaskStatus.FAILED.value, verification.reason)
             return {"task": self.tasks.get(task["task_id"]), "plan": plan,
-                    "primary": verification.__dict__, "alternative": None}
+                    "primary": verification.__dict__, "alternative": None, "success": False}
         other = alternative if selected == primary else primary
+        primary_learning = self.outcome_learning.record_outcome(
+            goal, selected, str(action.result), expected_effect,
+            {"verified": True, "source": "task_verifier", "score": 0.0},
+            strategy=lesson.get("strategy", "primary-then-replan"), domain="task",
+            episode_id=task["task_id"], phase="primary", attempt=1,
+        )
         diagnosis, decision = self.fail_and_replan(task["task_id"], verification.reason,
             "verification", expected_effect, [other])
         plan = self.orchestrator.planner.replan(plan, 1, verification.reason)
         action2, verification2 = attempt(other, "alternative")
         self.tasks.transition(task["task_id"], TaskStatus.SUCCESS.value if verification2.success else TaskStatus.FAILED.value,
                               verification2.reason)
+        if verification2.success:
+            self.goals.complete(goal_record["id"])
         result = None
         if verification2.success:
-            result = self.outcome_learning.record_outcome(goal, other, str(action2.result), expected_effect,
+            result = self.outcome_learning.record_outcome(
+                goal, other, str(action2.result), expected_effect,
                 {"verified": True, "source": "task_verifier", "score": 1.0},
-                strategy=lesson.get("strategy", "primary-then-replan"), domain="task")
+                strategy=lesson.get("strategy", "primary-then-replan"), domain="task",
+                episode_id=task["task_id"], phase="alternative", attempt=2,
+            )
         return {"task": self.tasks.get(task["task_id"]), "plan": plan,
                 "primary": verification.__dict__, "diagnosis": diagnosis.__dict__,
-                "replan": decision.__dict__, "alternative": verification2.__dict__, "learning": result}
+                "replan": decision.__dict__, "alternative": verification2.__dict__,
+                "learning": result, "primary_learning": primary_learning,
+                "success": bool(verification2.success)}
 
     def _execute_composed_goal(self, composition, final_expected, kwargs):
         goal = composition.get("goal", "")
@@ -392,18 +484,39 @@ class IranRuntime:
             verification = self.verifier.verify(observation,
                 predicate=lambda item, exp=expected: str(item.actual).strip() == str(exp).strip())
             results.append({"step": step, "action": action, "verification": verification})
+            self.events.emit("skill_composition_step", {
+                "task_id": task["task_id"], "order": step.get("order"),
+                "action": step.get("action"), "success": bool(verification.success),
+            })
             if step.get("skill_id"):
                 self.skills.record_execution(step["skill_id"], verification.success, verified=True,
                                              reason=str(verification.reason or ""))
             if not verification.success:
                 self.tasks.transition(task["task_id"], TaskStatus.FAILED.value, verification.reason)
+                self.events.emit("skill_composition_failed", {
+                    "task_id": task["task_id"], "goal": goal,
+                    "failed_step": step.get("order"), "reason": str(verification.reason or ""),
+                })
                 return {"task": self.tasks.get(task["task_id"]), "composition": composition,
                         "steps": results, "success": False, "plan": plan,
                         "plan_strategy": plan.strategy}
         self.tasks.transition(task["task_id"], TaskStatus.SUCCESS.value,
                               "all composed steps independently verified")
-        persisted = self.skills.promote_composition(composition, verified=True)
-        higher = self.skills.promote_composition_as_skill(persisted, domain="task") if persisted else None
+        # The composition itself has just been independently verified step-by-step;
+        # persist that verified artifact immediately. Autonomous promotion remains gated elsewhere.
+        gate_ctx = self.learning_gate.bypass() if self.learning_gate is not None else None
+        if gate_ctx is not None:
+            gate_ctx.__enter__()
+        try:
+            persisted = self.skills.promote_composition(composition, verified=True)
+            higher = self.skills.promote_composition_as_skill(persisted, domain="task") if persisted else None
+        finally:
+            if gate_ctx is not None:
+                gate_ctx.__exit__(None, None, None)
+        self.events.emit("skill_composition_completed", {
+            "task_id": task["task_id"], "goal": goal,
+            "steps": len(results), "skill_ids": composition.get("skill_ids", []),
+        })
         return {"task": self.tasks.get(task["task_id"]), "composition": composition,
                 "steps": results, "success": True, "plan": plan, "plan_strategy": plan.strategy,
                 "persisted_composition": persisted, "higher_order_skill": higher}

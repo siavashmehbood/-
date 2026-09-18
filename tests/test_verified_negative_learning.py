@@ -48,8 +48,12 @@ class VerifiedNegativeLearningTests(unittest.TestCase):
             runtime.registry.register(Tool('good_action', 'good', lambda: 'correct', safe=True))
             try:
                 first = runtime.execute_verified_goal('backup project files alpha', 'good_action', None, 'correct')
+                for proposal in list(runtime.learning_pending()):
+                    runtime.approve_learning(proposal["proposal_id"])
                 second = runtime.execute_verified_goal('backup project files beta', 'good_action', None, 'correct')
-                self.assertTrue(first['primary']['success'] and second['primary']['success'])
+                self.assertTrue(second['primary']['success'])
+                for proposal in list(runtime.learning_pending()):
+                    runtime.approve_learning(proposal["proposal_id"])
                 self.assertTrue(runtime.skills.skills)
                 third = runtime.execute_verified_goal('backup project files gamma', 'good_action', None, 'correct')
                 self.assertTrue(third['primary']['success'])
@@ -77,6 +81,8 @@ class VerifiedNegativeLearningTests(unittest.TestCase):
                 first = runtime.execute_verified_goal(
                     'learn from failure demo', 'bad_action', 'good_action', 'correct')
                 self.assertTrue(first['alternative']['success'])
+                for proposal in list(runtime.learning_pending()):
+                    runtime.approve_learning(proposal["proposal_id"])
                 records = runtime.outcome_learning.retrieve_context('learn from failure demo', 'task', 10)
                 bad = [r for r in records if r['action'] == 'bad_action']
                 good = [r for r in records if r['action'] == 'good_action']

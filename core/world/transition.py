@@ -38,6 +38,14 @@ class TransitionRecorder:
             state_after=after,
             timestamp=datetime.now().isoformat(timespec='seconds'),
         )
-        if hasattr(self.world, 'observe'):
-            self.world.observe({'type': 'verified_transition', **asdict(transition)})
+        payload = asdict(transition)
+        if hasattr(self.world, 'transition'):
+            self.world.transition(
+                transition.task_id,
+                payload,
+                payload.get('verification', {}),
+                float(payload.get('verification', {}).get('score', 1.0) or 0.0),
+            )
+        elif hasattr(self.world, 'observe'):
+            self.world.observe({'type': 'verified_transition', **payload})
         return transition

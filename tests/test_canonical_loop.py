@@ -32,7 +32,11 @@ class CanonicalLoopTests(unittest.TestCase):
             self.assertIn('memory', snapshot)
             self.assertIn('learning', snapshot)
             self.assertIn('prediction', snapshot)
-            self.assertGreaterEqual(snapshot['learning']['experiences'], 1)
+            pending = runtime.learning_pending()
+            self.assertGreaterEqual(len(pending), 1)
+            for proposal in list(pending):
+                runtime.approve_learning(proposal["proposal_id"])
+            self.assertGreaterEqual(runtime.learning.stats()['experiences'], 1)
             self.assertGreaterEqual(snapshot['world']['observations'], 1)
             runtime.close()
 

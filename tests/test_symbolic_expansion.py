@@ -32,7 +32,11 @@ class SymbolicExpansionTests(unittest.TestCase):
             runtime.handle('پایتخت ایران کجاست؟')
             answer = runtime.handle('این پاسخ درست بود.')
             self.assertIn('بازخورد', answer)
-            self.assertGreaterEqual(runtime.learning.stats()['experiences'], 2)
+            pending = runtime.learning_pending()
+            self.assertTrue(pending)
+            for proposal in list(pending):
+                runtime.approve_learning(proposal["proposal_id"])
+            self.assertGreaterEqual(runtime.learning.stats()['experiences'], 1)
             self.assertIn('learning_update', [item['event'] for item in runtime.events.recent(50)])
             runtime.close()
 

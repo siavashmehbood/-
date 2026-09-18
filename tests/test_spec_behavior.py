@@ -64,6 +64,8 @@ class SpecificationBehaviorTests(unittest.TestCase):
             runtime.registry.register(Tool('good_tool', 'good', lambda: 'correct', safe=True))
             first = runtime.handle('/run first demo --tool bad_tool --expected correct --alternative good_tool')
             self.assertIn('task=success', first)
+            for proposal in list(runtime.learning_pending()):
+                runtime.approve_learning(proposal["proposal_id"])
             second = runtime.handle('/run second demo --tool bad_tool --expected correct --alternative good_tool')
             self.assertIn('task=success', second)
             events = [item['event'] for item in runtime.events.recent(100)]

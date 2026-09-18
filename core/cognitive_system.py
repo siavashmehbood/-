@@ -174,8 +174,5 @@ class CognitiveSystem:
             "learning": "LearningEngine + OutcomeBackedLearning",
             "autonomy": "AutonomousSupervisor / AutonomousController",
             "improvement": "SelfImprovementLoop with sandbox/rollback",
-            "self_directed_learning": "goal -> relevance -> novelty -> conflict -> action",
-            "trusted_knowledge": "source agreement -> proposal -> consolidation",
-            "learning_gate": "approval boundary for durable learning",
             "entrypoint": "CognitiveSystem.turn",
         }

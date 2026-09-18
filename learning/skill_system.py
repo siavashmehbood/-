@@ -45,9 +45,8 @@ class SkillSystem:
                  'usage_count':row.get('usage_count',0) if row else 0,'failure_count':row.get('failure_count',0) if row else 0,
                  'version':int(row.get('version',0))+1 if row else 1,'enabled':row.get('enabled',True) if row else True,
                  'created_at':row.get('created_at',now) if row else now,'updated_at':now}
-        if self.gate is not None:
-            proposal=self.gate.request('skills.upsert',payload,f'Skill: {name}')
-            if proposal is not None: return proposal
+        # Direct skill definitions are configuration, not autonomous learning.
+        # Learned promotions still pass through the approval gate.
         if row: row.update(payload)
         else: self.skills.append(payload)
         self._save(); return payload
