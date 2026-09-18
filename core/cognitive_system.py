@@ -31,7 +31,7 @@ class CognitiveSystem:
     improvement share one runtime-owned dependency graph.
     """
 
-    VERSION = "1.0-unified"
+    VERSION = "2.0-cognitive-os"
 
     def __init__(self, runtime: Any):
         self.runtime = runtime
@@ -66,13 +66,53 @@ class CognitiveSystem:
         self.dialogue._canonical_pipeline = pipeline
         return pipeline
 
+    def dispatch(self, text: str) -> str:
+        """Single ingress for every user interaction.
+
+        Commands and natural language now enter the same CognitiveSystem boundary.
+        Command execution remains a runtime adapter, while all natural language uses
+        the canonical cognitive pipeline. This prevents parallel public entry paths.
+        """
+        clean_text = str(text or "").strip()
+        if not clean_text:
+            return "چیزی برای پردازش دریافت نکردم."
+        if clean_text.startswith("/"):
+            handler = getattr(self.runtime, "_handle_command", None)
+            if callable(handler):
+                result = handler(clean_text)
+                self.last_answer = str(result)
+                self.last_trace = getattr(self.dialogue, "last_trace", None)
+                self.last_output = self.unified_output()
+                return str(result)
+        return self.turn(clean_text)
+
     def turn(self, text: str) -> str:
-        """The only ordinary natural-language entry point; all cognitive stages share one output envelope."""
+        """Canonical natural-language turn: perceive -> reason -> act -> verify -> learn."""
         answer = self.pipeline.run(text)
         self.last_answer = answer
         self.last_trace = getattr(self.dialogue, "last_trace", None)
         self.last_output = self.unified_output()
         return answer
+
+    def guidance(self, goal: str, intent: str = "general", domain: str = "general") -> dict:
+        """Return reusable learned guidance for any cognitive capability, not only dialogue."""
+        learning = getattr(self.runtime, "learning", None)
+        if learning is None:
+            return {}
+        try:
+            result = learning.adapt(str(goal), str(intent), str(domain)) or {}
+            result["failure_signal"] = bool(learning.failure_patterns(6))
+            return result
+        except Exception:
+            return {}
+
+    def record_outcome(self, goal, action, result, expected, verification, strategy="default", domain="general"):
+        """Feed a verified outcome back into the shared learning brain."""
+        core = getattr(self.runtime, "outcome_learning", None)
+        if core is None:
+            return {"verified": False, "learned": False, "reason": "outcome_learning_unavailable"}
+        return core.record_outcome(goal, action, result, expected, verification,
+                                   strategy=strategy, domain=domain)
 
     def unified_output(self) -> dict:
         """Return the current answer plus the live state of every integrated stage."""
@@ -99,7 +139,7 @@ class CognitiveSystem:
         pipe = self.pipeline
         return {
             "version": self.VERSION,
-            "entrypoint": "CognitiveSystem.turn",
+            "entrypoint": "CognitiveSystem.dispatch",
             "pipeline": "CognitivePipeline.run",
             "memory": type(getattr(runtime, "memory", None)).__name__,
             "knowledge": type(getattr(runtime, "knowledge", None)).__name__,
