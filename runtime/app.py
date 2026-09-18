@@ -105,6 +105,9 @@ class IranRuntime:
     def roadmap_benchmark(self):
         from self.roadmap_benchmark import PersianRoadmapBenchmark
         return PersianRoadmapBenchmark().run(self)
+    def scenario_benchmark(self, limit=None):
+        from self.scenario_benchmark import PersianScenarioBenchmark
+        return PersianScenarioBenchmark().run(self, limit=limit)
     def evaluate(self):return {'compile':self.evaluator.compile_all(),'benchmark':self.benchmark_run(),'world':self.world.snapshot(),'learning':self.learning.stats(),'prediction':self.prediction.calibration()}
     def decide(self,text):return self.orchestrator.explain_decision(text)
     def reflect(self,text,answer,score):return self.reflector.reflect(text,answer,score).__dict__
