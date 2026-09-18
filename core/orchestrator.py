@@ -88,6 +88,9 @@ class Orchestrator:
         plan.status='completed'; self.events.emit('plan_completed',{'goal':plan.goal,'steps':len(plan.steps)})
 
     def handle(self,text):
+        canonical = getattr(self, "_canonical_system", None)
+        if canonical is not None:
+            return canonical.dispatch(text)
         started=time.perf_counter(); clean=str(text).strip()
         if not clean:return 'چیزی برای پردازش دریافت نکردم.'
         brain=getattr(self.agent,'brain',None); language=brain.analyze(clean) if brain else self.language.analyze(clean)
