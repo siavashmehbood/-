@@ -196,11 +196,18 @@ class CognitiveSystem:
                 "score": confidence,
                 "effect_observed": getattr(trace, "verification_status", "") == "PASS" and confidence >= .75,
             }
+            gate = loop.learning_result(experiment.get("comparison", {}), verification, transfer)
+            priority["learning_gate"] = gate
+            if not gate.get("qualified"):
+                priority["learning_state"] = "evidence_chain_incomplete"
+                priority["effect_learning_recorded"] = False
+                return priority
             expected = "پاسخ در مسیر یادگیری انتخاب‌شده با راستی‌آزمایی و حفظ زمینه اجرا شود"
             result = str(answer)
             effect = loop.evaluate(goal, "canonical_turn", result, expected, verification,
                                    strategy=strategy, domain="dialogue",
-                                   episode_id=str(getattr(trace, "cycle_id", "") or ""), attempt=1)
+                                   episode_id=str(getattr(trace, "cycle_id", "") or ""), attempt=1,
+                                   allow_credit=bool(gate.get("xp_eligible")))
             self.runtime.events.emit("learning_effect_evaluated", {
                 "goal": goal, "action": action, "strategy": strategy,
                 "effect": effect, "canonical": True,

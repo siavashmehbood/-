@@ -31,7 +31,7 @@ class EffectLearningLoop:
         return [r for r in self.learning.rules
                 if r.get("strategy")==strategy and r.get("domain")==domain]
 
-    def evaluate(self, goal, action, result, expected, verification, strategy="default", domain="general", episode_id="", attempt=0):
+    def evaluate(self, goal, action, result, expected, verification, strategy="default", domain="general", episode_id="", attempt=0, allow_credit=True):
         v=verification if isinstance(verification,dict) else {}
         verified=bool(v.get("verified",False))
         try: score=max(0.0,min(1.0,float(v.get("score",0.0)))) if verified else 0.0
@@ -45,12 +45,12 @@ class EffectLearningLoop:
         if key not in existing: self.state["evaluations"].append({"key":key,**row})
         rule_updates=self._update_rules(strategy,domain,score,verified)
         credit=False
-        if verified and score>=.75 and key not in {x.get("key") for x in self.state["credits"]}:
+        if allow_credit and verified and score>=.75 and key not in {x.get("key") for x in self.state["credits"]}:
             self.state["xp"]+=1000000; self.state["validated"]+=1
             self.state["credits"].append({"key":key,"xp":1000000,"time":row["time"]}); credit=True
         self._save()
         return {"verified":verified,"score":score,"effect":effect,"credit_awarded":credit,
-                "xp_awarded":1000000 if credit else 0,"xp_total":self.state["xp"],"rule_updates":rule_updates,
+                "xp_awarded":1000000 if credit else 0,"xp_total":self.state["xp"],"credit_gate":"verified_score" if allow_credit else "behavior_change+verification+transfer","rule_updates":rule_updates,
                 "next_test": self._next_test(strategy,domain,score)}
 
     @staticmethod
