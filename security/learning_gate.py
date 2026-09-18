@@ -1,6 +1,6 @@
 """Central human-approval gate for all durable learned knowledge."""
 from __future__ import annotations
-import hashlib, json, threading
+import hashlib, json, threading, re
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
@@ -56,6 +56,15 @@ class LearningGate:
                     except OSError:
                         pass
 
+    @staticmethod
+    def _learning_duplicate_key(kind, payload):
+        if kind != 'learning.record_experience' or not isinstance(payload, dict):
+            return None
+        def norm(v):
+            return re.sub(r'\s+', ' ', str(v or '').strip().lower())
+        return (norm(payload.get('goal')), norm(payload.get('action')), norm(payload.get('result'))[:500],
+                norm(payload.get('intent','general')), norm(payload.get('strategy','default')), norm(payload.get('domain','general')))
+
     @property
     def bypassed(self): return int(getattr(self._local,'bypass_depth',0))>0
     @contextmanager
@@ -72,6 +81,13 @@ class LearningGate:
             if existing: return dict(existing)
             approved=next((r for r in self._rows if r.get('proposal_id')==proposal_id and r.get('status')=='approved'),None)
             if approved: return None
+            duplicate_key=self._learning_duplicate_key(kind, payload)
+            if duplicate_key is not None:
+                duplicate=next((r for r in reversed(self._rows)
+                                 if r.get('kind')==kind and r.get('status') in {'pending','approved'}
+                                 and self._learning_duplicate_key(r.get('kind'), r.get('payload') or {})==duplicate_key),None)
+                if duplicate:
+                    return dict(duplicate) if duplicate.get('status')=='pending' else None
             now=datetime.now().isoformat(timespec='seconds')
             row={'proposal_id':proposal_id,'kind':str(kind),'summary':str(summary or kind),'payload':payload,'status':'pending','created_at':now,'updated_at':now}
             self._rows.append(row); self._save(); return dict(row)
@@ -86,6 +102,13 @@ class LearningGate:
         with self._process_lock():
             row=next((r for r in self._rows if r.get('proposal_id')==str(proposal_id)),None)
             return dict(row) if row else None
+    def decide_many(self, proposal_ids, status='approved'):
+        results=[]
+        for proposal_id in list(proposal_ids or []):
+            row=self.decide(proposal_id,status)
+            if row is not None: results.append(row)
+        return results
+
     def decide(self,proposal_id,status):
         status=str(status)
         if status not in {'approved','rejected'}: raise ValueError('invalid learning decision')

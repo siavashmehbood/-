@@ -116,6 +116,7 @@ class ChatWindow(QMainWindow):
         buttons = [("حافظه", self.show_memory), ("ردیابی پاسخ", self.show_trace),
                    ("بازبینی ChatGPT", self.show_chatgpt_reviews),
                    ("آزمون بنچمارک", self.run_benchmark), ("بازبینی یادگیری", self.review_pending_learning),
+                   ("تایید همه یادگیری‌ها", self.approve_all_learning_ui),
                    ("تنظیمات", self.show_settings)]
         for text, fn in buttons:
             b = QPushButton(text); b.clicked.connect(fn); l.addWidget(b)
@@ -146,6 +147,31 @@ class ChatWindow(QMainWindow):
         if self.autocopy.isChecked(): self.copy_response()
     def on_fail(self, text):
         self.add("خطا", text); self.status.setText("خطا"); self.busy = False; self.send.setEnabled(True); self.persist_session()
+    def approve_all_learning_ui(self):
+        try:
+            stats = self.runtime.learning_status()
+            pending = int(stats.get("pending", 0))
+            if pending == 0:
+                QMessageBox.information(self, "یادگیری", "درخواستی برای تایید وجود ندارد.")
+                return
+            answer = QMessageBox.question(
+                self, "تایید همه یادگیری‌ها",
+                f"تعداد {pending:,} درخواست یادگیری در صف است. همه تایید شوند؟",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                return
+            result = self.runtime.approve_all_learning(max(5000, pending))
+            self.refresh_learning_stats(); self.refresh_events(); self.refresh_chatgpt_count()
+            QMessageBox.information(
+                self, "یادگیری",
+                f"تعداد تاییدشده: {result.get('approved', 0):,}\n"
+                f"باقی‌مانده: {result.get('remaining', 0):,}"
+            )
+        except Exception as e:
+            QMessageBox.warning(self, "خطا", str(e))
+
     def review_pending_learning(self):
         """نمایش همه درخواست‌های یادگیری در انتظار تأیید."""
         try:

@@ -325,6 +325,19 @@ class IranRuntime:
         self.events.emit("learning_approved",{"proposal_id":proposal_id,"kind":kind})
         return {"ok":True,"proposal":decision,"result":result}
 
+    def approve_all_learning(self, limit=5000):
+        rows=self.learning_gate.pending(limit)
+        results=[]
+        skipped=[]
+        for row in rows:
+            try:
+                result=self.approve_learning(row.get("proposal_id"))
+                if result.get("ok"): results.append(result)
+                else: skipped.append({"proposal_id":row.get("proposal_id"),"reason":result.get("reason")})
+            except Exception as exc:
+                skipped.append({"proposal_id":row.get("proposal_id"),"reason":str(exc)})
+        return {"ok":True,"approved":len(results),"skipped":skipped,"remaining":self.learning_gate.stats().get("pending",0)}
+
     def reject_learning(self, proposal_id):
         result=self.learning_gate.decide(proposal_id,"rejected")
         if result is None: return {"ok":False,"reason":"proposal_not_found"}
