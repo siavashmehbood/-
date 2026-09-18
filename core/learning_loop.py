@@ -45,10 +45,11 @@ class OutcomeBackedLearning:
     self-score is never sufficient evidence of task success.
     """
 
-    def __init__(self, path, learning_engine=None, gate=None):
+    def __init__(self, path, learning_engine=None, gate=None, effect_loop=None):
         self.path = Path(path); self.gate = gate
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.learning = learning_engine
+        self.effect_loop = effect_loop
         self.records = []
         self._load()
 
@@ -169,6 +170,12 @@ class OutcomeBackedLearning:
                 intent="verified_outcome", strategy=outcome.strategy, domain=outcome.domain,
             )
             learned = True
+        effect = None
+        if self.effect_loop is not None:
+            effect = self.effect_loop.evaluate(
+                outcome.goal, outcome.action, outcome.result, outcome.expected,
+                verification, outcome.strategy, outcome.domain, outcome.episode_id, outcome.attempt)
+
 
         return {
             "recorded": True,
@@ -177,6 +184,7 @@ class OutcomeBackedLearning:
             "score": score,
             "verification_source": source,
             "lesson": self.lesson(outcome.goal, outcome.domain),
+            "effect_learning": effect,
         }
 
     def episode_trace(self, episode_id):

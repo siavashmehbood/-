@@ -29,6 +29,7 @@ from language_intelligence import PersianIntelligence
 from memory.store import Memory
 from knowledge.knowledge_graph import KnowledgeGraph
 from learning.learning_engine import LearningEngine
+from learning.effect_loop import EffectLearningLoop
 from learning.generalizer import GeneralizationEngine
 from learning.replay import ExperienceReplay
 from learning.versioning import BrainVersionStore
@@ -112,8 +113,10 @@ class IranRuntime:
         self.adaptive_execution = AdaptiveExecutionPolicy(max_replans=1)
         self.transition_recorder = TransitionRecorder(self.world)
         from core.learning_loop import OutcomeBackedLearning
+        self.effect_learning = EffectLearningLoop(self.root / "data/effect_learning.json", self.learning)
         self.outcome_learning = OutcomeBackedLearning(
-            self.root / "data/verified_outcomes.json", self.learning, self.learning_gate)
+            self.root / "data/verified_outcomes.json", self.learning, self.learning_gate,
+            effect_loop=self.effect_learning)
         self.procedural_memory = ProceduralMemory(self.root / "data/procedures.json", gate=self.learning_gate)
         self.skills = SkillSystem(self.root / "data/skills.json", self.procedural_memory, gate=self.learning_gate)
         self.user_model = UserModel(self.memory, self.knowledge, "IRAN", gate=self.learning_gate)
@@ -172,6 +175,13 @@ class IranRuntime:
             )
             result.update(learned or {})
             result["learned"] = True
+            try:
+                result["effect_learning"] = self.effect_learning.evaluate(
+                    p.get("goal",""), p.get("action",""), p.get("result",""),
+                    p.get("expected", ""), {"verified": bool(p.get("verified")), "score": p.get("score",0), "source": p.get("verification_source","approval")},
+                    p.get("strategy","default"), p.get("domain","general"), p.get("episode_id",""), p.get("attempt",0))
+            except Exception as exc:
+                result["effect_learning"] = {"error": type(exc).__name__}
             # Two independently approved successes of the same action form a
             # reusable local skill. This promotion happens inside approval.
             if float(p.get("score", 0)) >= .75:
