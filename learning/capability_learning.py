@@ -129,7 +129,7 @@ class CapabilityLearningEngine:
             "description": "Procedure verified by isolated execution and independent transfer.",
             "domain": candidate["topic"],
             "goal_patterns": [candidate["topic"], candidate["claim"]],
-            "preconditions": ["corroborated knowledge", "sandbox available"],
+            "preconditions": [],
             "procedure": {"steps": steps, "expected_outcome": "all deterministic tests pass",
                           "knowledge_claim": candidate["claim"]},
             "required_capabilities": ["sandbox_python"], "risk": "low",
