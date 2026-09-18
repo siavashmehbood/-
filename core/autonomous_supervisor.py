@@ -643,14 +643,49 @@ def _step_v10(self):
     action = (["project_files", "project_summary", "system_info"][(self.cycle_count - 1) % 3] if not report.get("signals") and selected.get("source") == "monitor" else (decision.get("action") or report.get("self_awareness_control", {}).get("preferred_action") or "observe"))
     goal = (["inspect project structure", "inspect project summary", "inspect local system state"][(self.cycle_count - 1) % 3] if not report.get("signals") and selected.get("source") == "monitor" else (selected.get("goal") or "autonomous situational awareness"))
     try:
-        with self.runtime.learning_gate.bypass():
-            self.runtime.learning.record(
-                goal=str(goal), action=str(action),
-                result=(json.dumps(report.get("observation"), ensure_ascii=False, sort_keys=True, default=str)[:1200] if report.get("observation") is not None else ("verified autonomous observation" if verified else "autonomous observation failed")),
-                score=0.9 if verified else 0.1,
-                intent="autonomous", strategy=f"verified-read-only:{action}", domain="local-learning",
-            )
-        report["learning"] = {"recorded": True, "verified": verified, "strategy": f"verified-read-only:{action}"}
+        # Autonomous observation is not automatically a learning event.
+        # Learn only when a verified, novel result has a reusable objective/effect.
+        novelty = float(report.get("novelty", 0.0) or 0.0)
+        observation = report.get("observation")
+        objective = str(selected.get("goal") or goal).strip()
+        expected_effect = str(
+            decision.get("expected_effect")
+            or report.get("expected_effect")
+            or ""
+        ).strip()
+        result_text = (
+            json.dumps(observation, ensure_ascii=False, sort_keys=True, default=str)[:1200]
+            if observation is not None
+            else ""
+        )
+        prior = self.runtime.learning.lessons(objective, 20)
+        repeated = any(
+            str(row.get("action")) == str(action)
+            and str(row.get("result"))[:250] == result_text[:250]
+            for row in prior
+        )
+        should_learn = verified and novelty >= 0.35 and bool(expected_effect) and not repeated
+        if should_learn:
+            with self.runtime.learning_gate.bypass():
+                learned = self.runtime.learning.record(
+                    goal=objective, action=str(action), result=result_text,
+                    score=0.9, intent="autonomous",
+                    strategy=f"verified-read-only:{action}",
+                    domain="local-learning",
+                    objective=objective,
+                    expected_effect=expected_effect,
+                )
+            report["learning"] = {
+                "recorded": True, "verified": True,
+                "purposeful": True, "novelty": novelty,
+                "strategy": f"verified-read-only:{action}",
+            }
+        else:
+            report["learning"] = {
+                "recorded": False, "verified": verified,
+                "purposeful": False, "novelty": novelty,
+                "reason": "routine_or_repeated_observation",
+            }
     except Exception as exc:
         report["learning"] = {"recorded": False, "error": type(exc).__name__}
     self.last_report = report

@@ -8,6 +8,7 @@ from collections import defaultdict, Counter
 class Experience:
     goal:str; action:str; result:str; score:float; lesson:str; time:str
     intent:str='general'; strategy:str='default'; domain:str='general'
+    objective:str=''; expected_effect:str=''
 
 class LearningEngine:
     """Continual local learning: experiences -> patterns -> rules -> strategy priors.
@@ -63,9 +64,17 @@ class LearningEngine:
         return 'این راهبرد نتیجه کافی نداده است؛ باید علت خطا جدا شود و یک روش جایگزین آزمایش شود.'
 
 
-    def record(self,goal,action,result,score,intent='general',strategy='default',domain='general'):
+    def record(self,goal,action,result,score,intent='general',strategy='default',domain='general',objective='',expected_effect=''):
         score=max(0,min(1,float(score)))
-        item=Experience(str(goal),str(action),str(result)[:4000],score,self._lesson_for(score),datetime.now().isoformat(timespec='seconds'),intent,strategy,domain)
+        item=Experience(str(goal),str(action),str(result)[:4000],score,self._lesson_for(score),datetime.now().isoformat(timespec='seconds'),intent,strategy,domain,str(objective).strip(),str(expected_effect).strip())
+        # Purpose gate: autonomous learning must have a concrete objective and verified success.
+        # Routine observation is not learning; it only becomes learning when it produces a
+        # reusable change/effect worth carrying into a future decision.
+        if intent == 'autonomous':
+            if not str(objective).strip() or not str(expected_effect).strip():
+                return {"recorded": False, "learned": False, "reason": "no_learning_objective"}
+            if score < 0.75:
+                return {"recorded": False, "learned": False, "reason": "outcome_not_strong_enough"}
         if self.gate is not None and intent == 'autonomous':
             # Keep one autonomous learning item in the human-approval queue at a time.
             pending = [r for r in self.gate.pending(5000) if r.get('kind') == 'learning.record_experience'
