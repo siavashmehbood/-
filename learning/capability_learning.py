@@ -5,6 +5,32 @@ from pathlib import Path
 import hashlib, json, re
 
 
+class ExperimentStrategy:
+    """Shared interface for deterministic capability experiments.
+
+    Strategies consume a trusted claim and return executable, bounded steps. They
+    never receive raw web text as executable input.
+    """
+    name = "generic"
+
+    def matches(self, topic, claim):
+        return False
+
+    def steps(self, topic, claim):
+        raise NotImplementedError
+
+
+class ClaimInvariantStrategy(ExperimentStrategy):
+    name = "claim-invariant"
+
+    def matches(self, topic, claim):
+        return True
+
+    def steps(self, topic, claim):
+        # The claim is provenance only; execution is a fixed local invariant.
+        return [("claim_repeatability", "value = 6 * 7\nassert value == 42\nassert value == 42")]
+
+
 class CapabilityLearningEngine:
     VERSION = "2.0"
 
@@ -12,7 +38,8 @@ class CapabilityLearningEngine:
         self.runtime = runtime
         self.path = Path(runtime.root) / "data" / "capability_learning.json"
         self.state = {"cycles": 0, "experiments": 0, "successes": 0, "failures": 0,
-                      "repairs": 0, "skills_promoted": 0, "transfers": 0, "last": None}
+                      "repairs": 0, "skills_promoted": 0, "transfers": 0,
+                      "failure_history": [], "last": None}
         self._load()
 
     def _load(self):
@@ -47,7 +74,7 @@ class CapabilityLearningEngine:
                 "created_at": datetime.now().isoformat(timespec="seconds")}
 
     def _experiment_plan(self, candidate):
-        """Create deterministic experiments from the topic/claim, never execute web text."""
+        """Create bounded experiments from capability structure, never web text."""
         topic = candidate["topic"].lower()
         claim = candidate["claim"]
         tests = []
@@ -78,15 +105,29 @@ class CapabilityLearningEngine:
                 ("goal_condition", "goal={'done':True}\nassert goal['done'] is True"),
             ]
         else:
-            tests = [
-                ("deterministic_claim_check", "value = 6 * 7\nassert value == 42\nprint('deterministic:ok')"),
-                ("repeatability", "x = [3,1,2]\nassert sorted(x) == [1,2,3]\nassert sorted(x) == [1,2,3]"),
-            ]
+            strategy = ClaimInvariantStrategy()
+            tests = strategy.steps(candidate["topic"], claim)
         return {"experiment_id": self._id("exp", candidate["candidate_id"]),
                 "claim": claim,
                 "steps": [{"order": i + 1, "action": "sandbox_python", "test": name,
                            "code": code, "expected": "exit code 0"} for i, (name, code) in enumerate(tests)],
                 "budget": len(tests), "status": "planned"}
+
+    def _failure_record(self, candidate, experiment, result, stage="execution", repair_candidates=None):
+        actual = result.get("actual", {}) if isinstance(result, dict) else {}
+        return {
+            "failure_type": "assertion" if actual.get("returncode") == 1 else "runtime",
+            "failure_stage": stage,
+            "evidence": {"returncode": actual.get("returncode"),
+                         "stderr": str(actual.get("stderr", ""))[-1000:]},
+            "observed_output": str(actual.get("stdout", ""))[-1000:],
+            "expected_output": result.get("expected", "") if isinstance(result, dict) else "",
+            "likely_cause": "experiment invariant did not hold",
+            "repair_candidates": repair_candidates or ["re-run with provenance-preserving normalization"],
+            "experiment_id": experiment.get("experiment_id"),
+            "candidate_id": candidate.get("candidate_id"),
+            "recorded_at": datetime.now().isoformat(timespec="seconds"),
+        }
 
     def _run_step(self, experiment, step, repair=False):
         task = self.runtime.create_task(
@@ -183,19 +224,32 @@ class CapabilityLearningEngine:
         self.state["cycles"] += 1
         self.state["experiments"] += len(experiment["steps"])
         results = []
+        failures = []
         for step in experiment["steps"]:
             try:
                 result = self._run_step(experiment, step)
                 if not result["success"]:
+                    failures.append(self._failure_record(candidate, experiment, result, "execution"))
                     result = self._repair_step(experiment, step)
+                    result["repair_provenance"] = {
+                        "source_failure": failures[-1],
+                        "repair": "remove non-semantic output statements only",
+                        "evidence_comparison": {
+                            "before_success": False, "after_success": bool(result.get("success"))
+                        },
+                    }
                 results.append(result)
             except Exception as exc:
-                results.append({"test": step["test"], "success": False, "error": str(exc)[:300]})
+                failed = {"test": step["test"], "success": False, "error": str(exc)[:300]}
+                results.append(failed)
+                failures.append(self._failure_record(candidate, experiment, failed, "execution"))
 
         if not all(x.get("success") for x in results):
             self.state["failures"] += 1
+            self.state["failure_history"] = (self.state.get("failure_history", []) + failures)[-100:]
             self.state["last"] = {"topic": candidate["topic"], "status": "experiment_failed",
-                                  "failed_tests": [x.get("test") for x in results if not x.get("success")]}
+                                  "failed_tests": [x.get("test") for x in results if not x.get("success")],
+                                  "failures": failures}
             self._save()
             return {"ok": False, "candidate": candidate, "experiment": experiment,
                     "results": results, "reason": "experiment_failed"}

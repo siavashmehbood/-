@@ -28,9 +28,11 @@ class FakeTasks:
 class FakeActions:
     class A:
         def __init__(self, result): self.result=result
-    def __init__(self): self.calls=[]
+    def __init__(self): self.calls=[]; self.fail=False
     def execute(self, task_id, name, expected, **kwargs):
         self.calls.append((task_id,name,expected))
+        if self.fail:
+            return self.A({"ok": False, "returncode": 1, "stdout": "", "stderr": "assertion failed"})
         return self.A({"ok": True, "returncode": 0, "stdout": "verified", "stderr": ""})
 
 
@@ -95,3 +97,18 @@ class CapabilityLearningTests(unittest.TestCase):
         other=CapabilityLearningEngine(self.runtime)
         self.assertEqual(other.status()["skills_promoted"], 1)
 
+    def test_generic_claim_experiment_does_not_require_topic_template(self):
+        proposal={"topic":"novel capability domain","confidence":.8,
+                  "proposal_id":"novel-1","agreements":[{"claim":"A deterministic invariant can be checked locally."}]}
+        result=self.engine.learn_from_proposal(proposal)
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["experiment"]["steps"][0]["test"], "claim_repeatability")
+
+    def test_failed_experiment_persists_structured_diagnosis(self):
+        self.runtime.actions.fail=True
+        result=self.engine.learn_from_proposal(self.proposal())
+        self.assertFalse(result["ok"])
+        failure=self.engine.status()["failure_history"][-1]
+        for key in ("failure_type", "failure_stage", "evidence", "observed_output",
+                    "expected_output", "likely_cause", "repair_candidates"):
+            self.assertIn(key, failure)
