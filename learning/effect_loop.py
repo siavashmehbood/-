@@ -8,7 +8,7 @@ class EffectLearningLoop:
     def __init__(self, path, learning):
         self.path=Path(path); self.learning=learning
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.state={"xp":0,"validated":0,"credits":[],"evaluations":[],"retired_rules":[],"behavior_observations":[],"behavior_comparisons":[]}
+        self.state={"xp":0,"validated":0,"credits":[],"evaluations":[],"retired_rules":[],"behavior_observations":[],"behavior_comparisons":[],"transfer_evaluations":[]}
         self._load()
 
     def _load(self):
@@ -116,6 +116,55 @@ class EffectLearningLoop:
         rows.append(row)
         self._save()
         return {"mode":"compared","changed":changed,"comparison":comparison,"mutated_learning":False}
+
+    @staticmethod
+    def _tokens(value):
+        import re
+        return {x for x in re.findall(r"[\w\u0600-\u06ff]+", str(value).lower()) if len(x)>1}
+
+    def find_transfer_source(self, target_goal, domain="general", min_similarity=.25):
+        target=self._tokens(target_goal)
+        candidates=[]
+        for row in self.state.get("behavior_observations",[]):
+            if row.get("domain")!=str(domain) or row.get("learning_applied"): continue
+            goal=str(row.get("goal",""))
+            if goal==str(target_goal): continue
+            tokens=self._tokens(goal)
+            sim=len(target & tokens)/max(1,len(target | tokens)) if target or tokens else 0.0
+            if sim>=float(min_similarity):
+                candidates.append((sim,row))
+        candidates.sort(key=lambda x:x[0], reverse=True)
+        return candidates[0][1] if candidates else None
+
+    def evaluate_transfer(self, source_goal, target_goal, result, expected, verification,
+                          strategy="default", domain="general", episode_id="", attempt=1):
+        source=self._tokens(source_goal); target=self._tokens(target_goal)
+        similarity=len(source & target)/max(1,len(source | target)) if source or target else 0.0
+        v=verification if isinstance(verification,dict) else {}
+        score=float(v.get("score",0) or 0)
+        verified=bool(v.get("verified")) and score>=.75
+        row={"source_goal":str(source_goal),"target_goal":str(target_goal),
+             "similarity":round(similarity,3),"result":str(result)[:1200],
+             "expected":str(expected),"verified":verified,"score":score,
+             "strategy":str(strategy),"domain":str(domain),"episode_id":str(episode_id),
+             "attempt":int(attempt or 1),"time":datetime.now().isoformat(timespec="seconds")}
+        key=hashlib.sha256(json.dumps(row,ensure_ascii=False,sort_keys=True).encode("utf-8")).hexdigest()
+        rows=self.state.setdefault("transfer_evaluations",[])
+        if key not in {r.get("key") for r in rows}: rows.append({"key":key,**row})
+        passed=verified and similarity>=.25
+        self._save()
+        return {"passed":passed,"similarity":round(similarity,3),"verified":verified,
+                "score":score,"key":key,"xp_awarded":0}
+
+    def learning_result(self, behavior_comparison, verification, transfer=None):
+        changed=bool((behavior_comparison or {}).get("changed"))
+        v=verification if isinstance(verification,dict) else {}
+        verified=bool(v.get("verified")) and float(v.get("score",0) or 0)>=.75
+        transfer_ok=bool((transfer or {}).get("passed"))
+        qualified=changed and verified and transfer_ok
+        return {"qualified":qualified,"behavior_changed":changed,"verified":verified,
+                "transfer_passed":transfer_ok,"xp_eligible":qualified,
+                "reason":"behavior_change+verification+transfer" if qualified else "evidence_chain_incomplete"}
 
     def stats(self):
         return {"xp":int(self.state["xp"]),"validated":int(self.state["validated"]),

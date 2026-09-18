@@ -173,6 +173,24 @@ class CognitiveSystem:
                 priority["learning_state"] = "experiment_observed"
                 return priority
             strategy = str(meta.get("strategy") or getattr(trace, "intent", "general") or "default")
+            transfer_source = loop.find_transfer_source(goal, "dialogue", min_similarity=.25)
+            if transfer_source is None:
+                priority["learning_state"] = "awaiting_transfer_case"
+                priority["transfer"] = {"passed": False, "reason": "no_similar_prior_case"}
+                priority["effect_learning_recorded"] = False
+                return priority
+            transfer = loop.evaluate_transfer(
+                transfer_source.get("goal",""), goal, answer,
+                "رفتار آموخته‌شده باید روی مسئله مشابه نیز با موفقیت اجرا شود",
+                {"verified": getattr(trace, "verification_status", "") == "PASS",
+                 "score": confidence},
+                strategy=strategy, domain="dialogue",
+                episode_id=str(getattr(trace, "cycle_id", "") or ""), attempt=1)
+            priority["transfer"] = transfer
+            if not transfer.get("passed"):
+                priority["learning_state"] = "transfer_failed"
+                priority["effect_learning_recorded"] = False
+                return priority
             verification = {
                 "verified": getattr(trace, "verification_status", "") == "PASS",
                 "score": confidence,

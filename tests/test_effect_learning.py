@@ -116,3 +116,25 @@ def test_behavior_comparison_requires_real_before_after_change(tmp_path):
     changed=loop.observe_behavior("g","new answer","learned","dialogue","e3",True)
     assert changed["changed"] is False or changed["mode"] == "compared"
     assert loop.stats()["xp"] == 0
+
+
+def test_transfer_requires_verified_similar_target_and_never_awards_xp(tmp_path):
+    engine=LearningEngine(tmp_path/"experiences.json")
+    loop=EffectLearningLoop(tmp_path/"effect.json",engine)
+    out=loop.evaluate_transfer("python file reading", "python file parsing", "ok", "ok",
+                               {"verified":True,"score":.9}, "s", "dialogue", "t1", 1)
+    assert out["passed"] is True
+    assert out["similarity"] >= .25
+    assert out["xp_awarded"] == 0
+    assert loop.stats()["xp"] == 0
+
+
+def test_learning_result_requires_behavior_change_verification_and_transfer(tmp_path):
+    engine=LearningEngine(tmp_path/"experiences.json")
+    loop=EffectLearningLoop(tmp_path/"effect.json",engine)
+    no_change=loop.learning_result({"changed":False},{"verified":True,"score":.9},{"passed":True})
+    assert no_change["qualified"] is False
+    qualified=loop.learning_result({"changed":True},{"verified":True,"score":.9},{"passed":True})
+    assert qualified["qualified"] is True
+    assert qualified["xp_eligible"] is True
+    assert loop.stats()["xp"] == 0
