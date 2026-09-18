@@ -310,7 +310,20 @@ class IranRuntime:
         return self.learning_gate.history(limit)
 
     def learning_status(self):
-        return self.learning_gate.stats()
+        status=dict(self.learning_gate.stats())
+        effect=self.effect_learning.stats()
+        transfers=self.effect_learning.state.get("transfer_evaluations", [])
+        improvements=[float(r.get("improvement", 0) or 0) for r in transfers if "improvement" in r]
+        status.update({
+            "effect_xp": effect.get("xp", 0),
+            "effect_validated": effect.get("validated", 0),
+            "transfer_total": len(transfers),
+            "transfer_passed": sum(bool(r.get("verified")) and float(r.get("similarity", 0) or 0) >= .25 for r in transfers),
+            "improvement_cases": len(improvements),
+            "improved_cases": sum(x > 0 for x in improvements),
+            "mean_improvement": round(sum(improvements) / len(improvements), 3) if improvements else 0.0,
+        })
+        return status
 
     def approve_learning(self, proposal_id):
         proposal=self.learning_gate.get(proposal_id)

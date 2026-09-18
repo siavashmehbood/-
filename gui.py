@@ -387,7 +387,9 @@ class ChatWindow(QMainWindow):
             self.experience_xp.setText(
                 f"درخواست: {stats.get('total', 0):,} | در انتظار: {stats.get('pending', 0):,} | "
                 f"تأیید: {stats.get('approved', 0):,} | رد: {stats.get('rejected', 0):,} | "
-                f"XP کل: {stats.get('xp', 0):,}"
+                f"XP کل: {stats.get('xp', 0):,} | انتقال: {stats.get('transfer_passed', 0):,}/{stats.get('transfer_total', 0):,} | "
+                f"بهبود: {stats.get('improved_cases', 0):,}/{stats.get('improvement_cases', 0):,} | "
+                f"میانگین بهبود: {stats.get('mean_improvement', 0):.3f}"
             )
         except Exception as e:
             self.experience_xp.setText(f"یادگیری: خطا در دریافت وضعیت — {e}")
