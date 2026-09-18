@@ -33,6 +33,7 @@ from learning.self_directed import SelfDirectedLearning
 from learning.trusted_knowledge import TrustedKnowledgeBootstrap
 from learning.procedural_memory import ProceduralMemory
 from learning.skill_system import SkillSystem
+from learning.internet_learning import InternetLearningEngine
 from providers.factory import create_provider
 from runtime.events import EventLog
 from runtime.goals import GoalStore
@@ -101,6 +102,7 @@ class IranRuntime:
         self.procedural_memory = ProceduralMemory(self.root / "data/procedures.json", gate=self.learning_gate)
         self.skills = SkillSystem(self.root / "data/skills.json", self.procedural_memory, gate=self.learning_gate)
         self.user_model = UserModel(self.memory, self.knowledge, "IRAN", gate=self.learning_gate)
+        self.internet_learning = InternetLearningEngine(self)
         self.language_intelligence = PersianIntelligence(self.brain.language)
         self.conversation_router = ConversationRouter(self)
         from core.orchestrator import Orchestrator
@@ -137,10 +139,8 @@ class IranRuntime:
                                             "verified_local_seed")
 
     def handle(self, text):
-        clean_text = str(text or "").strip()
-        if clean_text.startswith("/"):
-            return self._handle_command(clean_text)
-        return self.cognitive_system.turn(clean_text)
+        # One public ingress: the CognitiveSystem owns routing; runtime is infrastructure.
+        return self.cognitive_system.dispatch(text)
 
     def _apply_approved_outcome(self, p):
         outcome=self.outcome_learning
@@ -230,6 +230,12 @@ class IranRuntime:
         for goal in goals:
             self.self_directed_learning.update_outcome(goal.goal_id, "testing", len(bundle["agreements"]), success=False)
         return {"stored": True, "proposal_id": bundle["proposal_id"], "agreements": len(bundle["agreements"]), "sources": len(bundle["sources"]), "learning_goals_updated": len(goals)}
+
+    def learn_from_internet(self, topic, urls=None, auto=True):
+        return self.internet_learning.learn(topic, urls, auto=auto)
+
+    def internet_learning_status(self):
+        return self.internet_learning.status()
 
     def learning_pending(self, limit=50):
         return self.learning_gate.pending(limit)
@@ -388,8 +394,19 @@ class IranRuntime:
         if composition and len(composition.get("steps", [])) >= 2:
             return self._execute_composed_goal(composition, expected_effect, kwargs)
         lesson = self.outcome_learning.lesson(goal, "task")
+        # Task execution consults the same CognitiveSystem learning brain as dialogue.
+        guidance = self.cognitive_system.guidance(goal, "task", "task")
         choices = [primary] + ([alternative] if alternative else [])
         experience = self.outcome_learning.recommend_action(goal, choices, "task")
+        if not isinstance(experience, dict):
+            experience = {}
+        if not experience.get("selected") and guidance.get("recommended_strategy"):
+            experience["strategy"] = guidance["recommended_strategy"]
+            self.events.emit("learning_guidance_applied", {
+                "goal": goal, "domain": "task",
+                "strategy": guidance["recommended_strategy"],
+                "failure_signal": bool(guidance.get("failure_signal")),
+            })
         transfer_candidates = self.skills.retrieve_transfer(goal, "task", limit=4)
         transfer_skill = transfer_candidates[0] if transfer_candidates else None
         plan = self.orchestrator.planner.build(goal, experience=experience)
@@ -588,6 +605,13 @@ class IranRuntime:
                 self.events.emit("internet_access_changed", result)
                 return json.dumps(result, ensure_ascii=False)
             return json.dumps(self.internet_access.status(), ensure_ascii=False)
+        if parts[0] in {"/learnweb", "/learn-internet"}:
+            topic = str(parts[1]).strip() if len(parts) > 1 else ""
+            urls = parts[2:] if len(parts) > 2 else None
+            if not topic: return "usage=/learnweb <topic> [url ...]"
+            return json.dumps(self.learn_from_internet(topic, urls), ensure_ascii=False)
+        if parts[0] in {"/learnstatus", "/learning-status"}:
+            return json.dumps(self.internet_learning_status(), ensure_ascii=False)
         if parts[0] in {"/learn", "/learning"}:
             if len(parts) < 2 or parts[1] in {"pending", "list"}:
                 rows=self.learning_pending()

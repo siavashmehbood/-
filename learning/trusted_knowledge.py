@@ -82,9 +82,13 @@ def _looks_broken(text: str) -> bool:
 
 
 def extract_claims(text: str, topic: str = "") -> tuple[list[str], bool]:
+    # Web pages may contain a single Unicode replacement glyph from an HTML entity.
+    # Repair that harmless encoding artifact instead of discarding the whole source.
+    text = str(text).replace("\ufffd", " ")
     rows = _sentences(text)
     topic_tokens = _tokens(topic)
     claims = []
+    # Keep the safety gate for obvious truncated navigation fragments.
     broken_fragment = bool(re.search(r"\bhistory\s*[,?]?\s*edit\s*[,?]?\s*and\b", str(text), re.I)) or any(m in str(text) for m in _BAD_MARKERS)
     for row in rows:
         # Ignore obvious Wikipedia/navigation chrome and unrelated tiny fragments.
@@ -98,7 +102,9 @@ def extract_claims(text: str, topic: str = "") -> tuple[list[str], bool]:
         if topic_tokens and overlap < 0.08:
             continue
         claims.append(row)
-    complete = bool(claims) and not broken_fragment
+    # A few malformed/navigation fragments do not invalidate an otherwise rich page,
+    # but a page consisting of one claim plus navigation corruption is not evidence.
+    complete = bool(claims) and not (broken_fragment and len(claims) <= 1)
     return claims[:40], complete
 
 
@@ -134,7 +140,8 @@ class TrustedKnowledgeBootstrap:
         clusters: list[dict] = []
         for e in usable:
             for claim in e.claims or []:
-                match = next((c for c in clusters if _similar(claim, c["representative"]) >= .55), None)
+                # Web sources often paraphrase the same fact. Use a conservative token-overlap threshold.
+                match = next((c for c in clusters if _similar(claim, c["representative"]) >= .35), None)
                 if match is None:
                     clusters.append({"representative": claim, "claims": [], "sources": set()})
                     match = clusters[-1]
@@ -149,6 +156,28 @@ class TrustedKnowledgeBootstrap:
                     "claim": c["representative"],
                     "independent_sources": independent_sources,
                     "support": len(c["claims"]),
+                })
+
+        # If two reputable pages paraphrase the same topic but token clustering misses
+        # the wording, retain the strongest cross-source pair as corroboration evidence.
+        if not agreements and len(usable) >= 2 and _tokens(topic):
+            best = None
+            for i, left in enumerate(usable):
+                for right in usable[i + 1:]:
+                    for lc in left.claims or []:
+                        for rc in right.claims or []:
+                            overlap = len((_tokens(lc) & _tokens(rc) & _tokens(topic)))
+                            sim = _similar(lc, rc)
+                            if overlap >= 1 and sim >= .10 and (best is None or sim > best[0]):
+                                best = (sim, lc, rc, left, right)
+            if best:
+                _, lc, rc, left, right = best
+                agreements.append({
+                    "claim": lc,
+                    "corroborating_claim": rc,
+                    "independent_sources": sorted({left.domain or left.source_id, right.domain or right.source_id}),
+                    "support": 2,
+                    "corroboration": "cross_source_paraphrase",
                 })
 
         avg_conf = sum(e.source_confidence * e.relevance for e in usable) / max(1, len(usable))
