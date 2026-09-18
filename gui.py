@@ -7,7 +7,7 @@ except ImportError:
 from pathlib import Path
 import sys
 import threading
-from PySide6.QtCore import QEvent, Qt, Signal, QObject, QTimer
+from PySide6.QtCore import QEvent, Qt, Signal, QObject, QTimer, QThread
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
  QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
@@ -137,8 +137,15 @@ class ChatWindow(QMainWindow):
         text = self.input.toPlainText().strip()
         if not text: return
         self.input.clear(); self.add("شما", text); self.busy = True; self.send.setEnabled(False); self.status.setText("در حال پردازش...")
-        self.worker = Worker(self.runtime, text); self.thread = threading.Thread(target=self.worker.run, daemon=True)
-        self.worker.done.connect(self.on_done); self.worker.fail.connect(self.on_fail); self.thread.start()
+        self.thread = QThread(self)
+        self.worker = Worker(self.runtime, text)
+        self.worker.moveToThread(self.thread)
+        self.thread.started.connect(self.worker.run)
+        self.worker.done.connect(self.on_done)
+        self.worker.fail.connect(self.on_fail)
+        self.worker.done.connect(self._finish_worker)
+        self.worker.fail.connect(self._finish_worker)
+        self.thread.start()
     def on_done(self, text, elapsed):
         self.add("ایران", text); self.elapsed.setText(f"زمان: {elapsed:.3f} ثانیه")
         self.queue_chatgpt_review(text); self.refresh_chatgpt_count()
@@ -147,6 +154,12 @@ class ChatWindow(QMainWindow):
         if self.autocopy.isChecked(): self.copy_response()
     def on_fail(self, text):
         self.add("خطا", text); self.status.setText("خطا"); self.busy = False; self.send.setEnabled(True); self.persist_session()
+    def _finish_worker(self, *args):
+        thread = self.thread
+        worker = self.worker
+        worker.deleteLater()
+        thread.quit()
+        thread.finished.connect(thread.deleteLater)
     def approve_all_learning_ui(self):
         try:
             stats = self.runtime.learning_status()
