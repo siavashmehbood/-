@@ -94,3 +94,25 @@ def test_learning_priority_prefers_verified_strategy_when_supported(tmp_path):
         loop.evaluate("g","a","ok","ok",{"verified":True,"score":.9},"good","task",f"e{i}",1)
     out=loop.learning_priority("g","general","task",.2,.1)
     assert out["action"]=="reuse_best_then_verify"
+
+
+def test_behavior_observation_never_awards_xp(tmp_path):
+    engine=LearningEngine(tmp_path/"experiences.json")
+    loop=EffectLearningLoop(tmp_path/"effect.json",engine)
+    out=loop.observe_behavior("g","baseline answer","baseline","dialogue","e1",False)
+    assert out["mutated_learning"] is False
+    assert loop.stats()["xp"] == 0
+    assert loop.stats()["validated"] == 0
+
+
+def test_behavior_comparison_requires_real_before_after_change(tmp_path):
+    engine=LearningEngine(tmp_path/"experiences.json")
+    loop=EffectLearningLoop(tmp_path/"effect.json",engine)
+    loop.observe_behavior("g","old answer","baseline","dialogue","e1",False)
+    same=loop.observe_behavior("g","old answer","learned","dialogue","e2",True)
+    assert same["mode"] == "compared"
+    assert same["changed"] is False
+    assert loop.stats()["xp"] == 0
+    changed=loop.observe_behavior("g","new answer","learned","dialogue","e3",True)
+    assert changed["changed"] is False or changed["mode"] == "compared"
+    assert loop.stats()["xp"] == 0

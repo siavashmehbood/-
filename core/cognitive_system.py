@@ -145,9 +145,33 @@ class CognitiveSystem:
                 "dialogue", uncertainty=max(0.0, 1.0-confidence),
                 novelty=0.6 if not learning.adapt(goal, getattr(trace, "intent", "general") or "general", "dialogue").get("learned_rules") else 0.0)
             action = priority.get("action", "observe_and_wait")
-            if action == "observe_and_wait":
+            # Normal turns are observations, not learning evidence. Only an explicit
+            # active experiment or a verified historical reuse is allowed to mutate
+            # effect-learning state. This prevents routine PASS answers from earning
+            # XP or becoming fake training samples.
+            if action not in ("active_experiment", "reuse_best_then_verify"):
+                observation = loop.observe_behavior(
+                    goal, answer, strategy="baseline", domain="dialogue",
+                    episode_id=str(getattr(trace, "cycle_id", "") or ""),
+                    learning_applied=False,
+                )
+                priority["learning_state"] = "observe_only"
+                priority["effect_learning_recorded"] = False
+                priority["behavior_observation"] = observation
                 return priority
+            # A learning experiment is only credited when the learned strategy
+            # produces a measurable behavioral difference against a stored baseline.
             meta = priority.get("meta", {})
+            experiment = loop.observe_behavior(
+                goal, answer, strategy=str(meta.get("strategy") or getattr(trace, "intent", "general") or "default"),
+                domain="dialogue", episode_id=str(getattr(trace, "cycle_id", "") or ""),
+                learning_applied=True,
+            )
+            priority["behavior_experiment"] = experiment
+            if experiment.get("mode") != "compared" or not experiment.get("changed"):
+                priority["effect_learning_recorded"] = False
+                priority["learning_state"] = "experiment_observed"
+                return priority
             strategy = str(meta.get("strategy") or getattr(trace, "intent", "general") or "default")
             verification = {
                 "verified": getattr(trace, "verification_status", "") == "PASS",

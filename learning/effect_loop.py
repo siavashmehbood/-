@@ -8,7 +8,7 @@ class EffectLearningLoop:
     def __init__(self, path, learning):
         self.path=Path(path); self.learning=learning
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.state={"xp":0,"validated":0,"credits":[],"evaluations":[],"retired_rules":[]}
+        self.state={"xp":0,"validated":0,"credits":[],"evaluations":[],"retired_rules":[],"behavior_observations":[],"behavior_comparisons":[]}
         self._load()
 
     def _load(self):
@@ -85,6 +85,37 @@ class EffectLearningLoop:
         if score>=.75: return {"mode":"retest_transfer","strategy":strategy,"domain":domain}
         if score<.55: return {"mode":"change_strategy","avoid":strategy,"domain":domain}
         return {"mode":"gather_evidence","strategy":strategy,"domain":domain}
+
+    def observe_behavior(self, goal, result, strategy="baseline", domain="general", episode_id="", learning_applied=False):
+        """Record a non-training behavioral observation for before/after comparison.
+        Observation alone never grants XP and never changes learned rules.
+        """
+        row={"goal":str(goal),"result":str(result)[:2000],"strategy":str(strategy),
+             "domain":str(domain),"episode_id":str(episode_id),
+             "learning_applied":bool(learning_applied),
+             "time":datetime.now().isoformat(timespec="seconds")}
+        rows=self.state.setdefault("behavior_observations",[])
+        # Keep one baseline per goal/domain until a learned variant is observed.
+        if not learning_applied:
+            existing=next((r for r in rows if r.get("goal")==row["goal"] and r.get("domain")==row["domain"] and not r.get("learning_applied")),None)
+            if existing is None:
+                rows.append(row)
+                self._save()
+            return {"mode":"baseline_recorded" if existing is None else "baseline_exists",
+                    "baseline": existing or row, "mutated_learning":False}
+        baseline=next((r for r in reversed(rows) if r.get("goal")==row["goal"] and r.get("domain")==row["domain"] and not r.get("learning_applied")),None)
+        if baseline is None:
+            rows.append(row); self._save()
+            return {"mode":"awaiting_baseline","mutated_learning":False}
+        changed=baseline.get("result","") != row["result"]
+        comparison={"goal":row["goal"],"domain":row["domain"],"baseline_strategy":baseline.get("strategy"),
+                    "new_strategy":row["strategy"],"changed":changed,
+                    "baseline_result":baseline.get("result",""),"new_result":row["result"],
+                    "time":row["time"]}
+        self.state.setdefault("behavior_comparisons",[]).append(comparison)
+        rows.append(row)
+        self._save()
+        return {"mode":"compared","changed":changed,"comparison":comparison,"mutated_learning":False}
 
     def stats(self):
         return {"xp":int(self.state["xp"]),"validated":int(self.state["validated"]),
