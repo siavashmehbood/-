@@ -424,6 +424,7 @@ class ChatWindow(QMainWindow):
                 f"بهبود: {stats.get('improved_cases', 0):,}/{stats.get('improvement_cases', 0):,} | "
                 f"میانگین بهبود: {stats.get('mean_improvement', 0):.3f} | "
                 f"یادگیری اثرگذار: {stats.get('effect_validated', 0):,} | "
+                f"درس‌های واقعی: {stats.get('verified_lessons', 0):,} | "
                 f"قواعد یادگرفته‌شده: {len(getattr(self.runtime.learning, 'learned_rules', []) or []):,}"
             )
         except Exception as e:

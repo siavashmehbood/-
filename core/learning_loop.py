@@ -168,6 +168,8 @@ class OutcomeBackedLearning:
             self.learning.record(
                 outcome.goal, outcome.action, outcome.result, outcome.score,
                 intent="verified_outcome", strategy=outcome.strategy, domain=outcome.domain,
+                signal_source=outcome.verification_source,
+                evidence=json.dumps({"expected": outcome.expected, "episode_id": outcome.episode_id, "phase": outcome.phase}, ensure_ascii=False),
             )
             learned = True
         effect = None

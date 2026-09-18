@@ -311,6 +311,9 @@ class AnswerPlanner:
             steps.insert(0, "preserve_conversation_context")
         elif strategy in {"evidence-first", "evidence_first"}:
             steps.insert(1, "prefer_local_evidence_before_claims")
+        approved_lessons = guidance.get("approved_lessons", []) or []
+        if approved_lessons:
+            steps.insert(0, "apply_approved_lesson")
         if guidance.get("failure_signal"):
             steps.insert(0, "avoid_recent_failed_pattern")
         if len(units) > 1: steps.insert(1, "cover_all_question_units")

@@ -273,8 +273,20 @@ class IranRuntime:
         for agreement in bundle["agreements"]:
             claim = str(agreement.get("claim", "")).strip()
             if not claim: continue
-            self.knowledge.add_fact(bundle["topic"], "trusted_claim", claim, float(bundle["confidence"]), "trusted_knowledge:" + str(bundle["proposal_id"]))
-            self.memory.add_semantic_fact(bundle["topic"], "trusted_claim", claim, float(bundle["confidence"]), "trusted_knowledge:" + str(bundle["proposal_id"]))
+            source_id = "trusted_knowledge:" + str(bundle["proposal_id"])
+            self.knowledge.add_fact(bundle["topic"], "trusted_claim", claim, float(bundle["confidence"]), source_id)
+            self.memory.add_semantic_fact(bundle["topic"], "trusted_claim", claim, float(bundle["confidence"]), source_id)
+            # A corroborated knowledge claim is a real lesson: preserve the claim and provenance,
+            # not a synthetic experience score/message.
+            self.learning.record_approved_lesson({
+                "goal": bundle["topic"], "lesson": claim, "score": bundle["confidence"],
+                "domain": self.self_directed_learning.detect_domain(bundle["topic"], claim),
+                "strategy": "trusted_knowledge", "evidence": json.dumps({
+                    "proposal_id": bundle["proposal_id"],
+                    "sources": agreement.get("independent_sources", []),
+                    "support": agreement.get("support", 0),
+                }, ensure_ascii=False), "source": source_id,
+            }, bundle["proposal_id"], "approved")
         goals = [g for g in self.self_directed_learning.goals if g.topic == str(bundle["topic"]) ]
         for goal in goals:
             self.self_directed_learning.update_outcome(goal.goal_id, "testing", len(bundle["agreements"]), success=False)
@@ -341,6 +353,8 @@ class IranRuntime:
         transfers=self.effect_learning.state.get("transfer_evaluations", [])
         improvements=[float(r.get("improvement", 0) or 0) for r in transfers if "improvement" in r]
         status.update({
+            "learned_lessons": len(getattr(self.learning, "learned_lessons", []) or []),
+            "verified_lessons": sum(1 for x in (getattr(self.learning, "learned_lessons", []) or []) if x.get("status") == "approved"),
             "effect_xp": effect.get("xp", 0),
             "effect_validated": effect.get("validated", 0),
             "transfer_total": len(transfers),
@@ -359,13 +373,25 @@ class IranRuntime:
         with self.learning_gate.bypass():
             if kind == "knowledge.add_fact": result=self.knowledge.add_fact(p["subject"],p["predicate"],p["object"],p.get("confidence",1.0),p.get("source","approved"))
             elif kind == "trusted_knowledge.bootstrap": result=self._apply_trusted_knowledge(proposal)
-            elif kind == "learning.record_experience": result=self.learning.record(p["goal"],p["action"],p["result"],p["score"],p.get("intent","general"),p.get("strategy","default"),p.get("domain","general"),p.get("objective",""),p.get("expected_effect",""),p.get("signal_source",""),p.get("evidence",p.get("feedback","")))
+            elif kind == "learning.record_experience":
+                result=self.learning.record(p["goal"],p["action"],p["result"],p["score"],p.get("intent","general"),p.get("strategy","default"),p.get("domain","general"),p.get("objective",""),p.get("expected_effect",""),p.get("signal_source",""),p.get("evidence",p.get("feedback","")))
+                self.learning.record_approved_lesson(p, proposal_id)
             elif kind == "outcome.record": result=self._apply_approved_outcome(p)
             elif kind == "memory.add_semantic_fact": result=self.memory.add_semantic_fact(p["subject"],p["predicate"],p["value"],p.get("confidence",.65),p.get("source","approved"))
-            elif kind == "memory.add_lesson": result=self.memory.add_lesson(p["goal"],p["lesson"],p.get("confidence",.6),p.get("source","approved"))
-            elif kind == "procedural.upsert": result=self.procedural_memory.upsert(p["name"],p["goal"],p.get("steps",[]),p.get("preconditions",[]),p.get("expected_outcome",""),p.get("verification_conditions",[]),p.get("failure_conditions",[]),p.get("source_experiences",[]),p.get("confidence",.6),p.get("success_rate",0),p.get("procedure_id"))
+            elif kind == "memory.add_lesson":
+                result=self.memory.add_lesson(p["goal"],p["lesson"],p.get("confidence",.6),p.get("source","approved"))
+                self.learning.record_approved_lesson({"goal":p["goal"],"lesson":p["lesson"],"score":p.get("confidence",.6),"domain":p.get("domain","general"),"strategy":"semantic_memory","source":p.get("source","approved")}, proposal_id)
+            elif kind == "procedural.upsert":
+                result=self.procedural_memory.upsert(p["name"],p["goal"],p.get("steps",[]),p.get("preconditions",[]),p.get("expected_outcome",""),p.get("verification_conditions",[]),p.get("failure_conditions",[]),p.get("source_experiences",[]),p.get("confidence",.6),p.get("success_rate",0),p.get("procedure_id"))
+                lesson_text = f"رویه «{p['name']}» برای «{p['goal']}»: " + "؛ ".join(str(x) for x in (p.get("steps") or []))
+                self.learning.record_approved_lesson({"goal":p["goal"],"lesson":lesson_text,"score":p.get("confidence",.6),"domain":p.get("domain","general"),"strategy":"procedure"}, proposal_id)
             elif kind == "procedural.record_outcome": result=self.procedural_memory.record_outcome(p["procedure_id"],p["success"])
-            elif kind == "skills.upsert": result=self.skills.upsert(p["name"],p["description"],p["domain"],p.get("goal_patterns",[]),p.get("procedure",{}),p.get("preconditions",[]),p.get("required_capabilities",[]),p.get("risk","low"),p.get("confidence",.6),p.get("skill_id"))
+            elif kind == "skills.upsert":
+                result=self.skills.upsert(p["name"],p["description"],p["domain"],p.get("goal_patterns",[]),p.get("procedure",{}),p.get("preconditions",[]),p.get("required_capabilities",[]),p.get("risk","low"),p.get("confidence",.6),p.get("skill_id"))
+                procedure = p.get("procedure") or {}
+                lesson_text = f"مهارت «{p['name']}»: {p.get('description','')}"
+                if procedure.get("steps"): lesson_text += " مراحل: " + "؛ ".join(str(x) for x in procedure.get("steps", []))
+                self.learning.record_approved_lesson({"goal":p.get("name",p.get("domain","general")),"lesson":lesson_text,"score":p.get("confidence",.6),"domain":p.get("domain","general"),"strategy":"skill","evidence":json.dumps(p.get("procedure",{}),ensure_ascii=False)}, proposal_id)
             elif kind == "skills.promote_composition": result=self.skills.promote_composition(p,verified=True)
             elif kind == "skills.execution_outcome": result=self.skills.record_execution(p["skill_id"],p["success"],p.get("verified",True),p.get("reason",""))
             elif kind == "user_model.record_facts": result=self.user_model.record_from_facts(p)

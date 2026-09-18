@@ -119,13 +119,19 @@ class LearningEngine:
 
     def _record_lesson(self,row):
         goal=str(row.get('goal','')).strip(); action=str(row.get('action','')).strip(); result=str(row.get('result','')).strip(); score=float(row.get('score',0))
-        if not goal or not action: return None
+        signal=str(row.get('signal_source','')).strip().lower()
+        # Only independently verified outcomes become lessons automatically.
+        # Dialogue observations/counters remain experiences and never masquerade as knowledge.
+        verified_signal = row.get('intent') == 'verified_outcome' or signal in {
+            'task_verifier','filesystem_check','artifact_check','execution','execution_verifier','trusted_knowledge'
+        }
+        if not verified_signal or not goal or not action or not result: return None
         if score >= .75:
-            text=f'برای «{goal}»، اجرای «{action}» با این نتیجه ثبت شد: «{result[:240]}». این الگو در موقعیت‌های مشابه باید دوباره آزمایش و در صورت تأیید استفاده شود.'
+            text=f'درس تأییدشده: برای «{goal}»، اقدام «{action}» نتیجه «{result[:240]}» را داد؛ این نتیجه با منبع «{row.get("signal_source", "verification")}" تأیید شده و باید در موقعیت مشابه دوباره آزموده شود.'
         elif score < .55:
-            text=f'برای «{goal}»، اجرای «{action}» نتیجه کافی نداد: «{result[:240]}». این مسیر نباید بدون اصلاح دوباره تکرار شود.'
+            text=f'درس منفی تأییدشده: برای «{goal}»، اقدام «{action}» نتیجه کافی نداد («{result[:240]}»)؛ این مسیر بدون اصلاح نباید تکرار شود.'
         else:
-            text=f'برای «{goal}»، نتیجه اجرای «{action}» قطعی نیست: «{result[:240]}». قبل از تعمیم، شواهد بیشتری لازم است.'
+            text=f'درس با شواهد متوسط: برای «{goal}»، اقدام «{action}» نتیجه «{result[:240]}» داد؛ پیش از تعمیم، یک آزمون مستقل دیگر لازم است.'
         key=re.sub(r'\s+',' ',text).strip().lower()
         existing=next((x for x in self.learned_lessons if x.get('key')==key),None)
         if existing:
@@ -135,8 +141,70 @@ class LearningEngine:
         self.learned_lessons=self.learned_lessons[-5000:]; self._save_lessons()
         return text
 
+    def record_approved_lesson(self, payload, proposal_id="", source_status="approved"):
+        """Persist the actual approved learning content, not a synthetic counter/XP lesson."""
+        payload = dict(payload or {})
+        goal = str(payload.get("goal", "")).strip()
+        lesson = str(payload.get("lesson", "")).strip()
+        result = str(payload.get("result", "")).strip()
+        # Dialogue outcome/observation text is an experience trace, not a lesson.
+        # It must never be promoted to the visible lesson store unless real lesson content was supplied.
+        generic = {
+            self._lesson_for(.90), self._lesson_for(.70), self._lesson_for(.40),
+            "", "متوجه شدم"
+        }
+        action = str(payload.get("action", "")).strip()
+        if (not lesson or lesson in generic) and action in {"respond", "canonical_turn", "observe_learning_signal", "explicit-feedback"}:
+            return None
+        if not lesson:
+            lesson = result[:1000] if result else goal
+        if not lesson or not goal:
+            return None
+        # A stable content key prevents the same approved lesson from becoming spam.
+        def norm(v): return re.sub(r"\s+", " ", str(v or "").strip().lower())
+        key = norm(lesson) + "|" + norm(goal) + "|" + norm(payload.get("domain", "general"))
+        existing = next((x for x in self.learned_lessons if x.get("content_key") == key), None)
+        now = str(payload.get("time") or datetime.now().isoformat(timespec="seconds"))
+        if existing:
+            existing["evidence_count"] = int(existing.get("evidence_count", 1)) + 1
+            existing["last_seen"] = now
+            existing["score"] = max(float(existing.get("score", 0)), float(payload.get("score", 0) or 0))
+            if proposal_id: existing["proposal_ids"] = list(dict.fromkeys(existing.get("proposal_ids", []) + [proposal_id]))[-20:]
+        else:
+            row = {
+                "lesson": lesson, "content": lesson, "goal": goal,
+                "action": str(payload.get("action", "")),
+                "result": result[:4000], "score": round(float(payload.get("score", 0) or 0), 3),
+                "domain": str(payload.get("domain", "general")),
+                "intent": str(payload.get("intent", "general")),
+                "strategy": str(payload.get("strategy", "default")),
+                "source": str(payload.get("signal_source") or payload.get("source") or "approved_learning"),
+                "evidence": str(payload.get("evidence", ""))[:2000],
+                "proposal_ids": [proposal_id] if proposal_id else [],
+                "evidence_count": 1, "first_seen": now, "last_seen": now,
+                "status": source_status, "content_key": key,
+            }
+            self.learned_lessons.append(row)
+        self.learned_lessons = self.learned_lessons[-5000:]
+        self._save_lessons()
+        return existing or self.learned_lessons[-1]
+
     def learned_lesson_rows(self,limit=20):
         return list(reversed(self.learned_lessons[-int(limit):]))
+
+    def lesson_guidance(self, goal, intent="general", domain="general", limit=8):
+        """Retrieve approved lessons as reusable guidance for future decisions."""
+        rows=[]
+        target=self._tokens(goal)
+        for row in self.learned_lessons:
+            if row.get("status") != "approved": continue
+            if domain and row.get("domain", "general") not in {domain, "general"}: continue
+            text=" ".join(str(row.get(k, "")) for k in ("lesson", "goal", "result"))
+            sim=len(target & self._tokens(text))/max(1,len(target | self._tokens(text)))
+            score=sim*.7 + float(row.get("score",0) or 0)*.3
+            if sim > .02: rows.append((score,row))
+        rows.sort(key=lambda x:x[0], reverse=True)
+        return [r for _,r in rows[:int(limit)]]
 
     def _rows_for(self,goal,intent=None,domain=None):
         rows=[]
@@ -191,6 +259,7 @@ class LearningEngine:
             'success_rate':self.success_rate(goal),
             'learned_rules':self.rules_for(goal,intent,domain,5),
             'strategy_evidence':self.best_strategies(goal,6),
+            'approved_lessons':self.lesson_guidance(goal,intent,domain,8),
         }
 
     def semantic_lessons(self,goal,intent=None,domain=None,limit=8):
