@@ -157,7 +157,7 @@ class EffectLearningLoop:
                 "score":score,"key":key,"xp_awarded":0}
 
     def replay_transfer_batch(self, cases, domain="general", min_similarity=.25):
-        """Replay learned evidence on distinct same-family goals; transfer never grants XP."""
+        """Replay learned evidence on distinct same-family goals and measure before/after improvement."""
         results=[]
         for i, case in enumerate(cases or [], 1):
             source_goal=str(case.get("source_goal",""))
@@ -165,22 +165,33 @@ class EffectLearningLoop:
             result=str(case.get("result",""))
             expected=str(case.get("expected",""))
             verification=case.get("verification", {})
+            baseline_score=float(case.get("baseline_score",0) or 0)
+            learned_score=float(case.get("learned_score",verification.get("score",0)) or 0)
             strategy=str(case.get("strategy","transfer-replay"))
             source=self.find_transfer_source(target_goal, domain, min_similarity)
             source_goal_used=source.get("goal") if source else source_goal
             transfer=self.evaluate_transfer(source_goal_used, target_goal, result, expected,
                                              verification, strategy, domain,
                                              str(case.get("episode_id", f"transfer-{i}")), i)
+            improvement=round(learned_score-baseline_score,3)
+            improved=improvement>0
             results.append({"target_goal":target_goal,"source_goal":source_goal_used,
                             "similarity":transfer["similarity"],"verified":transfer["verified"],
-                            "passed":transfer["passed"],"xp_awarded":0,
-                            "reason":"verified_similar_transfer" if transfer["passed"] else
-                                     ("no_similar_source" if source is None else "transfer_failed")})
+                            "passed":transfer["passed"],"baseline_score":round(baseline_score,3),
+                            "learned_score":round(learned_score,3),"improvement":improvement,
+                            "improved":improved,"xp_awarded":0,
+                            "reason":"verified_transfer_with_improvement" if transfer["passed"] and improved else
+                                     ("verified_transfer_no_improvement" if transfer["passed"] else
+                                      ("no_similar_source" if source is None else "transfer_failed"))})
         passed=sum(1 for r in results if r["passed"])
+        improved=sum(1 for r in results if r["passed"] and r["improved"])
+        avg=sum(r["improvement"] for r in results)/len(results) if results else 0.0
         return {"total":len(results),"passed":passed,
                 "failed":len(results)-passed,
                 "pass_rate":round(passed/len(results),3) if results else 0.0,
-                "xp_awarded":0,"results":results}
+                "improved":improved,
+                "improvement_rate":round(improved/len(results),3) if results else 0.0,
+                "mean_improvement":round(avg,3),"xp_awarded":0,"results":results}
 
     def learning_result(self, behavior_comparison, verification, transfer=None):
         changed=bool((behavior_comparison or {}).get("changed"))
