@@ -294,7 +294,24 @@ class CognitivePipeline:
             confidence=float(parsed.get("intent_score", .5)),
             intent=parsed.get("intent", "general"),
             correction=text if is_correction(text) else "",
+            learning_guidance=learning_adaptation or {},
         )
+        if not context.learning_guidance:
+            engine = getattr(self.runtime, "learning", None)
+            if engine is not None:
+                try:
+                    goal = e.state.active_goal or e.state.current_topic or text
+                    context.learning_guidance = engine.adapt(
+                        goal, context.intent or "general", "dialogue"
+                    ) or {}
+                except Exception:
+                    context.learning_guidance = {}
+        self._emit("learning_applied", {
+            "goal": e.state.active_goal or e.state.current_topic or text,
+            "strategy": context.learning_guidance.get("recommended_strategy", "evidence-first"),
+            "rules": len(context.learning_guidance.get("learned_rules", []) or []),
+            "canonical": True,
+        })
         plan = e.planner.plan(context)
 
         answer = ""
