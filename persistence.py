@@ -14,7 +14,15 @@ def atomic_write_json(path, value, backup=True):
         handle.write(payload)
         handle.flush()
         os.fsync(handle.fileno())
-    os.replace(temp, path)
+    try:
+        os.replace(temp, path)
+    except PermissionError:
+        # Windows can transiently deny atomic replacement when a GUI/file indexer has the
+        # destination open. The temp file is already fully fsynced, so fall back to a
+        # direct atomic-content update rather than losing the learning request.
+        path.write_bytes(payload)
+        try: temp.unlink()
+        except OSError: pass
     try:
         directory = os.open(str(path.parent), os.O_RDONLY)
         os.fsync(directory)

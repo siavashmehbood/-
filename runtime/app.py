@@ -341,6 +341,40 @@ class IranRuntime:
             "status": self.capability_learning_status(),
         }
 
+    def seed_learning_requests(self, target=1000):
+        """Create real, deterministic self-directed learning requests until the queue reaches target.
+        Requests are goals only; no fact/lesson is fabricated before evidence and approval.
+        """
+        target=max(1,min(5000,int(target)))
+        current=self.learning_gate.stats().get("total",0)
+        existing=self.learning_gate.history(5000)
+        existing_keys={
+            (r.get("kind"), str((r.get("payload") or {}).get("goal_topic", "")).strip().lower(),
+             str((r.get("payload") or {}).get("objective", "")).strip().lower())
+            for r in existing
+        }
+        curriculum=self.self_directed_learning.CURRICULUM
+        modes=("تعریف دقیق", "مثال مستقل", "کاربرد", "خطاهای رایج", "آزمون انتقال", "مقایسه", "حل مسئله", "بازبینی و اصلاح")
+        created=0
+        for domain,topics in curriculum.items():
+            for topic in topics:
+                for mode in modes:
+                    if current+created >= target: break
+                    objective=f"build_verified_understanding:{topic}:{mode}"
+                    key=("learning.goal_request",topic.lower(),objective.lower())
+                    if key in existing_keys: continue
+                    payload={"goal_topic":topic,"domain":domain,"objective":objective,
+                             "mode":mode,"source":"self_directed_curriculum","status":"needs_evidence"}
+                    row=self.learning_gate.request("learning.goal_request",payload,
+                                                    f"درخواست یادگیری: {topic} — {mode}")
+                    if row is not None:
+                        created+=1; existing_keys.add(key)
+                if current+created >= target: break
+            if current+created >= target: break
+        return {"ok":True,"target":target,"created":created,
+                "total":self.learning_gate.stats().get("total",0),
+                "pending":self.learning_gate.stats().get("pending",0)}
+
     def learning_pending(self, limit=50):
         return self.learning_gate.pending(limit)
 
@@ -373,6 +407,15 @@ class IranRuntime:
         with self.learning_gate.bypass():
             if kind == "knowledge.add_fact": result=self.knowledge.add_fact(p["subject"],p["predicate"],p["object"],p.get("confidence",1.0),p.get("source","approved"))
             elif kind == "trusted_knowledge.bootstrap": result=self._apply_trusted_knowledge(proposal)
+            elif kind == "learning.goal_request":
+                p = dict(p)
+                result = self.self_directed_learning.create_goal(
+                    p.get("goal_topic", ""),
+                    gap="curriculum_request",
+                    objective=p.get("objective", ""),
+                    priority="medium",
+                    domain=p.get("domain", "general"),
+                )
             elif kind == "learning.record_experience":
                 result=self.learning.record(p["goal"],p["action"],p["result"],p["score"],p.get("intent","general"),p.get("strategy","default"),p.get("domain","general"),p.get("objective",""),p.get("expected_effect",""),p.get("signal_source",""),p.get("evidence",p.get("feedback","")))
                 self.learning.record_approved_lesson(p, proposal_id)
