@@ -11,6 +11,7 @@ from core.semantic_verifier import SemanticVerifier
 @dataclass
 class TurnTrace:
     user_text: str
+    cycle_id: str = ""
     intent: str = "general"
     topic: str = ""
     reference: str = ""
@@ -59,6 +60,7 @@ class CognitivePipeline:
         # Every route, including early deterministic routes, emits the same trace shape.
         trace = TurnTrace(
             user_text=text,
+            cycle_id=str(getattr(self.runtime.events, "current_turn_id", "system")),
             intent="general",
             topic=getattr(e.state, "current_topic", ""),
             memory_count=0,
@@ -360,7 +362,8 @@ class CognitivePipeline:
         e._update_frame(context, reference)
 
         trace = TurnTrace(
-            user_text=text, intent=context.intent, topic=e.state.current_topic,
+            user_text=text, cycle_id=str(getattr(self.runtime.events, "current_turn_id", "system")),
+            intent=context.intent, topic=e.state.current_topic,
             reference=reference, memory_count=len(memory), knowledge_count=len(knowledge),
             reasoning_status=getattr(chain_result, "status", "NOT_RUN"),
             answer_status=getattr(synthesis, "status", plan.answer_type),

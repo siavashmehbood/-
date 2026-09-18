@@ -2,6 +2,7 @@ from dataclasses import dataclass, field, asdict
 from datetime import datetime
 import json
 from pathlib import Path
+from core.state import CognitiveState
 
 
 @dataclass
@@ -16,21 +17,6 @@ class Observation:
     risk: float = 0.0
     timestamp: str = field(default_factory=lambda: datetime.now().isoformat(timespec="seconds"))
 
-
-@dataclass
-class CognitiveState:
-    cycle_id: int = 0
-    active_goal: str | None = None
-    observations: list[dict] = field(default_factory=list)
-    hypotheses: list[dict] = field(default_factory=list)
-    predictions: list[dict] = field(default_factory=list)
-    plan: dict = field(default_factory=dict)
-    decision: dict = field(default_factory=dict)
-    last_action: dict = field(default_factory=dict)
-    last_outcome: dict = field(default_factory=dict)
-    uncertainty: float = 1.0
-    status: str = "idle"
-    updated_at: str = field(default_factory=lambda: datetime.now().isoformat(timespec="seconds"))
 
 
 class AttentionManager:

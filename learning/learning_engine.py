@@ -1,4 +1,4 @@
-from dataclasses import asdict,dataclass
+from dataclasses import dataclass, asdict
 from pathlib import Path
 import json, math, re
 from datetime import datetime, timedelta
@@ -20,11 +20,26 @@ class LearningEngine:
 
     def _load(self):
         if self.path.exists():
-            try: self.experiences=json.loads(self.path.read_text(encoding='utf-8'))[-10000:]
+            try:
+                rows=json.loads(self.path.read_text(encoding='utf-8'))
+                if not isinstance(rows,list): rows=[]
+                seen=set(); kept=[]
+                for row in reversed(rows[-10000:]):
+                    key=self._stable_key(row)
+                    if key in seen: continue
+                    seen.add(key); kept.append(row)
+                self.experiences=list(reversed(kept))[-10000:]
+                if len(self.experiences)!=len(rows[-10000:]): self._save()
             except Exception: self.experiences=[]
 
     def _save(self):
         tmp=self.path.with_suffix('.tmp'); tmp.write_text(json.dumps(self.experiences,ensure_ascii=False,indent=2),encoding='utf-8'); tmp.replace(self.path)
+
+    @staticmethod
+    def _stable_key(row):
+        def norm(v): return re.sub(r'\s+', ' ', str(v or '').strip().lower())
+        return (norm(row.get('goal')), norm(row.get('action')), norm(row.get('result'))[:250],
+                norm(row.get('intent','general')), norm(row.get('strategy','default')), norm(row.get('domain','general')))
 
     def _load_rules(self):
         if self.rules_path.exists():
@@ -64,14 +79,17 @@ class LearningEngine:
                     and payload.get('result') == item.result and payload.get('strategy') == item.strategy
                     and payload.get('domain') == item.domain and row.get('status') in {'pending', 'approved'}):
                     return dict(row)
-        if self.gate is not None:
+        if self.gate is not None and not self.gate.bypassed:
+            stable=self._stable_key(asdict(item))
+            for row in self.gate.history(5000):
+                if row.get('kind')!='learning.record_experience': continue
+                payload=row.get('payload') or {}
+                if self._stable_key(payload)==stable and row.get('status') in {'pending','approved'}:
+                    return dict(row) if row.get('status')=='pending' else None
             proposal=self.gate.request('learning.record_experience',asdict(item), f'یادگیری جدید درباره «{goal}»')
             if proposal is not None: return proposal
-            # None outside the explicit bypass means this exact approved learning
-            # already exists; do not silently commit it a second time.
-            if not self.gate.bypassed: return None
         # Avoid storing exact duplicate traces repeatedly.
-        duplicate=next((r for r in reversed(self.experiences[-80:]) if r.get('goal')==item.goal and r.get('action')==item.action and r.get('result','')[:250]==item.result[:250]),None)
+        duplicate=next((r for r in reversed(self.experiences[-80:]) if self._stable_key(r)==self._stable_key(asdict(item))),None)
         if duplicate:
             duplicate['score']=round((float(duplicate.get('score',0))+score)/2,4); duplicate['time']=item.time
         else: self.experiences.append(asdict(item))
@@ -162,12 +180,20 @@ class LearningEngine:
     def learn_from_experience(self,row):
         """Automatically generalize repeated outcomes into durable rules."""
         goal=row.get('goal',''); intent=row.get('intent','general'); domain=row.get('domain','general'); strategy=row.get('strategy','default'); score=float(row.get('score',0))
-        related=[r for r in self.experiences if r.get('intent')==intent and r.get('domain')==domain and r.get('strategy')==strategy and self._similar(goal,r.get('goal',''))>=.18]
+        related=[r for r in self.experiences if r.get('intent')==intent and r.get('domain')==domain and self._similar(goal,r.get('goal',''))>=.18]
         if len(related)<2: return None
-        mean=sum(float(r.get('score',0)) for r in related)/len(related)
+        strategy_rows=[r for r in related if r.get('strategy')==strategy]
+        evidence_rows=strategy_rows if len(strategy_rows)>=2 else related
+        mean=sum(float(r.get('score',0)) for r in evidence_rows)/len(evidence_rows)
         kind='success' if mean>=.75 else 'failure' if mean<.55 else 'mixed'
-        rule_text=(f'برای هدف‌های مشابه، راهبرد «{strategy}» معمولاً موفق است.' if kind=='success' else f'برای هدف‌های مشابه، راهبرد «{strategy}» معمولاً نیاز به تغییر و شواهد بیشتر دارد.' if kind=='failure' else f'برای هدف‌های مشابه، نتیجهٔ راهبرد «{strategy}» متغیر است؛ قبل از اقدام شواهد بیشتری جمع کن.')
-        confidence=min(.95,.45+len(related)*.04+abs(mean-.5)*.35)
+        if len(strategy_rows)>=2:
+            rule_text=(f'برای هدف‌های مشابه، راهبرد «{strategy}» معمولاً موفق است.' if kind=='success' else f'برای هدف‌های مشابه، راهبرد «{strategy}» معمولاً نیاز به تغییر و شواهد بیشتر دارد.' if kind=='failure' else f'برای هدف‌های مشابه، نتیجهٔ راهبرد «{strategy}» متغیر است؛ قبل از اقدام شواهد بیشتری جمع کن.')
+        else:
+            best=max(related,key=lambda r: float(r.get('score',0)))
+            best_strategy=str(best.get('strategy','default'))
+            rule_text=f'برای هدف‌های مشابه، شواهد فعلی راهبرد «{best_strategy}» را نسبت به گزینه‌های دیگر ترجیح می‌دهد؛ نتیجه را مستقل بررسی کن.'
+            strategy=strategy or best_strategy
+        confidence=min(.95,.45+len(evidence_rows)*.04+abs(mean-.5)*.35)
         existing=next((r for r in self.rules if r.get('intent')==intent and r.get('domain')==domain and r.get('strategy')==strategy),None)
         payload={'rule':rule_text,'intent':intent,'domain':domain,'strategy':strategy,'samples':len(related),'mean_score':round(mean,3),'confidence':round(confidence,3),'updated_at':datetime.now().isoformat(timespec='seconds')}
         if existing: existing.update(payload)

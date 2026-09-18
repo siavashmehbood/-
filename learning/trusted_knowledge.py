@@ -1,4 +1,4 @@
-﻿"""Deterministic trusted-knowledge bootstrap for local IRAN.
+"""Deterministic trusted-knowledge bootstrap for local IRAN.
 
 No web access, model, embeddings, or external service is used here. The caller
 provides source text; this module only evaluates relevance, source independence,

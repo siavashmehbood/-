@@ -1,20 +1,6 @@
-from dataclasses import dataclass, field
 from core.language_engine import PersianLanguageEngine
 from core.semantic import LocalSemanticModel
-
-@dataclass
-class CognitiveState:
-    intent: str
-    goal: str
-    entities: list[str] = field(default_factory=list)
-    constraints: list[str] = field(default_factory=list)
-    needs_tools: bool = False
-    confidence: float = 0.0
-    questions: list[str] = field(default_factory=list)
-    temporal: list[str] = field(default_factory=list)
-    hypotheses: list[str] = field(default_factory=list)
-    domains: list[str] = field(default_factory=list)
-    semantic_features: dict[str,float] = field(default_factory=dict)
+from core.state import CognitiveState
 
 class CognitiveEngine:
     """Structured cognition with local semantic features and uncertainty."""

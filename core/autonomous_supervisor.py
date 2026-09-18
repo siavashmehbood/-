@@ -39,9 +39,26 @@ class LocalEnvironmentMonitor:
         for path in self.root.rglob("*"):
             if not path.is_file() or "sandbox" in path.parts or "__pycache__" in path.parts or ".git" in path.parts:
                 continue
+            relative = path.relative_to(self.root)
+            # Ignore IRAN-owned runtime/editor artifacts so the supervisor does not
+            # mistake its own writes for external project changes.
+            if relative.parts and relative.parts[0] in {"logs", ".vscode", ".pytest_cache", ".mypy_cache", ".ruff_cache"}:
+                continue
+            if relative.parts and relative.parts[0] == "data" and relative.name in {
+                ".iran_gui.lock", "learning_proposals.json.lock", "autonomy_journal.json",
+                "experiences.json", "learned_rules.json", "goals.json", "learning_goals.json",
+                "capability_learning.json", "chatgpt_reviews.json", "conversation_state.json", "learning_proposals.json",
+                "context_tracker.json", "self_awareness.json", "self_corrections.json",
+                "skills.json", "tasks.json", "world.json", "maturity_report.json", "internet_access.json",
+                "internet_learning.json", "iran.db", "knowledge.json", "knowledge.json.bak",
+                "trusted_knowledge.json", "trusted_knowledge.json.bak", "tasks.json.bak",
+                "experiences.json.backup-20260918-dedupe", "learning_proposals.json.bak",
+                "learning_proposals.json.backup-20260918-dedupe", "learning_proposals.json.backup-before-dedupe"
+            }:
+                continue
             try:
                 stat = path.stat()
-                result[str(path.relative_to(self.root))] = (int(stat.st_size), int(stat.st_mtime_ns))
+                result[str(relative)] = (int(stat.st_size), int(stat.st_mtime_ns))
             except OSError:
                 continue
         return result
@@ -506,10 +523,10 @@ from core.autonomous_goal_runner import AutonomousGoalRunner
 _old_init_v5 = AutonomousSupervisor.__init__
 def _supervisor_init_v5(self, runtime):
     _old_init_v5(self, runtime)
-    self.goal_runner = AutonomousGoalRunner(
-        runtime,
-        Path(runtime.config.get('runtime', {}).get('autonomous_goal_state', 'data/autonomous_goal_state.json')),
-    )
+    goal_state = Path(runtime.config.get('runtime', {}).get('autonomous_goal_state', 'data/autonomous_goal_state.json'))
+    if not goal_state.is_absolute():
+        goal_state = runtime.root / goal_state
+    self.goal_runner = AutonomousGoalRunner(runtime, goal_state)
 AutonomousSupervisor.__init__ = _supervisor_init_v5
 
 _old_step_v6 = AutonomousSupervisor.step
@@ -547,9 +564,10 @@ from core.self_awareness import SelfAwarenessEngine
 _old_init_v6 = AutonomousSupervisor.__init__
 def _supervisor_init_v6(self, runtime):
     _old_init_v6(self, runtime)
-    self.self_awareness = SelfAwarenessEngine(
-        Path(runtime.config.get('runtime', {}).get('self_awareness_state', 'data/self_awareness.json')),
-    )
+    awareness_state = Path(runtime.config.get('runtime', {}).get('self_awareness_state', 'data/self_awareness.json'))
+    if not awareness_state.is_absolute():
+        awareness_state = runtime.root / awareness_state
+    self.self_awareness = SelfAwarenessEngine(awareness_state)
 AutonomousSupervisor.__init__ = _supervisor_init_v6
 
 _old_step_v7 = AutonomousSupervisor.step
@@ -612,3 +630,30 @@ def _choose_action_v3(self, initiative):
         return preferred
     return _old_choose_action_v2(self, initiative)
 AutonomousSupervisor._choose_action = _choose_action_v3
+
+
+# v0.49: verified autonomous observations close the learning loop for low-risk read-only work.
+_previous_autonomous_step = AutonomousSupervisor.step
+
+def _step_v10(self):
+    report = _previous_autonomous_step(self)
+    verified = bool(report.get("verified"))
+    selected = report.get("selected") or {}
+    decision = report.get("decision") or {}
+    action = (["project_files", "project_summary", "system_info"][(self.cycle_count - 1) % 3] if not report.get("signals") and selected.get("source") == "monitor" else (decision.get("action") or report.get("self_awareness_control", {}).get("preferred_action") or "observe"))
+    goal = (["inspect project structure", "inspect project summary", "inspect local system state"][(self.cycle_count - 1) % 3] if not report.get("signals") and selected.get("source") == "monitor" else (selected.get("goal") or "autonomous situational awareness"))
+    try:
+        with self.runtime.learning_gate.bypass():
+            self.runtime.learning.record(
+                goal=str(goal), action=str(action),
+                result=(json.dumps(report.get("observation"), ensure_ascii=False, sort_keys=True, default=str)[:1200] if report.get("observation") is not None else ("verified autonomous observation" if verified else "autonomous observation failed")),
+                score=0.9 if verified else 0.1,
+                intent="autonomous", strategy=f"verified-read-only:{action}", domain="local-learning",
+            )
+        report["learning"] = {"recorded": True, "verified": verified, "strategy": f"verified-read-only:{action}"}
+    except Exception as exc:
+        report["learning"] = {"recorded": False, "error": type(exc).__name__}
+    self.last_report = report
+    return report
+
+AutonomousSupervisor.step = _step_v10

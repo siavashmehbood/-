@@ -29,6 +29,13 @@ from language_intelligence import PersianIntelligence
 from memory.store import Memory
 from knowledge.knowledge_graph import KnowledgeGraph
 from learning.learning_engine import LearningEngine
+from learning.generalizer import GeneralizationEngine
+from learning.replay import ExperienceReplay
+from learning.versioning import BrainVersionStore
+from memory.error import ErrorMemory
+from memory.consolidation import MemoryConsolidator
+from core.meta_reasoner import MetaReasoner
+from evaluation.regression import RegressionGate
 from learning.self_directed import SelfDirectedLearning
 from learning.trusted_knowledge import TrustedKnowledgeBootstrap
 from learning.procedural_memory import ProceduralMemory
@@ -77,6 +84,13 @@ class IranRuntime:
         self.world = WorldModel(self.root / "data/world.json")
         self.knowledge = KnowledgeGraph(self.root / "data/knowledge.json", gate=self.learning_gate)
         self.learning = LearningEngine(self.root / "data/experiences.json", gate=self.learning_gate)
+        self.generalizer = GeneralizationEngine(self.learning)
+        self.replay = ExperienceReplay(self.learning)
+        self.error_memory = ErrorMemory(self.root / "data/error_memory.json")
+        self.version_store = BrainVersionStore(self.root / "data/brain_versions.json")
+        self.memory_consolidator = MemoryConsolidator(self.memory)
+        self.meta_reasoner = MetaReasoner()
+        self.regression_gate = RegressionGate(self.root / "data/regression_gate.json")
         self.prediction = PredictionEngine(self.root / "data/predictions.json")
         self.anomaly = AnomalyDetector()
         self.kernel = CognitiveKernel(self.memory, self.world, self.knowledge,
@@ -112,6 +126,8 @@ class IranRuntime:
             self.agent, self.memory, self.events, self.registry, self.policy,
             self.goals, self.evaluator)
         self.orchestrator._user_model = self.user_model
+        self.orchestrator.planner.learning = self.learning
+        self.orchestrator.planner.generalizer = self.generalizer
         self.agent._user_model = self.user_model
         self.kernel.outcome_learning = self.outcome_learning
         self.kernel.skill_system = self.skills
@@ -309,6 +325,19 @@ class IranRuntime:
         self.events.emit("learning_approved",{"proposal_id":proposal_id,"kind":kind})
         return {"ok":True,"proposal":decision,"result":result}
 
+    def approve_all_learning(self, limit=5000):
+        rows=self.learning_gate.pending(limit)
+        results=[]
+        skipped=[]
+        for row in rows:
+            try:
+                result=self.approve_learning(row.get("proposal_id"))
+                if result.get("ok"): results.append(result)
+                else: skipped.append({"proposal_id":row.get("proposal_id"),"reason":result.get("reason")})
+            except Exception as exc:
+                skipped.append({"proposal_id":row.get("proposal_id"),"reason":str(exc)})
+        return {"ok":True,"approved":len(results),"skipped":skipped,"remaining":self.learning_gate.stats().get("pending",0)}
+
     def reject_learning(self, proposal_id):
         result=self.learning_gate.decide(proposal_id,"rejected")
         if result is None: return {"ok":False,"reason":"proposal_not_found"}
@@ -319,7 +348,30 @@ class IranRuntime:
         return self.brain.health()
 
     def metrics(self):
-        return self.orchestrator.metrics.snapshot()
+        metrics = self.orchestrator.metrics.snapshot()
+        outcomes = list(getattr(self.outcome_learning, "records", []) or [])
+        verified = [row for row in outcomes if row.get("verified")]
+        failed = [row for row in outcomes if not row.get("verified") or float(row.get("score", 0)) < .55]
+        cap = self.capability_learning.status() if getattr(self, "capability_learning", None) else {}
+        skills = list(getattr(self.skills, "skills", []) or [])
+        executions = sum(int(row.get("execution_count", 0)) for row in skills)
+        reuse_success = sum(int(row.get("successful_execution_count", 0)) for row in skills)
+        duplicate_keys = [(row.get("goal"), row.get("action"), str(row.get("result", ""))[:250]) for row in outcomes]
+        duplicate_rate = 1 - (len(set(duplicate_keys)) / len(duplicate_keys)) if duplicate_keys else 0.0
+        metrics.update({
+            "learning_attempts": len(outcomes) + int(cap.get("experiments", 0)),
+            "verified_learning": len(verified),
+            "failed_learning": len(failed) + int(cap.get("failures", 0)),
+            "repair_success_rate": round(max(0, int(cap.get("repairs", 0)) - int(cap.get("failures", 0))) / max(1, int(cap.get("repairs", 0))), 3),
+            "transfer_success_rate": round(int(cap.get("transfers", 0)) / max(1, int(cap.get("successes", 0))), 3),
+            "generalization_rate": round(int(cap.get("transfers", 0)) / max(1, int(cap.get("skills_promoted", 0))), 3),
+            "skill_reuse_success": round(reuse_success / max(1, executions), 3),
+            "skill_regression_rate": round(sum(int(row.get("failed_execution_count", 0)) for row in skills) / max(1, executions), 3),
+            "knowledge_to_skill_rate": round(int(cap.get("skills_promoted", 0)) / max(1, int(cap.get("successes", 0))), 3),
+            "duplicate_learning_rate": round(duplicate_rate, 3),
+            "source_agreement_rate": round(sum(1 for row in outcomes if row.get("verification_source")) / max(1, len(outcomes)), 3),
+        })
+        return metrics
 
     def cognitive_snapshot(self, text):
         # Snapshot is observational: execute exactly one canonical turn, then read its state.
@@ -339,6 +391,10 @@ class IranRuntime:
     def roadmap_benchmark(self):
         from self.roadmap_benchmark import PersianRoadmapBenchmark
         return PersianRoadmapBenchmark().run(self)
+
+    def scenario_benchmark(self, limit=None):
+        from self.scenario_benchmark import PersianScenarioBenchmark
+        return PersianScenarioBenchmark().run(self, limit=limit)
 
     def evaluate(self):
         return {"compile": self.evaluator.compile_all(), "benchmark": self.benchmark_run(),

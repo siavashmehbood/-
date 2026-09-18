@@ -46,3 +46,29 @@ class CognitiveBrainContractTests(unittest.TestCase):
                 self.assertIn(key, components)
         finally:
             runtime.close()
+
+    def test_runtime_exposes_learning_metrics(self):
+        runtime = self.make_runtime()
+        try:
+            metrics = runtime.metrics()
+            required = (
+                "learning_attempts", "verified_learning", "failed_learning",
+                "repair_success_rate", "transfer_success_rate", "generalization_rate",
+                "skill_reuse_success", "skill_regression_rate", "knowledge_to_skill_rate",
+                "duplicate_learning_rate", "source_agreement_rate",
+            )
+            for key in required:
+                self.assertIn(key, metrics)
+        finally:
+            runtime.close()
+
+    def test_trace_has_cycle_id(self):
+        runtime = self.make_runtime()
+        try:
+            runtime.handle("یک سؤال محلی")
+            trace = runtime.cognitive_system.last_trace
+            self.assertTrue(trace.cycle_id)
+            recent = runtime.events.recent(20)
+            self.assertIn(trace.cycle_id, {row.get("turn_id") for row in recent})
+        finally:
+            runtime.close()
