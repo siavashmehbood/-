@@ -204,6 +204,7 @@ class CognitiveContext:
     confidence: float = 0.0
     intent: str = "general"
     correction: str = ""
+    learning_guidance: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -294,6 +295,17 @@ class AnswerPlanner:
         elif context.uncertainty >= .75: answer_type = "UNKNOWN"
         else: answer_type = qtype.upper()
         steps = ["answer_directly", "ground_in_evidence", "state_uncertainty"]
+        guidance = context.learning_guidance or {}
+        strategy = str(guidance.get("recommended_strategy", "")).lower()
+        # Learning must alter the next turn, not merely be displayed as a statistic.
+        if strategy == "feedback":
+            steps.insert(0, "address_previous_feedback")
+        elif strategy == "conversation":
+            steps.insert(0, "preserve_conversation_context")
+        elif strategy in {"evidence-first", "evidence_first"}:
+            steps.insert(1, "prefer_local_evidence_before_claims")
+        if guidance.get("failure_signal"):
+            steps.insert(0, "avoid_recent_failed_pattern")
         if len(units) > 1: steps.insert(1, "cover_all_question_units")
         return AnswerPlan(units, True, answer_type, next(iter(context.references.values()), ""),
                           context.evidence[:8], steps, context.uncertainty)
@@ -526,6 +538,17 @@ class LocalDialogueEngine:
             intent=parsed.get("intent", "general"),
             correction=clean_text if is_correction(clean_text) else "",
         )
+        # Retrieve learned guidance before planning so persisted experience changes
+        # the actual response strategy on the next turn.
+        try:
+            adaptation = self.runtime.learning.adapt(
+                clean_text, context.intent, "dialogue"
+            )
+            context.learning_guidance = adaptation or {}
+            failures = self.runtime.learning.failure_patterns(6)
+            context.learning_guidance["failure_signal"] = bool(failures)
+        except Exception:
+            context.learning_guidance = {}
         plan = self.planner.plan(context)
         answer = self._direct_answer(context)
         verification = self.verifier.verify(context, answer, plan)
@@ -565,7 +588,16 @@ class LocalDialogueEngine:
         except Exception:
             pass
         try:
-            self.runtime.learning.record(user_text, "respond", answer, verification.score, context.intent, "conversation", "dialogue")
+            # Explicit corrections are stronger learning signals than the
+            # verifier's self-score: they teach the system what to change next.
+            if is_correction(user_text):
+                self.runtime.learning.update_from_feedback(
+                    user_text, user_text, context.intent, "dialogue"
+                )
+            self.runtime.learning.record(
+                user_text, "respond", answer, verification.score,
+                context.intent, "conversation", "dialogue"
+            )
         except Exception:
             pass
 
