@@ -53,3 +53,18 @@ def test_dialogue_pipeline_import_is_lazy():
     source = Path("core/dialogue.py").read_text(encoding="utf-8")
     assert "from core.cognitive_pipeline import CognitivePipeline" in source
     assert "def _canonical_pipeline_handle(self, text):\n    from core.cognitive_pipeline import CognitivePipeline" in source
+
+
+def test_architecture_contract_has_one_decision_owner():
+    from core.cognitive_system import CognitiveSystem
+    contract = CognitiveSystem.architecture_contract(None)
+    assert contract["decision_owner"] == "CognitiveSystem"
+    assert contract["parallel_decision_paths"] is False
+    assert all(v == "compatibility facade" or v == "compatibility/input facade"
+               for v in contract["legacy_components"].values())
+
+
+def test_runtime_public_ingress_is_cognitive_system():
+    from pathlib import Path
+    source = Path("runtime/app.py").read_text(encoding="utf-8")
+    assert "return self.cognitive_system.dispatch(text)" in source
