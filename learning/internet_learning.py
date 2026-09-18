@@ -140,6 +140,14 @@ class InternetLearningEngine:
                 item["source_id"] = hashlib.sha256(url.encode()).hexdigest()[:12]
                 item["confidence"] = .72
                 sources.append(item)
+                # Feed raw online evidence through the same unified ingress as every other source.
+                try:
+                    self.runtime.input_fabric.ingest(
+                        item.get("text", ""), source="web", input_type="web_page",
+                        domain="", provenance={"url": url, "title": item.get("title", ""), "source_id": item["source_id"]},
+                        confidence=item["confidence"], create_goal=True)
+                except Exception:
+                    pass
             except Exception as exc:
                 errors.append({"url": url, "error": str(exc)[:300]})
 
