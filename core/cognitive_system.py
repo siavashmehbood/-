@@ -141,8 +141,8 @@ class CognitiveSystem:
                 if gate is not None:
                     proposal = gate.request(
                         "learning.record_experience",
-                        {"goal": goal, "action": "user_feedback", "result": str(text)[:4000],
-                         "score": 0.98, "signal_source": "user_correction", "intent": str(intent),
+                        {"goal": goal, "action": "explicit-feedback", "result": str(previous or text)[:4000],
+                         "score": 0.98, "signal_source": "user_correction", "evidence": str(text)[:1000], "intent": str(intent),
                          "strategy": "feedback", "domain": "conversation"},
                         f"بازخورد مستقیم کاربر: {goal}")
                     if proposal is not None:

@@ -333,7 +333,7 @@ class IranRuntime:
         with self.learning_gate.bypass():
             if kind == "knowledge.add_fact": result=self.knowledge.add_fact(p["subject"],p["predicate"],p["object"],p.get("confidence",1.0),p.get("source","approved"))
             elif kind == "trusted_knowledge.bootstrap": result=self._apply_trusted_knowledge(proposal)
-            elif kind == "learning.record_experience": result=self.learning.record(p["goal"],p["action"],p["result"],p["score"],p.get("intent","general"),p.get("strategy","default"),p.get("domain","general"))
+            elif kind == "learning.record_experience": result=self.learning.record(p["goal"],p["action"],p["result"],p["score"],p.get("intent","general"),p.get("strategy","default"),p.get("domain","general"),p.get("objective",""),p.get("expected_effect",""),p.get("signal_source",""),p.get("evidence",p.get("feedback","")))
             elif kind == "outcome.record": result=self._apply_approved_outcome(p)
             elif kind == "memory.add_semantic_fact": result=self.memory.add_semantic_fact(p["subject"],p["predicate"],p["value"],p.get("confidence",.65),p.get("source","approved"))
             elif kind == "memory.add_lesson": result=self.memory.add_lesson(p["goal"],p["lesson"],p.get("confidence",.6),p.get("source","approved"))

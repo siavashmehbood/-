@@ -8,7 +8,7 @@ from collections import defaultdict, Counter
 class Experience:
     goal:str; action:str; result:str; score:float; lesson:str; time:str
     intent:str='general'; strategy:str='default'; domain:str='general'
-    objective:str=''; expected_effect:str=''
+    objective:str=''; expected_effect:str=''; signal_source:str=''; evidence:str=''
 
 class LearningEngine:
     """Continual local learning: experiences -> patterns -> rules -> strategy priors.
@@ -64,9 +64,9 @@ class LearningEngine:
         return 'این راهبرد نتیجه کافی نداده است؛ باید علت خطا جدا شود و یک روش جایگزین آزمایش شود.'
 
 
-    def record(self,goal,action,result,score,intent='general',strategy='default',domain='general',objective='',expected_effect=''):
+    def record(self,goal,action,result,score,intent='general',strategy='default',domain='general',objective='',expected_effect='',signal_source='',evidence=''):
         score=max(0,min(1,float(score)))
-        item=Experience(str(goal),str(action),str(result)[:4000],score,self._lesson_for(score),datetime.now().isoformat(timespec='seconds'),intent,strategy,domain,str(objective).strip(),str(expected_effect).strip())
+        item=Experience(str(goal),str(action),str(result)[:4000],score,self._lesson_for(score),datetime.now().isoformat(timespec='seconds'),intent,strategy,domain,str(objective).strip(),str(expected_effect).strip(),str(signal_source).strip(),str(evidence).strip()[:1000])
         # Purpose gate: autonomous learning must have a concrete objective and verified success.
         # Routine observation is not learning; it only becomes learning when it produces a
         # reusable change/effect worth carrying into a future decision.
