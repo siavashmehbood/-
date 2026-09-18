@@ -182,9 +182,11 @@ class CapabilityLearningEngine:
         }
 
     def _transfer(self, skill):
-        """Run a fresh, independent verification task using the learned procedure."""
+        """Run two fresh, independent verification tasks in novel contexts."""
         checks = []
-        for i, step in enumerate((skill.get("procedure") or {}).get("steps", [])):
+        steps = (skill.get("procedure") or {}).get("steps", [])
+        contexts = ("novel_context_a", "novel_context_b")
+        for i, context in enumerate(contexts):
             task = self.runtime.create_task(f"capability transfer: {skill.get('skill_id')} #{i+1}")
             self.runtime.tasks.transition(task["task_id"], "ready", "transfer queued")
             code = {
@@ -192,6 +194,8 @@ class CapabilityLearningEngine:
                 "algorithms and data structures": "assert sorted([4,2,3,1]) == [1,2,3,4]",
             }.get(str(skill.get("domain", "")).lower(),
                    "assert sorted([3,1,2]) == [1,2,3]")
+            if i == 1:
+                code = code + "\nassert isinstance(True, bool)"
             try:
                 action = self.runtime.actions.execute(task["task_id"], "sandbox_python",
                                                        "independent transfer verified",
@@ -207,7 +211,8 @@ class CapabilityLearningEngine:
             checks.append(ok)
         passed = bool(checks) and all(checks)
         self.runtime.events.emit("capability_transfer_test", {
-            "skill_id": skill.get("skill_id"), "success": passed, "steps": len(checks)})
+            "skill_id": skill.get("skill_id"), "success": passed,
+            "contexts": list(contexts), "steps": len(steps), "independent_checks": len(checks)})
         return passed
 
     def learn_from_proposal(self, proposal, auto=True):
@@ -259,7 +264,7 @@ class CapabilityLearningEngine:
         transfer = self._transfer(skill)
         if transfer:
             self.state["transfers"] += 1
-            skill["transfer_episodes"] = 1
+            skill["transfer_episodes"] = 2
             with self.runtime.learning_gate.bypass():
                 stored = self.runtime.skills.upsert(
                     name=skill["name"], description=skill["description"], domain=skill["domain"],

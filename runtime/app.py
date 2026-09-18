@@ -319,7 +319,30 @@ class IranRuntime:
         return self.brain.health()
 
     def metrics(self):
-        return self.orchestrator.metrics.snapshot()
+        metrics = self.orchestrator.metrics.snapshot()
+        outcomes = list(getattr(self.outcome_learning, "records", []) or [])
+        verified = [row for row in outcomes if row.get("verified")]
+        failed = [row for row in outcomes if not row.get("verified") or float(row.get("score", 0)) < .55]
+        cap = self.capability_learning.status() if getattr(self, "capability_learning", None) else {}
+        skills = list(getattr(self.skills, "skills", []) or [])
+        executions = sum(int(row.get("execution_count", 0)) for row in skills)
+        reuse_success = sum(int(row.get("successful_execution_count", 0)) for row in skills)
+        duplicate_keys = [(row.get("goal"), row.get("action"), str(row.get("result", ""))[:250]) for row in outcomes]
+        duplicate_rate = 1 - (len(set(duplicate_keys)) / len(duplicate_keys)) if duplicate_keys else 0.0
+        metrics.update({
+            "learning_attempts": len(outcomes) + int(cap.get("experiments", 0)),
+            "verified_learning": len(verified),
+            "failed_learning": len(failed) + int(cap.get("failures", 0)),
+            "repair_success_rate": round(max(0, int(cap.get("repairs", 0)) - int(cap.get("failures", 0))) / max(1, int(cap.get("repairs", 0))), 3),
+            "transfer_success_rate": round(int(cap.get("transfers", 0)) / max(1, int(cap.get("successes", 0))), 3),
+            "generalization_rate": round(int(cap.get("transfers", 0)) / max(1, int(cap.get("skills_promoted", 0))), 3),
+            "skill_reuse_success": round(reuse_success / max(1, executions), 3),
+            "skill_regression_rate": round(sum(int(row.get("failed_execution_count", 0)) for row in skills) / max(1, executions), 3),
+            "knowledge_to_skill_rate": round(int(cap.get("skills_promoted", 0)) / max(1, int(cap.get("successes", 0))), 3),
+            "duplicate_learning_rate": round(duplicate_rate, 3),
+            "source_agreement_rate": round(sum(1 for row in outcomes if row.get("verification_source")) / max(1, len(outcomes)), 3),
+        })
+        return metrics
 
     def cognitive_snapshot(self, text):
         # Snapshot is observational: execute exactly one canonical turn, then read its state.
@@ -339,6 +362,10 @@ class IranRuntime:
     def roadmap_benchmark(self):
         from self.roadmap_benchmark import PersianRoadmapBenchmark
         return PersianRoadmapBenchmark().run(self)
+
+    def scenario_benchmark(self, limit=None):
+        from self.scenario_benchmark import PersianScenarioBenchmark
+        return PersianScenarioBenchmark().run(self, limit=limit)
 
     def evaluate(self):
         return {"compile": self.evaluator.compile_all(), "benchmark": self.benchmark_run(),
