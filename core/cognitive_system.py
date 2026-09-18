@@ -232,7 +232,6 @@ class CognitiveSystem:
         self.last_answer = ""
         self.last_trace = None
         self.last_output = {}
-        self.last_output = {}
 
     def architecture_contract(self) -> dict:
         """Expose the canonical order used by the integrated turn."""
@@ -250,4 +249,13 @@ class CognitiveSystem:
             "autonomy": "AutonomousSupervisor / AutonomousController",
             "improvement": "SelfImprovementLoop with sandbox/rollback",
             "entrypoint": "CognitiveSystem.turn",
+            "legacy_components": {
+                "Brain": "compatibility/input facade",
+                "CognitiveEngine": "compatibility facade",
+                "AdvancedCognitiveCore": "compatibility facade",
+                "CognitiveKernel": "compatibility facade",
+                "Orchestrator": "compatibility facade",
+            },
+            "decision_owner": "CognitiveSystem",
+            "parallel_decision_paths": False,
         }
