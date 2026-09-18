@@ -283,8 +283,9 @@ class IranRuntime:
         return self.orchestrator.metrics.snapshot()
 
     def cognitive_snapshot(self, text):
+        # Snapshot is observational: execute exactly one canonical turn, then read its state.
+        self.cognitive_system.turn(str(text))
         output = self.cognitive_system.unified_output()
-        output["canonical_turn"] = self.cognitive_system.turn(str(text))
         output["world"] = self.world.snapshot()
         output["knowledge"] = self.knowledge.stats()
         output["learning"] = self.learning.stats()
