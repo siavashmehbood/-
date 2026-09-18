@@ -139,12 +139,16 @@ class SelfDirectedLearning:
     def seed_curriculum(self, priority="medium"):
         """Create durable learning goals for broad foundational study without inventing facts."""
         created = []
+        seen_ids = set()
         for domain, topics in self.CURRICULUM.items():
             for topic in topics:
-                created.append(self.create_goal(
+                row = self.create_goal(
                     topic, gap="curriculum_topic_not_yet_verified",
                     objective=f"build_verified_understanding_of:{topic}",
-                    priority=priority, domain=domain))
+                    priority=priority, domain=domain)
+                if row["goal_id"] not in seen_ids:
+                    seen_ids.add(row["goal_id"])
+                    created.append(row)
         return created
 
     @staticmethod

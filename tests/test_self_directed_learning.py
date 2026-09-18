@@ -52,3 +52,32 @@ def test_goal_outcome_is_persisted(tmp_path):
     restored = SelfDirectedLearning(path)
     assert restored.snapshot()["count"] == 1
     assert restored.snapshot()["goals"][0]["success_count"] == 1
+
+
+def test_foundational_curriculum_is_broad_and_idempotent(tmp_path):
+    path = tmp_path / "goals.json"
+    s = SelfDirectedLearning(path)
+    first = s.seed_curriculum()
+    second = s.seed_curriculum()
+    assert len(first) >= 100
+    assert len(second) == len(first)
+    assert len({row["goal_id"] for row in first}) == len(first)
+    assert len(s.CURRICULUM) >= 20
+    required = {
+        "mathematics", "programming", "computer_science",
+        "artificial_intelligence", "english", "persian_literature",
+        "english_literature", "physics", "chemistry", "biology",
+    }
+    assert required.issubset(s.CURRICULUM)
+    assert sum(len(v) for v in s.CURRICULUM.values()) >= 120
+
+
+def test_curriculum_domain_detection_covers_core_subjects():
+    s = SelfDirectedLearning()
+    assert s.detect_domain("حل معادله درجه دوم") == "mathematics"
+    assert s.detect_domain("تابع پایتون") == "programming"
+    assert s.detect_domain("گرامر زبان انگلیسی") == "english"
+    assert s.detect_domain("تحلیل یک شعر انگلیسی") == "english_literature"
+    assert s.detect_domain("شبکه عصبی در هوش مصنوعی") == "artificial_intelligence"
+    assert s.detect_domain("واکنش شیمیایی") == "chemistry"
+    assert s.detect_domain("ژنتیک و سلول") == "biology"

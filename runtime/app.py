@@ -69,6 +69,10 @@ class IranRuntime:
         self.learning_gate = LearningGate(self.root / "data/learning_proposals.json")
         self.trusted_knowledge = TrustedKnowledgeBootstrap()
         self.self_directed_learning = SelfDirectedLearning(self.root / "data/learning_goals.json")
+        # Bootstrap the complete foundational curriculum once, idempotently.
+        # This creates learning targets, not knowledge; evidence still has to
+        # pass the relevance/verification gates before becoming durable knowledge.
+        self.self_directed_learning.seed_curriculum(priority="medium")
         self.trusted_knowledge_path = self.root / "data/trusted_knowledge.json"
         self.memory = Memory(self.root / self.config["memory"]["db"], gate=self.learning_gate)
         self.events = EventLog(self.root / self.config["runtime"]["event_log"])
@@ -274,15 +278,21 @@ class IranRuntime:
         return self.capability_learning.status()
 
     def learn_more(self, limit=5, topics=None):
-        """Autonomous bounded capability-learning batch; skips meta/context goals."""
-        defaults = [
-            "Python programming fundamentals", "algorithms and data structures",
-            "software testing and debugging", "computer systems fundamentals",
-            "information retrieval and source verification", "knowledge representation",
-            "planning and problem solving", "memory systems and learning",
-            "cybersecurity basics", "natural language processing fundamentals",
-        ]
-        candidates = [str(x).strip() for x in (topics or defaults) if str(x).strip()]
+        """Autonomous bounded learning batch across the foundational curriculum."""
+        if topics:
+            candidates = [str(x).strip() for x in topics if str(x).strip()]
+        else:
+            # Keep the curriculum as the source of truth and interleave domains,
+            # so a bounded autonomous batch samples breadth instead of taking
+            # the first N mathematics topics every time.
+            buckets = list(self.self_directed_learning.CURRICULUM.values())
+            candidates = []
+            width = max((len(bucket) for bucket in buckets), default=0)
+            for index in range(width):
+                for bucket in buckets:
+                    if index < len(bucket):
+                        candidates.append(bucket[index])
+        candidates = [str(x).strip() for x in candidates if str(x).strip()]
         meta = {"آخرین موضوع فعال چی بود", "ایران", "what was the last active topic"}
         selected=[]; seen=set()
         for topic in candidates:
