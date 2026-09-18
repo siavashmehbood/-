@@ -116,6 +116,7 @@ class ChatWindow(QMainWindow):
         buttons = [("حافظه", self.show_memory), ("ردیابی پاسخ", self.show_trace),
                    ("بازبینی ChatGPT", self.show_chatgpt_reviews),
                    ("آزمون بنچمارک", self.run_benchmark), ("بازبینی یادگیری", self.review_pending_learning),
+                   ("درس‌های یادگرفته‌شده", self.show_learned_lessons),
                    ("تایید همه یادگیری‌ها", self.approve_all_learning_ui),
                    ("تنظیمات", self.show_settings)]
         for text, fn in buttons:
@@ -251,6 +252,25 @@ class ChatWindow(QMainWindow):
         close.clicked.connect(d.reject)
         outer.addWidget(close)
         d.exec()
+
+    def show_learned_lessons(self):
+        try:
+            rows = self.runtime.learning.learned_lesson_rows(100)
+        except Exception as e:
+            QMessageBox.warning(self, "درس‌های یادگرفته‌شده", f"خطا: {e}")
+            return
+        d=QDialog(self); d.setWindowTitle(f"درس‌های یادگرفته‌شده — {len(rows)} مورد"); d.resize(1050,760); d.setLayoutDirection(Qt.RightToLeft)
+        l=QVBoxLayout(d)
+        l.addWidget(QLabel(f"درس‌های پایدار استخراج‌شده از تجربه‌های واقعی: {len(rows):,}"))
+        box=QPlainTextEdit(); box.setReadOnly(True)
+        if rows:
+            blocks=[]
+            for i,row in enumerate(rows,1):
+                blocks.append(f"درس {i}\nموضوع: {row.get('goal','')}\nعمل: {row.get('action','')}\nامتیاز: {row.get('score','')} | تکرار/شواهد: {row.get('samples',1)}\n\n{row.get('lesson','')}")
+            box.setPlainText("\n\n────────────────────\n\n".join(blocks))
+        else:
+            box.setPlainText("هنوز درس پایدار ثبت نشده است. ابتدا یک تجربه را تأیید کنید.")
+        l.addWidget(box,1); close=QPushButton("بستن"); close.clicked.connect(d.accept); l.addWidget(close); d.exec()
 
     def queue_chatgpt_review(self, answer):
         path = ROOT / "data" / "chatgpt_reviews.json"

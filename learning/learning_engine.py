@@ -17,7 +17,8 @@ class LearningEngine:
     def __init__(self,path,gate=None):
         self.path=Path(path); self.path.parent.mkdir(parents=True,exist_ok=True); self.gate=gate
         self.rules_path=self.path.with_name('learned_rules.json')
-        self.experiences=[]; self.rules=[]; self._load(); self._load_rules()
+        self.lessons_path=self.path.with_name('learned_lessons.json')
+        self.experiences=[]; self.rules=[]; self.learned_lessons=[]; self._load(); self._load_rules(); self._load_lessons()
 
     def _load(self):
         if self.path.exists():
@@ -46,6 +47,14 @@ class LearningEngine:
         if self.rules_path.exists():
             try: self.rules=json.loads(self.rules_path.read_text(encoding='utf-8'))[-2000:]
             except Exception: self.rules=[]
+
+    def _load_lessons(self):
+        if self.lessons_path.exists():
+            try: self.learned_lessons=json.loads(self.lessons_path.read_text(encoding='utf-8'))[-5000:]
+            except Exception: self.learned_lessons=[]
+
+    def _save_lessons(self):
+        tmp=self.lessons_path.with_suffix('.tmp'); tmp.write_text(json.dumps(self.learned_lessons,ensure_ascii=False,indent=2),encoding='utf-8'); tmp.replace(self.lessons_path)
 
     def _save_rules(self):
         tmp=self.rules_path.with_suffix('.tmp'); tmp.write_text(json.dumps(self.rules,ensure_ascii=False,indent=2),encoding='utf-8'); tmp.replace(self.rules_path)
@@ -103,8 +112,31 @@ class LearningEngine:
             duplicate['score']=round((float(duplicate.get('score',0))+score)/2,4); duplicate['time']=item.time
         else: self.experiences.append(asdict(item))
         self.experiences=self.experiences[-10000:]; self._save()
-        self.learn_from_experience(asdict(item))
-        return asdict(item)
+        row=asdict(item)
+        self.learn_from_experience(row)
+        self._record_lesson(row)
+        return row
+
+    def _record_lesson(self,row):
+        goal=str(row.get('goal','')).strip(); action=str(row.get('action','')).strip(); result=str(row.get('result','')).strip(); score=float(row.get('score',0))
+        if not goal or not action: return None
+        if score >= .75:
+            text=f'برای «{goal}»، اجرای «{action}» با این نتیجه ثبت شد: «{result[:240]}». این الگو در موقعیت‌های مشابه باید دوباره آزمایش و در صورت تأیید استفاده شود.'
+        elif score < .55:
+            text=f'برای «{goal}»، اجرای «{action}» نتیجه کافی نداد: «{result[:240]}». این مسیر نباید بدون اصلاح دوباره تکرار شود.'
+        else:
+            text=f'برای «{goal}»، نتیجه اجرای «{action}» قطعی نیست: «{result[:240]}». قبل از تعمیم، شواهد بیشتری لازم است.'
+        key=re.sub(r'\s+',' ',text).strip().lower()
+        existing=next((x for x in self.learned_lessons if x.get('key')==key),None)
+        if existing:
+            existing['samples']=int(existing.get('samples',1))+1; existing['last_seen']=row.get('time','')
+        else:
+            self.learned_lessons.append({'lesson':text,'goal':goal,'action':action,'score':round(score,3),'samples':1,'first_seen':row.get('time',''),'last_seen':row.get('time',''),'key':key})
+        self.learned_lessons=self.learned_lessons[-5000:]; self._save_lessons()
+        return text
+
+    def learned_lesson_rows(self,limit=20):
+        return list(reversed(self.learned_lessons[-int(limit):]))
 
     def _rows_for(self,goal,intent=None,domain=None):
         rows=[]
