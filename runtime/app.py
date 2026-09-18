@@ -216,11 +216,11 @@ class IranRuntime:
         }
         if not bundle["proposal_id"]:
             return {"stored": False, "reason": "missing_proposal_id"}
-        if any(r.get("proposal_id") == bundle["proposal_id"] for r in rows):
-            return {"stored": True, "duplicate": True, "proposal_id": bundle["proposal_id"]}
-        rows.append(bundle)
-        from persistence import atomic_write_json
-        atomic_write_json(path, rows[-1000:])
+        duplicate = any(r.get("proposal_id") == bundle["proposal_id"] for r in rows)
+        if not duplicate:
+            rows.append(bundle)
+            from persistence import atomic_write_json
+            atomic_write_json(path, rows[-1000:])
         for agreement in bundle["agreements"]:
             claim = str(agreement.get("claim", "")).strip()
             if not claim: continue
