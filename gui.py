@@ -1,5 +1,9 @@
-import sys, json, threading
+import sys, json, threading, atexit
 from datetime import datetime
+try:
+    import msvcrt
+except ImportError:
+    msvcrt = None
 from pathlib import Path
 import sys
 import threading
@@ -14,6 +18,32 @@ from PySide6.QtWidgets import (
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
 from runtime.app import IranRuntime
+
+_GUI_LOCK_HANDLE = None
+
+def _acquire_gui_lock():
+    global _GUI_LOCK_HANDLE
+    if msvcrt is None:
+        return True
+    lock_path = ROOT / "data" / ".iran_gui.lock"
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    handle = lock_path.open("a+")
+    try:
+        handle.seek(0)
+        msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+    except OSError:
+        handle.close()
+        return False
+    _GUI_LOCK_HANDLE = handle
+    def release():
+        try:
+            _GUI_LOCK_HANDLE.seek(0)
+            msvcrt.locking(_GUI_LOCK_HANDLE.fileno(), msvcrt.LK_UNLCK, 1)
+            _GUI_LOCK_HANDLE.close()
+        except Exception:
+            pass
+    atexit.register(release)
+    return True
 
 class Worker(QObject):
     done = Signal(str, float)
@@ -400,6 +430,8 @@ class ChatWindow(QMainWindow):
         z = QDialogButtonBox(QDialogButtonBox.Ok); z.accepted.connect(d.accept); l.addWidget(z); d.exec()
 
 if __name__ == "__main__":
+    if not _acquire_gui_lock():
+        sys.exit(0)
     app = QApplication(sys.argv); app.setLayoutDirection(Qt.RightToLeft); app.setFont(QFont("Tahoma", 10))
     app.setStyleSheet("""
     QWidget { background:#10151d; color:#e5e7eb; font-family:'Tahoma','Segoe UI','Arial'; font-size:10pt; }
