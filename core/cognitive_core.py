@@ -118,6 +118,9 @@ class AdvancedCognitiveCore:
         return plans.get(intent, ["understand", "retrieve context", "reason", "answer", "verify"])
 
     def begin(self, text):
+        canonical = getattr(self, "_canonical_system", None)
+        if canonical is not None:
+            return canonical.advanced_core_compat(text)
         self.turn += 1
         parsed = self._parse(text)
         evidence = self._memory(text) + self._graph(text)
