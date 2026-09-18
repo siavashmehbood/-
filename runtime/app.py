@@ -43,6 +43,7 @@ from learning.procedural_memory import ProceduralMemory
 from learning.skill_system import SkillSystem
 from learning.internet_learning import InternetLearningEngine
 from learning.capability_learning import CapabilityLearningEngine
+from learning.input_fabric import InputFabric
 from providers.factory import create_provider
 from runtime.events import EventLog
 from runtime.goals import GoalStore
@@ -126,6 +127,9 @@ class IranRuntime:
         self.user_model = UserModel(self.memory, self.knowledge, "IRAN", gate=self.learning_gate)
         self.internet_learning = InternetLearningEngine(self)
         self.capability_learning = CapabilityLearningEngine(self)
+        # Unified ingress: every learning-relevant input is normalized, classified,
+        # provenance-tagged and deduplicated before the cognitive system sees it.
+        self.input_fabric = InputFabric(self.root, runtime=self)
         self.language_intelligence = PersianIntelligence(self.brain.language)
         self.conversation_router = ConversationRouter(self)
         from core.orchestrator import Orchestrator
@@ -165,8 +169,20 @@ class IranRuntime:
                                             "verified_local_seed")
 
     def handle(self, text):
-        # One public ingress: the CognitiveSystem owns routing; runtime is infrastructure.
+        # One public ingress: capture the learning signal first, then route cognition.
+        self.input_fabric.ingest(text, source="user", input_type="conversation",
+                                 provenance={"channel": "runtime.handle"}, create_goal=True)
         return self.cognitive_system.dispatch(text)
+
+    def ingest_input(self, content, source="system", input_type="other", **kwargs):
+        """Public multi-source learning ingress for documents, web, code, feedback and experiments."""
+        return self.input_fabric.ingest(content, source=source, input_type=input_type, **kwargs)
+
+    def ingest_inputs(self, items, **kwargs):
+        return self.input_fabric.ingest_batch(items, **kwargs)
+
+    def input_fabric_status(self):
+        return self.input_fabric.stats()
 
     def _apply_approved_outcome(self, p):
         outcome=self.outcome_learning
