@@ -87,13 +87,65 @@ class SelfDirectedLearning:
     def detect_domain(cls, topic, evidence=""):
         text = f"{topic} {evidence}".lower()
         groups = {
-            "programming": ("python", "کد", "برنامه", "حلقه", "تابع", "متغیر", "programming"),
-            "mathematics": ("ریاضی", "معادله", "جبر", "هندسه", "عدد", "math", "equation"),
-            "language": ("زبان", "گرامر", "واژه", "دستور", "language", "grammar"),
-            "science": ("فیزیک", "شیمی", "زیست", "physics", "chemistry", "science"),
+            "programming": ("python", "پایتون", "کد", "برنامه", "حلقه", "تابع", "متغیر", "الگوریتم", "programming", "javascript", "java", "c++"),
+            "computer_science": ("علوم کامپیوتر", "ساختمان داده", "پایگاه داده", "سیستم عامل", "شبکه", "امنیت", "مهندسی نرم افزار", "data structure", "database", "operating system"),
+            "artificial_intelligence": ("هوش مصنوعی", "یادگیری ماشین", "یادگیری عمیق", "شبکه عصبی", "پردازش زبان", "بینایی ماشین", "ai", "machine learning", "deep learning"),
+            "mathematics": ("ریاضی", "معادله", "جبر", "هندسه", "حسابان", "احتمال", "آمار", "منطق", "عدد", "math", "equation", "algebra", "calculus", "statistics"),
+            "physics": ("فیزیک", "نیرو", "حرکت", "انرژی", "الکتریسیته", "مغناطیس", "مکانیک", "physics", "force", "energy"),
+            "chemistry": ("شیمی", "اتم", "مولکول", "واکنش", "عنصر", "جدول تناوبی", "chemistry", "atom", "molecule"),
+            "biology": ("زیست", "زیست شناسی", "سلول", "ژن", "ژنتیک", "تکامل", "بدن", "biology", "cell", "gene", "evolution"),
+            "persian_literature": ("ادبیات فارسی", "فارسی", "نثر فارسی", "غزل", "مثنوی", "شاهنامه", "حافظ", "سعدی"),
+            "english": ("انگلیسی", "english", "grammar", "vocabulary", "لغت", "گرامر", "مکالمه", "reading", "writing"),
+            "english_literature": ("ادبیات انگلیسی", "شعر انگلیسی", "رمان انگلیسی", "شعر", "رمان", "تحلیل متن", "english literature", "poetry", "novel"),
+            "arabic": ("عربی", "صرف", "نحو", "ترجمه عربی", "arabic"),
+            "history": ("تاریخ", "ایران باستان", "تمدن", "جنگ", "انقلاب", "history", "civilization"),
+            "geography": ("جغرافیا", "اقلیم", "جمعیت", "قاره", "کشور", "geography", "climate", "population"),
+            "earth_science": ("زمین شناسی", "کانی", "سنگ", "زمین ساخت", "earth science", "geology"),
+            "environmental_science": ("محیط زیست", "اکوسیستم", "آلودگی", "تغییر اقلیم", "environment", "ecology"),
+            "philosophy": ("فلسفه", "منطق فلسفی", "اخلاق", "هستی", "معرفت", "philosophy", "ethics", "epistemology"),
+            "psychology": ("روانشناسی", "شناخت", "رفتار", "یادگیری", "روان", "psychology", "behavior", "cognition"),
+            "sociology": ("جامعه شناسی", "جامعه", "فرهنگ", "نهاد اجتماعی", "sociology", "society", "culture"),
+            "economics": ("اقتصاد", "تورم", "عرضه", "تقاضا", "بازار", "economics", "inflation", "market"),
+            "law": ("حقوق", "قانون", "قرارداد", "جرم", "مدنی", "کیفری", "law", "contract", "criminal"),
+            "general": ("دانش", "مفهوم", "تعریف", "general"),
         }
         scores = {d: sum(1 for w in words if w in text) for d, words in groups.items()}
-        return max(scores, key=scores.get) if scores and max(scores.values()) else "general"
+        best = max(scores, key=scores.get) if scores else "general"
+        return best if scores.get(best, 0) else "general"
+
+    CURRICULUM = {
+        "mathematics": ["اعداد و محاسبات", "کسر و درصد", "جبر پایه", "معادلات", "هندسه", "توابع", "حسابان", "احتمال", "آمار", "منطق ریاضی"],
+        "programming": ["مبانی برنامه نویسی", "Python", "متغیر و نوع داده", "شرط و حلقه", "تابع", "ساختمان داده", "الگوریتم", "خطایابی", "تست نرم افزار", "طراحی نرم افزار"],
+        "computer_science": ["مبانی علوم کامپیوتر", "ساختمان داده", "الگوریتم", "پایگاه داده", "سیستم عامل", "شبکه", "امنیت", "مهندسی نرم افزار", "معماری کامپیوتر"],
+        "artificial_intelligence": ["مبانی هوش مصنوعی", "جستجو و حل مسئله", "منطق و استدلال", "یادگیری ماشین", "یادگیری عمیق", "شبکه عصبی", "پردازش زبان طبیعی", "بینایی ماشین", "ارزیابی و ایمنی هوش مصنوعی", "یادگیری خودمختار"],
+        "physics": ["مبانی فیزیک", "حرکت و نیرو", "انرژی", "الکتریسیته", "مغناطیس", "موج و نور"],
+        "chemistry": ["ساختار اتم", "پیوند شیمیایی", "واکنش ها", "استوکیومتری", "اسید و باز", "شیمی آلی مقدماتی"],
+        "biology": ["سلول", "ژنتیک", "تکامل", "بدن انسان", "بوم شناسی", "زیست مولکولی مقدماتی"],
+        "persian_literature": ["واژگان و املا", "دستور زبان فارسی", "آرایه های ادبی", "عروض و قافیه", "تاریخ ادبیات", "شعر و نثر فارسی", "درک و تحلیل متن"],
+        "english": ["واژگان پایه", "گرامر پایه", "جمله سازی", "خواندن", "شنیدن", "نوشتن", "مکالمه", "گرامر پیشرفته"],
+        "english_literature": ["داستان کوتاه", "شعر انگلیسی", "رمان و روایت", "تحلیل متن", "سبک و آرایه", "تاریخ ادبیات انگلیسی"],
+        "arabic": ["واژگان پایه", "صرف", "نحو", "ترجمه", "درک متن عربی"],
+        "history": ["تاریخ ایران", "تاریخ جهان", "تمدن ها", "تحولات سیاسی و اجتماعی", "تاریخ معاصر"],
+        "geography": ["نقشه و مکان", "جمعیت", "اقلیم", "جغرافیای ایران", "جغرافیای جهان"],
+        "earth_science": ["زمین شناسی مقدماتی", "سنگ ها و کانی ها", "زمین ساخت", "چرخه های زمین"],
+        "environmental_science": ["اکوسیستم", "تنوع زیستی", "آلودگی", "منابع طبیعی", "تغییر اقلیم"],
+        "philosophy": ["مبانی فلسفه", "منطق", "معرفت شناسی", "اخلاق", "فلسفه علم"],
+        "psychology": ["مبانی روانشناسی", "شناخت و حافظه", "یادگیری", "رفتار", "هیجان"],
+        "sociology": ["مبانی جامعه شناسی", "گروه و جامعه", "نهادهای اجتماعی", "فرهنگ", "تغییر اجتماعی"],
+        "economics": ["مبانی اقتصاد", "عرضه و تقاضا", "تورم", "بازار", "اقتصاد کلان مقدماتی"],
+        "law": ["مبانی حقوق", "حقوق مدنی", "حقوق کیفری", "حقوق اساسی", "قراردادها", "آیین دادرسی"],
+    }
+
+    def seed_curriculum(self, priority="medium"):
+        """Create durable learning goals for broad foundational study without inventing facts."""
+        created = []
+        for domain, topics in self.CURRICULUM.items():
+            for topic in topics:
+                created.append(self.create_goal(
+                    topic, gap="curriculum_topic_not_yet_verified",
+                    objective=f"build_verified_understanding_of:{topic}",
+                    priority=priority, domain=domain))
+        return created
 
     @staticmethod
     def _stable_id(topic, gap, objective):
