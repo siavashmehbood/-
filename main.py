@@ -36,6 +36,11 @@ def run_cli():
                 result=runtime.roadmap_benchmark()
                 print({'score': result.score, 'passed': result.passed, 'cases': [item.__dict__ for item in result.cases]})
                 continue
+            if cmd=='/benchmark100':
+                from self.scenario_benchmark import PersianScenarioBenchmark
+                result=PersianScenarioBenchmark().run(runtime)
+                print({'score': result.score, 'metrics': result.metrics, 'total': len(result.results)})
+                continue
             if cmd.startswith('/knowledge '):
                 print(runtime.knowledge.query(text[11:].strip(), limit=20))
                 continue
