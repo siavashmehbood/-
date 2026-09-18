@@ -66,16 +66,16 @@ class CapabilityLearningEngine:
             f"capability experiment: {experiment['experiment_id']} step {step['order']}"
         )
         expected = step["expected"]
-        self.runtime.tasks.transition(task["task_id"], "RUNNING", "capability experiment execution")
+        self.runtime.tasks.transition(task["task_id"], "running", "capability experiment execution")
         action = self.runtime.actions.execute(task["task_id"], step["action"], expected)
         actual = action.result
         # Capability experiments use semantic checks for safe tool outputs instead
         # of treating any non-empty return value as proof.
         ok = bool(actual) and not (isinstance(actual, dict) and actual.get("error"))
         if ok:
-            self.runtime.tasks.transition(task["task_id"], "SUCCESS", "experiment observation verified")
+            self.runtime.tasks.transition(task["task_id"], "success", "experiment observation verified")
         else:
-            self.runtime.tasks.transition(task["task_id"], "FAILED", "experiment observation failed")
+            self.runtime.tasks.transition(task["task_id"], "failed", "experiment observation failed")
         self.runtime.events.emit("capability_experiment_step", {
             "experiment_id": experiment["experiment_id"], "order": step["order"],
             "action": step["action"], "success": ok, "actual_type": type(actual).__name__})
@@ -106,13 +106,13 @@ class CapabilityLearningEngine:
         for step in (skill.get("procedure") or {}).get("steps", []):
             task = self.runtime.create_task("capability transfer: " + str(skill.get("skill_id")))
             try:
-                self.runtime.tasks.transition(task["task_id"], "RUNNING", "independent transfer execution")
+                self.runtime.tasks.transition(task["task_id"], "running", "independent transfer execution")
                 action = self.runtime.actions.execute(task["task_id"], step["action"], step.get("expected_effect", ""))
                 ok = bool(action.result) and not (isinstance(action.result, dict) and action.result.get("error"))
-                self.runtime.tasks.transition(task["task_id"], "SUCCESS" if ok else "FAILED", "independent transfer verification")
+                self.runtime.tasks.transition(task["task_id"], "success" if ok else "failed", "independent transfer verification")
             except Exception as exc:
                 ok = False
-                self.runtime.tasks.transition(task["task_id"], "FAILED", str(exc)[:300])
+                self.runtime.tasks.transition(task["task_id"], "failed", str(exc)[:300])
             results.append(ok)
         passed = bool(results) and all(results)
         self.runtime.events.emit("capability_transfer_test", {
