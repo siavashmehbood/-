@@ -29,9 +29,9 @@ class FakeActions:
     class A:
         def __init__(self, result): self.result=result
     def __init__(self): self.calls=[]
-    def execute(self, task_id, name, expected):
+    def execute(self, task_id, name, expected, **kwargs):
         self.calls.append((task_id,name,expected))
-        return self.A({"tool":name,"verified_payload":True})
+        return self.A({"ok": True, "returncode": 0, "stdout": "verified", "stderr": ""})
 
 
 class FakeSkills:
