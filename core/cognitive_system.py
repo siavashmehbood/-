@@ -2,8 +2,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any
+from pathlib import Path
 
 from core.cognitive_pipeline import CognitivePipeline
+from core.grounded_synthesizer import GroundedSynthesizer
+from core.self_correction import SelfCorrectionEngine
 
 
 @dataclass(frozen=True)
@@ -37,6 +40,13 @@ class CognitiveSystem:
         self.runtime = runtime
         self.dialogue = runtime.dialogue
         self.pipeline = self._get_pipeline()
+        if getattr(self.dialogue, "grounded_synthesizer", None) is None:
+            self.dialogue.grounded_synthesizer = GroundedSynthesizer(
+                getattr(runtime, "knowledge", None), getattr(runtime, "memory", None),
+                getattr(runtime, "learning", None))
+        if getattr(self.pipeline, "self_correction", None) is None:
+            self.pipeline.self_correction = SelfCorrectionEngine(
+                Path(runtime.root) / "data" / "self_corrections.json")
         self.components = CognitiveComponents(
             dialogue=self.dialogue,
             pipeline=self.pipeline,
