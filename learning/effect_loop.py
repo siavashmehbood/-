@@ -106,5 +106,50 @@ class EffectLearningLoop:
         return {"needed":needed,"goal":str(goal),"uncertainty":round(u,3),"novelty":round(n,3),
                 "reason":"high uncertainty or novel capability gap" if needed else "routine interaction"}
 
+    def replay_candidates(self, limit=10):
+        """Prioritize replay by uncertainty, novelty, failure, then recency."""
+        rows = list(self.state.get("evaluations", []))
+        def priority(row):
+            score = float(row.get("score", 0.0))
+            uncertainty = 1.0 - abs(score - 0.5) * 2.0
+            failure = 1.0 if row.get("verified") and score < .55 else 0.0
+            return uncertainty * .55 + failure * .30 + (1.0 if row.get("effect") != "expected_effect_observed" else 0.0) * .15
+        rows.sort(key=priority, reverse=True)
+        return [{"key": r.get("key"), "goal": r.get("goal"), "strategy": r.get("strategy"),
+                 "score": r.get("score", 0), "priority": round(priority(r), 3)} for r in rows[:int(limit)]]
+
+    def compare_strategies(self, goal, domain="general"):
+        """Counterfactual-style comparison from verified historical outcomes."""
+        rows = [r for r in self.state.get("evaluations", [])
+                if r.get("goal") == str(goal) and r.get("domain") == str(domain) and r.get("verified")]
+        groups = {}
+        for row in rows:
+            groups.setdefault(str(row.get("strategy", "default")), []).append(float(row.get("score", 0)))
+        ranked = []
+        for strategy, scores in groups.items():
+            mean = sum(scores) / len(scores)
+            failures = sum(s < .55 for s in scores)
+            ranked.append({"strategy": strategy, "mean_score": round(mean, 3),
+                           "samples": len(scores), "failures": failures,
+                           "confidence": round(min(.95, .35 + len(scores) * .08), 3)})
+        return sorted(ranked, key=lambda x: (x["mean_score"], x["samples"]), reverse=True)
+
+    def learning_priority(self, goal, intent="general", domain="general", uncertainty=0.0, novelty=0.0):
+        """Unify active-learning need with existing verified evidence."""
+        meta = self.recommend_meta_strategy(goal, intent, domain)
+        active = self.active_learning_request(goal, uncertainty, novelty)
+        replay = self.replay_candidates(5)
+        comparisons = self.compare_strategies(goal, domain)
+        if comparisons and comparisons[0]["mean_score"] >= .8 and comparisons[0]["samples"] >= 2:
+            action = "reuse_best_then_verify"
+        elif active["needed"]:
+            action = "active_experiment"
+        elif replay:
+            action = "replay_uncertain_evidence"
+        else:
+            action = "observe_and_wait"
+        return {"goal": str(goal), "action": action, "meta": meta, "active": active,
+                "replay": replay, "strategy_comparison": comparisons}
+
     def snapshot(self):
         return self.stats()

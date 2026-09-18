@@ -65,3 +65,32 @@ def test_learning_stats_survive_restart(tmp_path):
     loop.evaluate("هدف","روش","ok","ok",{"verified":True,"score":.9},"s","task","e",1)
     restored=EffectLearningLoop(path,LearningEngine(tmp_path/"experiences2.json"))
     assert restored.stats()["xp"]==1000000
+
+
+def test_replay_prioritizes_uncertain_and_failed_evidence(tmp_path):
+    engine=LearningEngine(tmp_path/"experiences.json")
+    loop=EffectLearningLoop(tmp_path/"effect.json",engine)
+    loop.evaluate("g","a","x","x",{"verified":True,"score":.50},"s","task","e1",1)
+    loop.evaluate("g","b","x","x",{"verified":True,"score":.95},"s2","task","e2",1)
+    rows=loop.replay_candidates(2)
+    assert rows[0]["strategy"]=="s"
+
+
+def test_strategy_comparison_uses_verified_history(tmp_path):
+    engine=LearningEngine(tmp_path/"experiences.json")
+    loop=EffectLearningLoop(tmp_path/"effect.json",engine)
+    for i in range(2):
+        loop.evaluate("g","a","ok","ok",{"verified":True,"score":.9},"good","task",f"g{i}",1)
+        loop.evaluate("g","b","bad","ok",{"verified":True,"score":.4},"bad","task",f"b{i}",1)
+    rows=loop.compare_strategies("g","task")
+    assert rows[0]["strategy"]=="good"
+    assert rows[0]["mean_score"]>.8
+
+
+def test_learning_priority_prefers_verified_strategy_when_supported(tmp_path):
+    engine=LearningEngine(tmp_path/"experiences.json")
+    loop=EffectLearningLoop(tmp_path/"effect.json",engine)
+    for i in range(2):
+        loop.evaluate("g","a","ok","ok",{"verified":True,"score":.9},"good","task",f"e{i}",1)
+    out=loop.learning_priority("g","general","task",.2,.1)
+    assert out["action"]=="reuse_best_then_verify"
