@@ -52,8 +52,13 @@ def build_registry(root, memory, internet_access=None):
         code = str(code)
         if len(code) > 12000:
             raise ValueError('sandbox code too large')
-        blocked = re.compile(r'(?i)\\b(import\\s+(os|sys|subprocess|socket|shutil|pathlib|ctypes)|from\\s+(os|sys|subprocess|socket|shutil|pathlib|ctypes)|open\\s*\\(|exec\\s*\\(|eval\\s*\\(|__import__|socket\\.|subprocess\\.|os\\.)')
-        if blocked.search(code):
+        low = code.lower()
+        forbidden = ('import os', 'import sys', 'import subprocess', 'import socket',
+                     'import shutil', 'import pathlib', 'import ctypes', 'from os ',
+                     'from sys ', 'from subprocess ', 'from socket ', 'from shutil ',
+                     'from pathlib ', 'from ctypes ', 'open(', 'exec(', 'eval(',
+                     '__import__', 'socket.', 'subprocess.', 'os.system', 'os.popen')
+        if any(token in low for token in forbidden):
             raise PermissionError('sandbox rejected unsafe operation')
         with tempfile.TemporaryDirectory(prefix='iran-exp-') as td:
             script = Path(td) / 'experiment.py'
