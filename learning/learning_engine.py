@@ -1,4 +1,4 @@
-from dataclasses import asdict,dataclass
+from dataclasses import dataclass, asdict
 from pathlib import Path
 import json, math, re
 from datetime import datetime, timedelta
@@ -20,11 +20,26 @@ class LearningEngine:
 
     def _load(self):
         if self.path.exists():
-            try: self.experiences=json.loads(self.path.read_text(encoding='utf-8'))[-10000:]
+            try:
+                rows=json.loads(self.path.read_text(encoding='utf-8'))
+                if not isinstance(rows,list): rows=[]
+                seen=set(); kept=[]
+                for row in reversed(rows[-10000:]):
+                    key=self._stable_key(row)
+                    if key in seen: continue
+                    seen.add(key); kept.append(row)
+                self.experiences=list(reversed(kept))[-10000:]
+                if len(self.experiences)!=len(rows[-10000:]): self._save()
             except Exception: self.experiences=[]
 
     def _save(self):
         tmp=self.path.with_suffix('.tmp'); tmp.write_text(json.dumps(self.experiences,ensure_ascii=False,indent=2),encoding='utf-8'); tmp.replace(self.path)
+
+    @staticmethod
+    def _stable_key(row):
+        def norm(v): return re.sub(r'\s+', ' ', str(v or '').strip().lower())
+        return (norm(row.get('goal')), norm(row.get('action')), norm(row.get('result'))[:250],
+                norm(row.get('intent','general')), norm(row.get('strategy','default')), norm(row.get('domain','general')))
 
     def _load_rules(self):
         if self.rules_path.exists():
@@ -64,14 +79,17 @@ class LearningEngine:
                     and payload.get('result') == item.result and payload.get('strategy') == item.strategy
                     and payload.get('domain') == item.domain and row.get('status') in {'pending', 'approved'}):
                     return dict(row)
-        if self.gate is not None:
+        if self.gate is not None and not self.gate.bypassed:
+            stable=self._stable_key(asdict(item))
+            for row in self.gate.history(5000):
+                if row.get('kind')!='learning.record_experience': continue
+                payload=row.get('payload') or {}
+                if self._stable_key(payload)==stable and row.get('status') in {'pending','approved'}:
+                    return dict(row) if row.get('status')=='pending' else None
             proposal=self.gate.request('learning.record_experience',asdict(item), f'یادگیری جدید درباره «{goal}»')
             if proposal is not None: return proposal
-            # None outside the explicit bypass means this exact approved learning
-            # already exists; do not silently commit it a second time.
-            if not self.gate.bypassed: return None
         # Avoid storing exact duplicate traces repeatedly.
-        duplicate=next((r for r in reversed(self.experiences[-80:]) if r.get('goal')==item.goal and r.get('action')==item.action and r.get('result','')[:250]==item.result[:250]),None)
+        duplicate=next((r for r in reversed(self.experiences[-80:]) if self._stable_key(r)==self._stable_key(asdict(item))),None)
         if duplicate:
             duplicate['score']=round((float(duplicate.get('score',0))+score)/2,4); duplicate['time']=item.time
         else: self.experiences.append(asdict(item))
