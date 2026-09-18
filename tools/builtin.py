@@ -3,6 +3,10 @@ from pathlib import Path
 import json
 import platform
 import urllib.request
+import subprocess
+import tempfile
+import sys
+import re
 from .registry import Tool, ToolRegistry
 
 
@@ -42,6 +46,25 @@ def build_registry(root, memory, internet_access=None):
                 counts[ext] = counts.get(ext, 0) + 1
         return {'files': sum(counts.values()), 'by_extension': counts}
     registry.register(Tool('project_summary', 'خلاصه ساختار پروژه', project_summary, safe=True, permission='read'))
+
+    def sandbox_python(code, timeout=5):
+        """Run a generated, deterministic experiment in an isolated temporary directory."""
+        code = str(code)
+        if len(code) > 12000:
+            raise ValueError('sandbox code too large')
+        blocked = re.compile(r'(?i)\\b(import\\s+(os|sys|subprocess|socket|shutil|pathlib|ctypes)|from\\s+(os|sys|subprocess|socket|shutil|pathlib|ctypes)|open\\s*\\(|exec\\s*\\(|eval\\s*\\(|__import__|socket\\.|subprocess\\.|os\\.)')
+        if blocked.search(code):
+            raise PermissionError('sandbox rejected unsafe operation')
+        with tempfile.TemporaryDirectory(prefix='iran-exp-') as td:
+            script = Path(td) / 'experiment.py'
+            script.write_text(code, encoding='utf-8')
+            env = {'PATH': str(Path(sys.executable).parent), 'PYTHONNOUSERSITE': '1', 'PYTHONDONTWRITEBYTECODE': '1'}
+            proc = subprocess.run([sys.executable, '-I', '-S', str(script)], cwd=td,
+                                  env=env, capture_output=True, text=True, timeout=max(1, min(15, int(timeout))))
+            return {'ok': proc.returncode == 0, 'returncode': proc.returncode,
+                    'stdout': proc.stdout[-8000:], 'stderr': proc.stderr[-4000:]}
+
+    registry.register(Tool('sandbox_python', 'اجرای آزمایش محدود و بدون تغییر پروژه', sandbox_python, safe=True, permission='execute'))
 
     def web_fetch(url, max_chars=8000):
         require_internet()
