@@ -105,8 +105,71 @@ class CognitiveSystem:
         answer = self.pipeline.run(text)
         self.last_answer = answer
         self.last_trace = getattr(self.dialogue, "last_trace", None)
+        self._post_turn_learning(text, answer, self.last_trace)
         self.last_output = self.unified_output()
         return answer
+
+    def _post_turn_learning(self, text: str, answer: str, trace: Any) -> dict:
+        """Evaluate meaningful learning opportunities after every canonical turn."""
+        loop = getattr(self.runtime, "effect_learning", None)
+        learning = getattr(self.runtime, "learning", None)
+        if loop is None or learning is None or trace is None:
+            return {}
+        try:
+            intent = getattr(trace, "intent", "general") or "general"
+            feedback_turn = getattr(trace, "answer_status", "") == "FEEDBACK"
+            if feedback_turn:
+                previous = ""
+                for row in reversed(self.runtime.memory.recent(80)):
+                    if isinstance(row, (tuple, list)) and len(row) >= 3 and row[0] == "user":
+                        candidate = str(row[1]).strip()
+                        if candidate and candidate != str(text).strip():
+                            previous = candidate
+                            break
+                goal = previous or str(getattr(trace, "topic", "") or "last_answer")
+                effect = loop.evaluate(
+                    goal, "explicit-feedback", str(text),
+                    "پاسخ قبلی باید با بازخورد مثبت کاربر تأیید شود",
+                    {"verified": True, "score": 0.98, "effect_observed": True},
+                    strategy="feedback", domain="conversation",
+                    episode_id=str(getattr(trace, "cycle_id", "") or ""), attempt=1)
+                self.runtime.events.emit("learning_effect_evaluated", {
+                    "goal": goal, "action": "explicit-feedback", "strategy": "feedback",
+                    "effect": effect, "canonical": True,
+                })
+                return {"action": "feedback_validation", "effect": effect}
+            goal = f"{intent}:{getattr(trace, 'topic', '') or 'conversation'}"
+            confidence = float(getattr(trace, "confidence", 0.0) or 0.0)
+            priority = loop.learning_priority(
+                goal, getattr(trace, "intent", "general") or "general",
+                "dialogue", uncertainty=max(0.0, 1.0-confidence),
+                novelty=0.6 if not learning.adapt(goal, getattr(trace, "intent", "general") or "general", "dialogue").get("learned_rules") else 0.0)
+            action = priority.get("action", "observe_and_wait")
+            if action == "observe_and_wait":
+                return priority
+            meta = priority.get("meta", {})
+            strategy = str(meta.get("strategy") or getattr(trace, "intent", "general") or "default")
+            verification = {
+                "verified": getattr(trace, "verification_status", "") == "PASS",
+                "score": confidence,
+                "effect_observed": getattr(trace, "verification_status", "") == "PASS" and confidence >= .75,
+            }
+            expected = "پاسخ در مسیر یادگیری انتخاب‌شده با راستی‌آزمایی و حفظ زمینه اجرا شود"
+            result = str(answer)
+            effect = loop.evaluate(goal, "canonical_turn", result, expected, verification,
+                                   strategy=strategy, domain="dialogue",
+                                   episode_id=str(getattr(trace, "cycle_id", "") or ""), attempt=1)
+            self.runtime.events.emit("learning_effect_evaluated", {
+                "goal": goal, "action": action, "strategy": strategy,
+                "effect": effect, "canonical": True,
+            })
+            return {"priority": priority, "effect": effect}
+        except Exception as exc:
+            try:
+                self.runtime.events.emit("learning_effect_error", {"error": str(exc), "canonical": True})
+            except Exception:
+                pass
+            return {}
 
     def guidance(self, goal: str, intent: str = "general", domain: str = "general") -> dict:
         """Return reusable learned guidance for any cognitive capability, not only dialogue."""

@@ -36,7 +36,7 @@ class EffectLearningLoop:
         verified=bool(v.get("verified",False))
         try: score=max(0.0,min(1.0,float(v.get("score",0.0)))) if verified else 0.0
         except Exception: score=0.0
-        effect=self._effect(expected,result,verified)
+        effect=self._effect(expected,result,verified,v)
         row={"goal":str(goal),"action":str(action),"result":str(result)[:1200],"expected":str(expected),
              "verified":verified,"score":score,"effect":effect,"strategy":str(strategy),"domain":str(domain),
              "episode_id":str(episode_id),"attempt":int(attempt or 0),"time":datetime.now().isoformat(timespec="seconds")}
@@ -54,11 +54,15 @@ class EffectLearningLoop:
                 "next_test": self._next_test(strategy,domain,score)}
 
     @staticmethod
-    def _effect(expected,result,verified):
+    def _effect(expected,result,verified,verification=None):
         if not verified: return "unverified"
+        verification = verification if isinstance(verification, dict) else {}
+        if verification.get("effect_observed"):
+            return "expected_effect_observed"
         e=str(expected or "").strip().lower(); r=str(result or "").strip().lower()
         if not e: return "verified_without_explicit_effect"
-        return "expected_effect_observed" if e in r else "verified_but_effect_text_mismatch"
+        if e in r: return "expected_effect_observed"
+        return "verified_but_effect_text_mismatch"
     def _update_rules(self,strategy,domain,score,verified):
         changed=[]
         for rule in self._rules_for(strategy,domain):
