@@ -137,7 +137,19 @@ class CognitiveSystem:
                     "goal": goal, "action": "explicit-feedback", "strategy": "feedback",
                     "effect": effect, "canonical": True,
                 })
-                return {"action": "feedback_validation", "effect": effect}
+                gate = getattr(self.runtime, "learning_gate", None)
+                if gate is not None:
+                    proposal = gate.request(
+                        "learning.record_experience",
+                        {"goal": goal, "action": "user_feedback", "result": str(text)[:4000],
+                         "score": 0.98, "signal_source": "user_correction", "intent": str(intent),
+                         "strategy": "feedback", "domain": "conversation"},
+                        f"بازخورد مستقیم کاربر: {goal}")
+                    if proposal is not None:
+                        self.runtime.events.emit("learning_candidate_created", {
+                            "proposal_id": proposal.get("proposal_id"), "goal": goal,
+                            "source": "user_correction", "canonical": True})
+                return {"action": "feedback_validation", "effect": effect, "learning_candidate": proposal if gate is not None else None}
             goal = f"{intent}:{getattr(trace, 'topic', '') or 'conversation'}"
             confidence = float(getattr(trace, "confidence", 0.0) or 0.0)
             priority = loop.learning_priority(
@@ -145,11 +157,48 @@ class CognitiveSystem:
                 "dialogue", uncertainty=max(0.0, 1.0-confidence),
                 novelty=0.6 if not learning.adapt(goal, getattr(trace, "intent", "general") or "general", "dialogue").get("learned_rules") else 0.0)
             action = priority.get("action", "observe_and_wait")
+            # Every meaningful turn is a possible learning signal. We collect
+            # candidates from success, correction/feedback, repair and failure
+            # patterns, then let the existing quality/approval gate decide what
+            # becomes durable learning. Candidate volume is intentionally higher
+            # than final learning volume.
+            verification_status = str(getattr(trace, "verification_status", ""))
+            answer_status = str(getattr(trace, "answer_status", ""))
+            repaired = bool(getattr(trace, "repair_applied", False) or getattr(trace, "was_repaired", False))
+            candidate_score = max(0.0, min(1.0, confidence))
+            source = "verified_success" if verification_status == "PASS" else "uncertainty_or_failure"
+            if "FEEDBACK" in answer_status or "CORRECT" in answer_status:
+                source = "user_correction"
+            elif repaired:
+                source = "verifier_repair"
+            if source != "verified_success" and (len(str(answer).strip()) >= 12 or source == "user_correction"):
+                learning_gate = getattr(self.runtime, "learning_gate", None)
+                if learning_gate is not None:
+                    failure_score = max(0.0, min(1.0, 1.0 - confidence))
+                    proposal = learning_gate.request(
+                        "learning.record_experience",
+                        {
+                            "goal": goal,
+                            "action": "observe_learning_signal",
+                            "result": str(answer)[:4000],
+                            "score": max(candidate_score if verification_status == "PASS" else failure_score, 0.60 if source == "user_correction" else 0.0),
+                            "signal_source": source,
+                            "intent": str(intent),
+                            "strategy": str(priority.get("meta", {}).get("strategy") or intent or "evidence-first"),
+                            "domain": "dialogue",
+                        },
+                        f"سیگنال یادگیری {source}: {goal}"
+                    )
+                    priority["learning_signal_candidate"] = proposal
+                    priority["learning_signal_source"] = source
+                    if proposal is not None:
+                        self.runtime.events.emit("learning_candidate_created", {
+                            "proposal_id": proposal.get("proposal_id"),
+                            "goal": goal, "source": source, "canonical": True,
+                        })
             # Every independently verified, meaningful turn may generate a learning
             # candidate. The candidate is NOT durable learning and earns NO XP until
-            # it passes the existing human approval gate. This keeps the learning
-            # queue rich without turning routine answers into trusted knowledge.
-            verification_status = str(getattr(trace, "verification_status", ""))
+            # it passes the existing human approval gate.
             candidate_score = max(0.0, min(1.0, confidence))
             if verification_status == "PASS" and candidate_score >= 0.60 and len(str(answer).strip()) >= 12:
                 learning_gate = getattr(self.runtime, "learning_gate", None)
