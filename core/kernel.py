@@ -19,6 +19,9 @@ class CognitiveKernel:
         self.cognition=CognitiveEngine();self.reasoner=Reasoner();self.evidence=EvidenceReasoner();self.decider=DecisionEngine();self.reflector=ReflectionEngine();self.outcome_learning=None
         self.language=AdvancedLanguage();self.causal=CausalGraph();self.strategies=StrategyMemory()
     def cycle(self,text):
+        canonical = getattr(self, "_canonical_system", None)
+        if canonical is not None:
+            return canonical.kernel_cycle_compat(text)
         started=perf_counter();understanding=self.language.parse(text);state=self.cognition.analyze(text)
         context=self.memory.working_context(state.goal,10);self.cognition.propose_hypotheses(state,context)
         evidence=[Evidence(str(row[1]),.45,'memory',1,.78) for row in context if len(row)>=2]
