@@ -144,6 +144,9 @@ if not hasattr(Orchestrator, '_iran_v31_handle_base'):
 _base_v31_handle = Orchestrator._iran_v31_handle_base
 
 def _handle_v31(self, text):
+    canonical = getattr(self, "_canonical_system", None)
+    if canonical is not None:
+        return canonical.dispatch(text)
     model = getattr(self.agent, '_user_model', None)
     if model is not None:
         self._user_model = model

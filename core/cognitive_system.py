@@ -88,6 +88,10 @@ class CognitiveSystem:
 
     def turn(self, text: str) -> str:
         """Canonical natural-language turn: perceive -> reason -> act -> verify -> learn."""
+        try:
+            self.runtime.world.record_observation("user_input", str(text), .85, source="canonical_turn")
+        except Exception:
+            pass
         answer = self.pipeline.run(text)
         self.last_answer = answer
         self.last_trace = getattr(self.dialogue, "last_trace", None)
