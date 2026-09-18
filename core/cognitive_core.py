@@ -4,7 +4,7 @@ A deterministic, fully-local orchestration layer. It does not generate text itse
 it builds a typed cognitive state from the existing language, memory, graph,
 reasoning and user-model subsystems, then verifies the planned response.
 """
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, asdict
 from datetime import datetime
 from typing import Any
 import re
@@ -12,6 +12,7 @@ from pathlib import Path
 
 from core.learning_loop import OutcomeBackedLearning
 from core.procedural_skills import ProceduralSkillMemory
+from core.state import CognitiveState
 
 @dataclass
 class CognitiveEvidence:
@@ -19,28 +20,6 @@ class CognitiveEvidence:
     content: str
     confidence: float = 0.5
     kind: str = "memory"
-
-@dataclass
-class CognitiveState:
-    turn_id: int
-    text: str
-    intent: str = "general"
-    intent_confidence: float = 0.45
-    goal: str = ""
-    topic: str = ""
-    entities: list = field(default_factory=list)
-    references: dict = field(default_factory=dict)
-    evidence: list = field(default_factory=list)
-    hypotheses: list = field(default_factory=list)
-    contradictions: list = field(default_factory=list)
-    unresolved: list = field(default_factory=list)
-    plan: list = field(default_factory=list)
-    confidence: float = 0.0
-    status: str = "understanding"
-    created_at: str = field(default_factory=lambda: datetime.now().isoformat(timespec="seconds"))
-
-    def snapshot(self):
-        return asdict(self)
 
 class AdvancedCognitiveCore:
     """Typed cognitive coordinator for IRAN's local subsystems."""
@@ -199,4 +178,3 @@ class AdvancedCognitiveCore:
             })
         except Exception:
             pass
-

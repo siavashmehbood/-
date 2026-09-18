@@ -29,6 +29,13 @@ from language_intelligence import PersianIntelligence
 from memory.store import Memory
 from knowledge.knowledge_graph import KnowledgeGraph
 from learning.learning_engine import LearningEngine
+from learning.generalizer import GeneralizationEngine
+from learning.replay import ExperienceReplay
+from learning.versioning import BrainVersionStore
+from memory.error import ErrorMemory
+from memory.consolidation import MemoryConsolidator
+from core.meta_reasoner import MetaReasoner
+from evaluation.regression import RegressionGate
 from learning.self_directed import SelfDirectedLearning
 from learning.trusted_knowledge import TrustedKnowledgeBootstrap
 from learning.procedural_memory import ProceduralMemory
@@ -77,6 +84,13 @@ class IranRuntime:
         self.world = WorldModel(self.root / "data/world.json")
         self.knowledge = KnowledgeGraph(self.root / "data/knowledge.json", gate=self.learning_gate)
         self.learning = LearningEngine(self.root / "data/experiences.json", gate=self.learning_gate)
+        self.generalizer = GeneralizationEngine(self.learning)
+        self.replay = ExperienceReplay(self.learning)
+        self.error_memory = ErrorMemory(self.root / "data/error_memory.json")
+        self.version_store = BrainVersionStore(self.root / "data/brain_versions.json")
+        self.memory_consolidator = MemoryConsolidator(self.memory)
+        self.meta_reasoner = MetaReasoner()
+        self.regression_gate = RegressionGate(self.root / "data/regression_gate.json")
         self.prediction = PredictionEngine(self.root / "data/predictions.json")
         self.anomaly = AnomalyDetector()
         self.kernel = CognitiveKernel(self.memory, self.world, self.knowledge,
@@ -112,6 +126,8 @@ class IranRuntime:
             self.agent, self.memory, self.events, self.registry, self.policy,
             self.goals, self.evaluator)
         self.orchestrator._user_model = self.user_model
+        self.orchestrator.planner.learning = self.learning
+        self.orchestrator.planner.generalizer = self.generalizer
         self.agent._user_model = self.user_model
         self.kernel.outcome_learning = self.outcome_learning
         self.kernel.skill_system = self.skills

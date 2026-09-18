@@ -1,4 +1,4 @@
-﻿from core.procedural_skills import ProceduralSkillMemory
+from core.procedural_skills import ProceduralSkillMemory
 
 
 def test_skill_requires_repeated_verified_success(tmp_path):

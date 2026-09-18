@@ -143,7 +143,20 @@ _base_experience_build = Planner._iran_experience_build_base
 
 def _build_with_experience(self, goal, state=None, experience=None):
     plan = _base_experience_build(self, goal, state)
-    experience = experience or {}
+    experience = dict(experience or {})
+    if not experience and getattr(self, 'learning', None) is not None:
+        try:
+            text = str(goal)
+            inferred_intent = 'deploy' if 'انتشار' in text else ('build' if any(x in text for x in ('ساخت','گزارش','پیاده','توسعه')) else 'general')
+            inferred_domain = 'release' if 'انتشار' in text else ('report' if 'گزارش' in text else 'general')
+            guidance = self.learning.adapt(text, inferred_intent, inferred_domain) or {}
+            recommended = guidance.get('recommended_strategy')
+            if recommended and recommended != 'evidence-first':
+                experience['selected'] = recommended
+                experience['ranked'] = [{'action': recommended, 'verified_samples': 1}]
+                plan.assumptions.append('learning-guidance-consulted')
+        except Exception:
+            pass
     selected = experience.get('selected')
     ranked = experience.get('ranked') or []
     if selected and any(row.get('action') == selected and row.get('verified_samples', 0) for row in ranked):

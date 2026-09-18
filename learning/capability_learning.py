@@ -222,7 +222,7 @@ class CapabilityLearningEngine:
         if not auto:
             review = self.runtime.learning_gate.request(
                 "capability_learning.candidate", candidate,
-                "Ø¨Ø§Ø²Ø¨ÛŒÙ†ÛŒ ÛŒØ§Ø¯Ú¯ÛŒØ±ÛŒ Ù…Ù‡Ø§Ø±Øª Ø§Ø² Ø¯Ø§Ù†Ø´ Ø§ÛŒÙ†ØªØ±Ù†ØªÛŒ")
+                "بازبینی یادگیری مهارت از دانش اینترنتی")
             return {"ok": True, "status": "gated", "review": review or candidate}
 
         experiment = self._experiment_plan(candidate)

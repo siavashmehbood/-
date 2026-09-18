@@ -506,10 +506,10 @@ from core.autonomous_goal_runner import AutonomousGoalRunner
 _old_init_v5 = AutonomousSupervisor.__init__
 def _supervisor_init_v5(self, runtime):
     _old_init_v5(self, runtime)
-    self.goal_runner = AutonomousGoalRunner(
-        runtime,
-        Path(runtime.config.get('runtime', {}).get('autonomous_goal_state', 'data/autonomous_goal_state.json')),
-    )
+    goal_state = Path(runtime.config.get('runtime', {}).get('autonomous_goal_state', 'data/autonomous_goal_state.json'))
+    if not goal_state.is_absolute():
+        goal_state = runtime.root / goal_state
+    self.goal_runner = AutonomousGoalRunner(runtime, goal_state)
 AutonomousSupervisor.__init__ = _supervisor_init_v5
 
 _old_step_v6 = AutonomousSupervisor.step
@@ -547,9 +547,10 @@ from core.self_awareness import SelfAwarenessEngine
 _old_init_v6 = AutonomousSupervisor.__init__
 def _supervisor_init_v6(self, runtime):
     _old_init_v6(self, runtime)
-    self.self_awareness = SelfAwarenessEngine(
-        Path(runtime.config.get('runtime', {}).get('self_awareness_state', 'data/self_awareness.json')),
-    )
+    awareness_state = Path(runtime.config.get('runtime', {}).get('self_awareness_state', 'data/self_awareness.json'))
+    if not awareness_state.is_absolute():
+        awareness_state = runtime.root / awareness_state
+    self.self_awareness = SelfAwarenessEngine(awareness_state)
 AutonomousSupervisor.__init__ = _supervisor_init_v6
 
 _old_step_v7 = AutonomousSupervisor.step
@@ -612,3 +613,30 @@ def _choose_action_v3(self, initiative):
         return preferred
     return _old_choose_action_v2(self, initiative)
 AutonomousSupervisor._choose_action = _choose_action_v3
+
+
+# v0.49: verified autonomous observations close the learning loop for low-risk read-only work.
+_previous_autonomous_step = AutonomousSupervisor.step
+
+def _step_v10(self):
+    report = _previous_autonomous_step(self)
+    verified = bool(report.get("verified"))
+    selected = report.get("selected") or {}
+    decision = report.get("decision") or {}
+    action = decision.get("action") or report.get("self_awareness_control", {}).get("preferred_action") or "observe"
+    goal = selected.get("goal") or "autonomous situational awareness"
+    try:
+        with self.runtime.learning_gate.bypass():
+            self.runtime.learning.record(
+                goal=str(goal), action=str(action),
+                result="verified autonomous observation" if verified else "autonomous observation failed",
+                score=0.9 if verified else 0.1,
+                intent="autonomous", strategy="verified-read-only", domain="autonomy",
+            )
+        report["learning"] = {"recorded": True, "verified": verified, "strategy": "verified-read-only"}
+    except Exception as exc:
+        report["learning"] = {"recorded": False, "error": type(exc).__name__}
+    self.last_report = report
+    return report
+
+AutonomousSupervisor.step = _step_v10
