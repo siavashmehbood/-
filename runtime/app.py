@@ -247,6 +247,36 @@ class IranRuntime:
     def capability_learning_status(self):
         return self.capability_learning.status()
 
+    def learn_more(self, limit=5, topics=None):
+        """Autonomous bounded capability-learning batch; skips meta/context goals."""
+        defaults = [
+            "Python programming fundamentals", "algorithms and data structures",
+            "software testing and debugging", "computer systems fundamentals",
+            "information retrieval and source verification", "knowledge representation",
+            "planning and problem solving", "memory systems and learning",
+            "cybersecurity basics", "natural language processing fundamentals",
+        ]
+        candidates = [str(x).strip() for x in (topics or defaults) if str(x).strip()]
+        meta = {"آخرین موضوع فعال چی بود", "ایران", "what was the last active topic"}
+        selected=[]; seen=set()
+        for topic in candidates:
+            key=topic.lower()
+            if not topic or key in seen or key in {x.lower() for x in meta}: continue
+            seen.add(key); selected.append(topic)
+            if len(selected) >= max(1, min(10, int(limit))): break
+        results=[]
+        for topic in selected:
+            try:
+                results.append({"topic": topic, "result": self.capability_learning_step(topic, auto=True)})
+            except Exception as exc:
+                results.append({"topic": topic, "result": {"ok": False, "reason": "cycle_error", "error": str(exc)[:300]}})
+        return {
+            "ok": True, "requested": len(candidates), "processed": len(results),
+            "capability_successes": sum(bool(x["result"].get("capability", {}).get("ok")) for x in results),
+            "results": results,
+            "status": self.capability_learning_status(),
+        }
+
     def learning_pending(self, limit=50):
         return self.learning_gate.pending(limit)
 
