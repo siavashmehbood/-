@@ -147,15 +147,23 @@ class LearningEngine:
         goal = str(payload.get("goal", "")).strip()
         lesson = str(payload.get("lesson", "")).strip()
         result = str(payload.get("result", "")).strip()
-        # Dialogue outcome/observation text is an experience trace, not a lesson.
-        # It must never be promoted to the visible lesson store unless real lesson content was supplied.
+        # Approved dialogue feedback is itself a behavioral learning signal.
+        # Do not discard it just because the proposal did not contain a handcrafted lesson:
+        # turn the approved experience into concrete, reusable guidance.
         generic = {
             self._lesson_for(.90), self._lesson_for(.70), self._lesson_for(.40),
             "", "متوجه شدم"
         }
         action = str(payload.get("action", "")).strip()
         if (not lesson or lesson in generic) and action in {"respond", "canonical_turn", "observe_learning_signal", "explicit-feedback"}:
-            return None
+            strategy = str(payload.get("strategy", "default")).strip() or "evidence-first"
+            signal = str(payload.get("signal_source", "approved_feedback")).strip() or "approved_feedback"
+            if signal == "user_correction" or action == "explicit-feedback":
+                lesson = f"بازخورد تأییدشده: برای موقعیت‌های مشابه «{goal}»، راهبرد «{strategy}» را حفظ کن و اصلاح کاربر را بر پاسخ قبلی مقدم بدان."
+            elif float(payload.get("score", 0) or 0) >= 0.75:
+                lesson = f"الگوی تأییدشده: در موقعیت‌های مشابه «{goal}»، راهبرد «{strategy}» را دوباره به‌کار ببر و نتیجه را با زمینه قبلی بررسی کن."
+            else:
+                lesson = f"الگوی اصلاحی: در موقعیت‌های مشابه «{goal}»، راهبرد «{strategy}» را بدون بررسی دوباره تکرار نکن."
         if not lesson:
             lesson = result[:1000] if result else goal
         if not lesson or not goal:

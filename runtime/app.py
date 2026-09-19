@@ -556,10 +556,35 @@ class IranRuntime:
         return {"ok":True,"approved":len(results),"skipped":skipped,"remaining":self.learning_gate.stats().get("pending",0)}
 
     def reject_learning(self, proposal_id):
+        proposal = self.learning_gate.get(proposal_id)
+        if not proposal:
+            return {"ok":False,"reason":"proposal_not_found"}
+        if proposal.get("status") != "pending":
+            return {"ok":False,"reason":"proposal_not_pending","proposal":proposal}
+        payload = dict(proposal.get("payload") or {})
+        # A human rejection is negative behavioral evidence, not a dead-end queue event.
+        # Persist it as a low-score experience so future strategy selection can avoid the
+        # rejected pattern. It never grants XP and remains subject to the same local dedupe.
+        if proposal.get("kind") == "learning.record_experience":
+            try:
+                self.learning.record(
+                    payload.get("goal", ""),
+                    "rejected_candidate",
+                    payload.get("result", ""),
+                    0.15,
+                    intent="human_rejection",
+                    strategy=payload.get("strategy", "default"),
+                    domain=payload.get("domain", "general"),
+                    objective=payload.get("objective", ""),
+                    expected_effect=payload.get("expected_effect", ""),
+                    signal_source="human_rejection",
+                    evidence=f"proposal_id={proposal_id}",
+                )
+            except Exception:
+                pass
         result=self.learning_gate.decide(proposal_id,"rejected")
-        if result is None: return {"ok":False,"reason":"proposal_not_found"}
-        self.events.emit("learning_rejected",{"proposal_id":proposal_id,"kind":result.get("kind")})
-        return {"ok":True,"proposal":result}
+        self.events.emit("learning_rejected",{"proposal_id":proposal_id,"kind":result.get("kind"),"negative_learning_recorded":proposal.get("kind")=="learning.record_experience"})
+        return {"ok":True,"proposal":result,"negative_learning_recorded":proposal.get("kind")=="learning.record_experience"}
 
     def health(self):
         return self.brain.health()
