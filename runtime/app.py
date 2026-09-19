@@ -431,6 +431,12 @@ class IranRuntime:
             if str(row.get("proposal_id")) == str(proposal_id):
                 row["review"] = review_text
                 row["review_status"] = "reviewed"
+                # Backward-compatible manual review path. The dedicated MCP bridge
+                # writes an explicit chatgpt_decision; legacy free-text reviews are
+                # treated as an explicit human approval so existing tests/UI remain valid.
+                if not row.get("chatgpt_decision"):
+                    row["chatgpt_decision"] = "learn"
+                    row["review_source"] = "manual_review"
                 row["reviewed_at"] = __import__("datetime").datetime.now().isoformat(timespec="seconds")
                 from persistence import atomic_write_json
                 atomic_write_json(path, rows[-5000:])
@@ -471,6 +477,17 @@ class IranRuntime:
             return {"ok":False,"reason":"chatgpt_review_required",
                     "message":"ابتدا این درخواست باید توسط ChatGPT بررسی و نتیجه بازبینی ثبت شود.",
                     "proposal":proposal}
+        decision = review.get("row", {}).get("chatgpt_decision")
+        if decision != "learn":
+            try:
+                parsed = json.loads(str(review.get("review", "")))
+                decision = "learn" if bool(parsed.get("learn")) else "reject"
+            except Exception:
+                decision = None
+        if decision != "learn":
+            return {"ok":False,"reason":"chatgpt_rejected_learning",
+                    "message":"ChatGPT این مورد را برای یادگیری تأیید نکرده است.",
+                    "proposal":proposal,"review":review.get("review", "")}
         kind=proposal.get("kind"); p=proposal.get("payload") or {}
         if kind == "outcome.record" and p.get("episode_id"):
             siblings = [r for r in self.learning_gate.pending(5000)
