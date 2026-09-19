@@ -453,6 +453,7 @@ class IranRuntime:
         return {"ok": False, "reason": "proposal_not_in_review_queue"}
 
     def learning_pending(self, limit=50):
+        self.sync_chatgpt_learning_reviews(limit=max(5000, int(limit)))
         return self.learning_gate.pending(limit)
 
     def learning_history(self, limit=200):
