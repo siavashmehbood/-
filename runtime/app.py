@@ -418,6 +418,7 @@ class IranRuntime:
                 "review": str(row.get("review", "")), "row": row}
 
     def submit_chatgpt_learning_review(self, proposal_id, review_text):
+        """Store a review note only; human approval remains a separate gate."""
         review_text = str(review_text or "").strip()
         if not review_text:
             return {"ok": False, "reason": "empty_review"}
@@ -429,24 +430,29 @@ class IranRuntime:
             rows = []
         for row in rows:
             if str(row.get("proposal_id")) == str(proposal_id):
-                row["review"] = review_text
-                row["review_status"] = "reviewed"
-                # Backward-compatible manual review path. The dedicated MCP bridge
-                # writes an explicit chatgpt_decision; legacy free-text reviews are
-                # treated as an explicit human approval so existing tests/UI remain valid.
-                if not row.get("chatgpt_decision"):
-                    row["chatgpt_decision"] = "learn"
-                    row["review_source"] = "manual_review"
-                row["reviewed_at"] = __import__("datetime").datetime.now().isoformat(timespec="seconds")
+                row["review_note"] = review_text
+                row["review_note_at"] = __import__("datetime").datetime.now().isoformat(timespec="seconds")
                 from persistence import atomic_write_json
                 atomic_write_json(path, rows[-5000:])
-                return {"ok": True, "proposal_id": str(proposal_id), "review_status": "reviewed"}
+                return {"ok": True, "proposal_id": str(proposal_id), "review_status": row.get("review_status", "not_reviewed")}
         return {"ok": False, "reason": "proposal_not_in_review_queue"}
-
     def learning_pending(self, limit=50):
+        """Return the durable pending proposals for internal learning workflows."""
         self.sync_chatgpt_learning_reviews(limit=max(5000, int(limit)))
         return self.learning_gate.pending(limit)
 
+    def human_learning_pending(self, limit=50):
+        """Return only candidates ChatGPT marked correct and routed to the human gate."""
+        self.sync_chatgpt_learning_reviews(limit=max(5000, int(limit)))
+        rows = self.learning_gate.pending(max(5000, int(limit) * 5))
+        result = []
+        for proposal in rows:
+            review = self.chatgpt_learning_review_status(proposal.get("proposal_id"))
+            if review.get("reviewed") and review.get("row", {}).get("chatgpt_decision") == "learn":
+                result.append(proposal)
+                if len(result) >= int(limit):
+                    break
+        return result
     def learning_history(self, limit=200):
         return self.learning_gate.history(limit)
 

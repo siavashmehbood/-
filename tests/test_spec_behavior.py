@@ -4,6 +4,7 @@ import unittest
 from pathlib import Path
 
 from runtime.app import IranRuntime
+from tests.chatgpt_test_helper import mark_chatgpt_correct
 from tools.registry import Tool
 
 
@@ -65,7 +66,7 @@ class SpecificationBehaviorTests(unittest.TestCase):
             first = runtime.handle('/run first demo --tool bad_tool --expected correct --alternative good_tool')
             self.assertIn('task=success', first)
             for proposal in list(runtime.learning_pending()):
-                runtime.submit_chatgpt_learning_review(proposal["proposal_id"], "تأیید آزمون: نتیجه قابل ثبت و استفاده مجدد است.")
+                mark_chatgpt_correct(runtime, proposal["proposal_id"], "تأیید آزمون: نتیجه قابل ثبت و استفاده مجدد است.")
                 runtime.approve_learning(proposal["proposal_id"])
             second = runtime.handle('/run second demo --tool bad_tool --expected correct --alternative good_tool')
             self.assertIn('task=success', second)

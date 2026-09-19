@@ -4,6 +4,7 @@ import unittest
 from pathlib import Path
 
 from runtime.app import IranRuntime
+from tests.chatgpt_test_helper import mark_chatgpt_correct
 
 
 class SymbolicExpansionTests(unittest.TestCase):
@@ -35,7 +36,7 @@ class SymbolicExpansionTests(unittest.TestCase):
             pending = runtime.learning_pending()
             self.assertTrue(pending)
             for proposal in list(pending):
-                runtime.submit_chatgpt_learning_review(proposal["proposal_id"], "تأیید آزمون: بازخورد مثبت و اثر آن معتبر است.")
+                mark_chatgpt_correct(runtime, proposal["proposal_id"], "تأیید آزمون: بازخورد مثبت و اثر آن معتبر است.")
                 runtime.approve_learning(proposal["proposal_id"])
             self.assertGreaterEqual(runtime.learning.stats()['experiences'], 1)
             self.assertIn('learning_update', [item['event'] for item in runtime.events.recent(50)])
