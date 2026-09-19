@@ -352,7 +352,11 @@ class IranRuntime:
             )
             if proposal is not None:
                 created.append(proposal)
+        # Every newly created learning request enters the ChatGPT review queue immediately.
+        # Approval remains a separate human-controlled gate; syncing never approves learning.
+        review_sync = self.sync_chatgpt_learning_reviews(limit=5000)
         return {"ok":True,"requested":len(rows),"created":len(created),
+                "review_queue":review_sync,
                 "domains":sorted({r["domain"] for r in rows}),
                 "proposals":created}
 
