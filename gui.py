@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (
  QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
  QLabel, QPushButton, QLineEdit, QPlainTextEdit, QTextBrowser,
  QListWidget, QComboBox, QCheckBox, QSplitter, QMessageBox,
- QDialog, QDialogButtonBox, QScrollArea, QFrame, QSizePolicy, QTabWidget
+ QDialog, QDialogButtonBox, QScrollArea, QFrame, QSizePolicy, QTabWidget, QInputDialog
 )
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
@@ -229,6 +229,18 @@ class ChatWindow(QMainWindow):
             copy.clicked.connect(lambda checked=False, text=box.toPlainText(): (QApplication.clipboard().setText(text), self.status.setText("درخواست کپی شد")))
             pid = proposal_id
             def do_approve(checked=False, proposal_id=pid, page=page):
+                status = self.runtime.chatgpt_learning_review_status(proposal_id)
+                if not status.get("reviewed"):
+                    review, ok = QInputDialog.getMultiLineText(
+                        d, "بازبینی ChatGPT", 
+                        "نتیجه بازبینی ChatGPT را وارد کنید (خطاها، کمبودها و اصلاح پیشنهادی):",
+                        "")
+                    if not ok or not review.strip():
+                        self.status.setText("تأیید متوقف شد: بازبینی ChatGPT ثبت نشد")
+                        return
+                    saved = self.runtime.submit_chatgpt_learning_review(proposal_id, review)
+                    if not saved.get("ok"):
+                        QMessageBox.warning(d, "ثبت بازبینی ناموفق", str(saved)); return
                 r = self.runtime.approve_learning(proposal_id)
                 if not r.get("ok"):
                     QMessageBox.warning(d, "تأیید ناموفق", str(r)); return

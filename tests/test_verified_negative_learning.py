@@ -49,10 +49,12 @@ class VerifiedNegativeLearningTests(unittest.TestCase):
             try:
                 first = runtime.execute_verified_goal('backup project files alpha', 'good_action', None, 'correct')
                 for proposal in list(runtime.learning_pending()):
+                    runtime.submit_chatgpt_learning_review(proposal["proposal_id"], "تأیید آزمون: اجرای موفق و قابل تکرار است.")
                     runtime.approve_learning(proposal["proposal_id"])
                 second = runtime.execute_verified_goal('backup project files beta', 'good_action', None, 'correct')
                 self.assertTrue(second['primary']['success'])
                 for proposal in list(runtime.learning_pending()):
+                    runtime.submit_chatgpt_learning_review(proposal["proposal_id"], "تأیید آزمون: تکرار مستقل همان نتیجه را تأیید می‌کند.")
                     runtime.approve_learning(proposal["proposal_id"])
                 self.assertTrue(runtime.skills.skills)
                 third = runtime.execute_verified_goal('backup project files gamma', 'good_action', None, 'correct')
@@ -82,6 +84,7 @@ class VerifiedNegativeLearningTests(unittest.TestCase):
                     'learn from failure demo', 'bad_action', 'good_action', 'correct')
                 self.assertTrue(first['alternative']['success'])
                 for proposal in list(runtime.learning_pending()):
+                    runtime.submit_chatgpt_learning_review(proposal["proposal_id"], "تأیید آزمون: شکست و مسیر جایگزین با شواهد مستقل ثبت شده‌اند.")
                     runtime.approve_learning(proposal["proposal_id"])
                 records = runtime.outcome_learning.retrieve_context('learn from failure demo', 'task', 10)
                 bad = [r for r in records if r['action'] == 'bad_action']
