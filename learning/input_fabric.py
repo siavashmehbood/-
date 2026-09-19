@@ -61,26 +61,38 @@ class InputFabric:
         best=max(scores,key=scores.get) if scores else "general"
         return best if scores.get(best,0) else "general"
     @staticmethod
-    def extract_units(content,source="user",input_type="conversation"):
+    def extract_units(content, source="user", input_type="conversation"):
         text=InputFabric.normalize(content)
-        if not text:return []
+        if not text:
+            return []
         units=[]
-        if re.match(r"^(نه|اشتباه|اصلاح|درستش)",text,re.I):
+        correction_re=r"^(نه|اشتباه|اصلاح|درستش|غلط|تصحیح|تصحيح|اصلاح کن|درست کن)\b"
+        if input_type=="correction" or re.match(correction_re,text,re.I):
             units.append({"kind":"correction","content":text,"reusable":True})
-        if "؟" in text or "?" in text:
+        if "؟" in text or "?" in text or re.match(r"^(آیا|چرا|چطور|چگونه|کدام|کی|چه|مگر|ممکن است)\b",text):
             units.append({"kind":"question","content":text,"reusable":False})
-        if input_type=="code" or "CODEBLOCK" in text or re.search(r"\b(def|class|import|for|while|return)\b",text):
+        if input_type=="code" or "CODEBLOCK" in text or re.search(r"\b(def|class|import|for|while|return|function|const|let)\b",text):
             units.append({"kind":"procedure_candidate","content":text,"reusable":True})
-        for sentence in re.split(r"(?<=[.!؟])\s+|\n+",text):
-            s=sentence.strip()
-            if len(s)>=12 and any(mark in s for mark in (" است "," یعنی "," شامل "," برابر "," به‌عنوان "," به عنوان ")):
-                units.append({"kind":"claim_candidate","content":s,"reusable":True})
-        if not units: units.append({"kind":"observation","content":text,"reusable":False})
+        sentences=[x.strip() for x in re.split(r"(?<=[.!؟?])\s+|\n+",text) if x.strip()]
+        if not sentences:
+            sentences=[text]
+        claim_markers=(" است "," هست "," هستند "," یعنی "," شامل "," برابر "," به‌عنوان "," به عنوان "," باعث "," می‌شود "," میشود "," می‌کند "," میکند "," دارد "," دارند "," باید "," نباید "," می‌توان "," میتوان "," تعریف "," روش ")
+        for sentence in sentences:
+            if len(sentence)<12 or "؟" in sentence or "?" in sentence:
+                continue
+            padded=" "+sentence+" "
+            declarative=input_type in {"knowledge","document","web_page","feedback","correction"} or any(m in padded for m in claim_markers)
+            if declarative:
+                units.append({"kind":"claim_candidate","content":sentence,"reusable":True})
+        if not units:
+            units.append({"kind":"observation","content":text,"reusable":False})
         out=[]; seen=set()
-        for u in units:
-            k=(u["kind"],u["content"].lower())
-            if k not in seen:seen.add(k);out.append(u)
+        for unit in units:
+            key=(unit["kind"],re.sub(r"\s+"," ",unit["content"]).strip().lower())
+            if key not in seen:
+                seen.add(key); out.append(unit)
         return out[:32]
+
     def ingest(self,content,source="user",input_type="conversation",domain="",provenance=None,confidence=0.0,cycle_id="",create_goal=True):
         content=self.normalize(content); source=str(source or "user"); input_type=str(input_type or "other")
         if source not in self.SOURCES:source="system"
@@ -98,13 +110,33 @@ class InputFabric:
         self.stats_data.setdefault("domains",{})[event.domain]=int(self.stats_data.get("domains",{}).get(event.domain,0))+1
         self.stats_data.setdefault("sources",{})[source]=int(self.stats_data.get("sources",{}).get(source,0))+1
         self._save()
+        learning_candidates=[u for u in units if u.get("reusable") and u.get("kind") in {"correction","claim_candidate","procedure_candidate"}]
+        learning_results=[]
+        if self.runtime is not None and learning_candidates:
+            for unit in learning_candidates:
+                try:
+                    learning_results.append(self.runtime.learning.record(
+                        goal=f"learn_from_input:{event.domain}",
+                        action=f"input_{unit["kind"]}",
+                        result=unit["content"],
+                        score=max(0.75, event.confidence or 0.75),
+                        intent="input_candidate",
+                        strategy="input_fabric",
+                        domain=event.domain,
+                        objective=f"turn reusable {unit["kind"]} input into a reviewable learning candidate",
+                        expected_effect="the same or similar future input should be handled with this reusable evidence",
+                        signal_source=f"input:{source}",
+                        evidence=event.event_id,
+                    ))
+                except Exception:
+                    pass
         if self.runtime is not None:
             try:self.runtime.events.emit("input_ingested",{"event_id":event.event_id,"source":source,"input_type":input_type,"domain":event.domain,"units":len(units)})
             except Exception:pass
             if create_goal and event.domain!="general":
                 try:self.runtime.self_directed_learning.create_goal(content[:160],"input_requires_grounded_processing",f"extract_and_verify:{content[:160]}","medium",event.domain)
                 except Exception:pass
-        return {"ok":True,"duplicate":False,"event":payload,"units":units}
+        return {"ok":True,"duplicate":False,"event":payload,"units":units,"learning":learning_results}
     def ingest_batch(self,items,create_goal=True):
         results=[]
         for item in items or []:
