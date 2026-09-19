@@ -67,12 +67,15 @@ class InputFabric:
             return []
         units=[]
         correction_re=r"^(نه|اشتباه|اصلاح|درستش|غلط|تصحیح|تصحيح|اصلاح کن|درست کن)\b"
-        if input_type=="correction" or re.match(correction_re,text,re.I):
-            units.append({"kind":"correction","content":text,"reusable":True})
-        if "؟" in text or "?" in text or re.match(r"^(آیا|چرا|چطور|چگونه|کدام|کی|چه|مگر|ممکن است)\b",text):
-            units.append({"kind":"question","content":text,"reusable":False})
-        if input_type=="code" or "CODEBLOCK" in text or re.search(r"\b(def|class|import|for|while|return|function|const|let)\b",text):
-            units.append({"kind":"procedure_candidate","content":text,"reusable":True})
+        is_question = "؟" in text or "?" in text or re.match(r"^(آیا|چرا|چطور|چگونه|کدام|کی|چه|مگر|ممکن است)\b",text)
+        if is_question:
+            return [{"kind":"question","content":text,"reusable":False}]
+        is_correction = input_type=="correction" or re.match(correction_re,text,re.I)
+        if is_correction:
+            return [{"kind":"correction","content":text,"reusable":True}]
+        is_code = input_type=="code" or "CODEBLOCK" in text or re.search(r"\b(def|class|import|for|while|return|function|const|let)\b",text)
+        if is_code:
+            return [{"kind":"procedure_candidate","content":text,"reusable":True}]
         sentences=[x.strip() for x in re.split(r"(?<=[.!؟?])\s+|\n+",text) if x.strip()]
         if not sentences:
             sentences=[text]
@@ -82,7 +85,7 @@ class InputFabric:
                 continue
             padded=" "+sentence+" "
             declarative=input_type in {"knowledge","document","web_page","feedback","correction"} or any(m in padded for m in claim_markers)
-            if declarative:
+            if declarative and input_type in {"knowledge","document","web_page","feedback"}:
                 units.append({"kind":"claim_candidate","content":sentence,"reusable":True})
         if not units:
             units.append({"kind":"observation","content":text,"reusable":False})
@@ -112,6 +115,7 @@ class InputFabric:
         self._save()
         learning_candidates=[u for u in units if u.get("reusable") and u.get("kind") in {"correction","claim_candidate","procedure_candidate"}]
         learning_results=[]
+        learning_errors=[]
         if self.runtime is not None and learning_candidates:
             for unit in learning_candidates:
                 try:
@@ -128,15 +132,15 @@ class InputFabric:
                         signal_source=f"input:{source}",
                         evidence=event.event_id,
                     ))
-                except Exception:
-                    pass
+                except Exception as exc:
+                    learning_errors.append({"kind":unit["kind"],"error":type(exc).__name__})
         if self.runtime is not None:
             try:self.runtime.events.emit("input_ingested",{"event_id":event.event_id,"source":source,"input_type":input_type,"domain":event.domain,"units":len(units)})
             except Exception:pass
-            if create_goal and event.domain!="general":
+            if create_goal and event.domain!="general" and learning_candidates:
                 try:self.runtime.self_directed_learning.create_goal(content[:160],"input_requires_grounded_processing",f"extract_and_verify:{content[:160]}","medium",event.domain)
                 except Exception:pass
-        return {"ok":True,"duplicate":False,"event":payload,"units":units,"learning":learning_results}
+        return {"ok":True,"duplicate":False,"event":payload,"units":units,"learning":learning_results,"learning_errors":learning_errors}
     def ingest_batch(self,items,create_goal=True):
         results=[]
         for item in items or []:
