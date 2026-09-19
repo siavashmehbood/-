@@ -118,6 +118,7 @@ class ChatWindow(QMainWindow):
                    ("آزمون بنچمارک", self.run_benchmark), ("بازبینی یادگیری", self.review_pending_learning),
                    ("درس‌های یادگرفته‌شده", self.show_learned_lessons),
                    ("تایید همه یادگیری‌ها", self.approve_all_learning_ui),
+                   ("حذف کامل صف یادگیری", self.clear_all_learning_ui),
                    ("تنظیمات", self.show_settings)]
         for text, fn in buttons:
             b = QPushButton(text); b.clicked.connect(fn); l.addWidget(b)
@@ -185,6 +186,48 @@ class ChatWindow(QMainWindow):
             )
         except Exception as e:
             QMessageBox.warning(self, "خطا", str(e))
+
+    def clear_all_learning_ui(self):
+        answer = QMessageBox.question(
+            self, "حذف کامل صف یادگیری",
+            "همه درخواست‌های در انتظار یادگیری و همه درخواست‌های بازبینی ChatGPT حذف شوند؟\n\n"
+            "موارد ردشده حفظ می‌شوند. این کار قابل بازگشت نیست.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            proposals_path = ROOT / "data" / "learning_proposals.json"
+            reviews_path = ROOT / "data" / "chatgpt_reviews.json"
+            removed_pending = 0
+            if proposals_path.exists():
+                try:
+                    rows = json.loads(proposals_path.read_text(encoding="utf-8"))
+                except Exception:
+                    rows = []
+                if not isinstance(rows, list):
+                    rows = []
+                kept = [r for r in rows if str(r.get("status", "")) != "pending"]
+                removed_pending = len(rows) - len(kept)
+                proposals_path.write_text(json.dumps(kept, ensure_ascii=False, indent=2), encoding="utf-8")
+            removed_reviews = 0
+            if reviews_path.exists():
+                try:
+                    rows = json.loads(reviews_path.read_text(encoding="utf-8"))
+                except Exception:
+                    rows = []
+                removed_reviews = len(rows) if isinstance(rows, list) else 0
+                reviews_path.write_text("[]", encoding="utf-8")
+            self.refresh_learning_stats()
+            self.refresh_chatgpt_count()
+            self.refresh_events()
+            QMessageBox.information(
+                self, "صف پاک شد",
+                f"pending حذف‌شده: {removed_pending:,}\nبازبینی‌های ChatGPT حذف‌شده: {removed_reviews:,}\n\nصف برای شروع دوباره آماده است."
+            )
+        except Exception as e:
+            QMessageBox.warning(self, "خطا در پاک‌سازی", str(e))
 
     def review_pending_learning(self):
         """نمایش همه درخواست‌های یادگیری در انتظار تأیید."""
