@@ -57,11 +57,11 @@ def test_goal_outcome_is_persisted(tmp_path):
 def test_foundational_curriculum_is_broad_and_idempotent(tmp_path):
     path = tmp_path / "goals.json"
     s = SelfDirectedLearning(path)
-    first = s.seed_curriculum()
-    second = s.seed_curriculum()
+    first = s.curriculum_batch(200)
+    second = s.curriculum_batch(200)
     assert len(first) >= 100
-    assert len(second) == len(first)
-    assert len({row["goal_id"] for row in first}) == len(first)
+    assert len(second) == 200
+    assert len({row["key"] for row in first}) == len(first)
     assert len(s.CURRICULUM) >= 20
     required = {
         "mathematics", "programming", "computer_science",

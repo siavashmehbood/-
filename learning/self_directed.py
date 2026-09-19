@@ -136,20 +136,41 @@ class SelfDirectedLearning:
         "law": ["مبانی حقوق", "حقوق مدنی", "حقوق کیفری", "حقوق اساسی", "قراردادها", "آیین دادرسی"],
     }
 
-    def seed_curriculum(self, priority="medium"):
-        """Create durable learning goals for broad foundational study without inventing facts."""
-        created = []
-        seen_ids = set()
+    MODES = ("definition", "example", "application", "problem_solving", "comparison", "common_errors", "transfer_test", "review")
+
+    def curriculum_batch(self, batch_size=24):
+        """Generate a rotating deterministic stream of unique reviewable learning goals."""
+        batch_size=max(1, min(200, int(batch_size)))
+        rows=[]
+        state={str(x.get("key")) for x in self.history if isinstance(x, dict) and x.get("type") == "curriculum_request"}
+        buckets=[]
         for domain, topics in self.CURRICULUM.items():
-            for topic in topics:
-                row = self.create_goal(
-                    topic, gap="curriculum_topic_not_yet_verified",
-                    objective=f"build_verified_understanding_of:{topic}",
-                    priority=priority, domain=domain)
-                if row["goal_id"] not in seen_ids:
-                    seen_ids.add(row["goal_id"])
-                    created.append(row)
-        return created
+            buckets.append([(domain, topic, mode) for topic in topics for mode in self.MODES])
+        topics=[item for bucket in buckets for item in bucket]
+        for index in range(max((len(bucket) for bucket in buckets), default=0)):
+            for bucket in buckets:
+                if index >= len(bucket): continue
+                domain, topic, mode=bucket[index]
+                key=f"{domain}|{topic}|{mode}"
+                if key in state: continue
+                rows.append({"key":key,"domain":domain,"topic":topic,"mode":mode,
+                             "objective":f"build_verified_understanding:{topic}:{mode}",
+                             "source":"self_directed_curriculum"})
+                if len(rows) >= batch_size: break
+            if len(rows) >= batch_size: break
+        if len(rows) < batch_size:
+            for domain, topic, mode in topics:
+                key=f"{domain}|{topic}|{mode}"
+                if key in {r["key"] for r in rows}: continue
+                rows.append({"key":key,"domain":domain,"topic":topic,"mode":mode,
+                             "objective":f"build_verified_understanding:{topic}:{mode}",
+                             "source":"self_directed_curriculum"})
+                if len(rows) >= batch_size: break
+        now=datetime.now().isoformat(timespec="seconds")
+        self.history.extend({"type":"curriculum_request","key":r["key"],"time":now} for r in rows)
+        self.history=self.history[-2000:]
+        self._save()
+        return rows
 
     @staticmethod
     def _stable_id(topic, gap, objective):

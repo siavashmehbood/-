@@ -637,6 +637,13 @@ _previous_autonomous_step = AutonomousSupervisor.step
 
 def _step_v10(self):
     report = _previous_autonomous_step(self)
+    # Canonical autonomous learning intake: every supervisor cycle emits a fresh,
+    # diverse batch from the curriculum. It creates reviewable goals only; no
+    # knowledge is fabricated or auto-approved.
+    try:
+        report["curriculum_learning"] = self.runtime.generate_curriculum_learning_inputs(24)
+    except Exception as exc:
+        report["curriculum_learning"] = {"ok":False,"error":type(exc).__name__}
     verified = bool(report.get("verified"))
     selected = report.get("selected") or {}
     decision = report.get("decision") or {}

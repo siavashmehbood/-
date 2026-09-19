@@ -70,10 +70,7 @@ class IranRuntime:
         self.learning_gate = LearningGate(self.root / "data/learning_proposals.json")
         self.trusted_knowledge = TrustedKnowledgeBootstrap()
         self.self_directed_learning = SelfDirectedLearning(self.root / "data/learning_goals.json")
-        # Bootstrap the complete foundational curriculum once, idempotently.
-        # This creates learning targets, not knowledge; evidence still has to
-        # pass the relevance/verification gates before becoming durable knowledge.
-        self.self_directed_learning.seed_curriculum(priority="medium")
+        # Curriculum goals are generated only by the autonomous learning intake.
         self.trusted_knowledge_path = self.root / "data/trusted_knowledge.json"
         self.memory = Memory(self.root / self.config["memory"]["db"], gate=self.learning_gate)
         self.events = EventLog(self.root / self.config["runtime"]["event_log"])
@@ -341,39 +338,23 @@ class IranRuntime:
             "status": self.capability_learning_status(),
         }
 
-    def seed_learning_requests(self, target=1000):
-        """Create real, deterministic self-directed learning requests until the queue reaches target.
-        Requests are goals only; no fact/lesson is fabricated before evidence and approval.
-        """
-        target=max(1,min(5000,int(target)))
-        current=self.learning_gate.stats().get("total",0)
-        existing=self.learning_gate.history(5000)
-        existing_keys={
-            (r.get("kind"), str((r.get("payload") or {}).get("goal_topic", "")).strip().lower(),
-             str((r.get("payload") or {}).get("objective", "")).strip().lower())
-            for r in existing
-        }
-        curriculum=self.self_directed_learning.CURRICULUM
-        modes=("تعریف دقیق", "مثال مستقل", "کاربرد", "خطاهای رایج", "آزمون انتقال", "مقایسه", "حل مسئله", "بازبینی و اصلاح")
-        created=0
-        for domain,topics in curriculum.items():
-            for topic in topics:
-                for mode in modes:
-                    if current+created >= target: break
-                    objective=f"build_verified_understanding:{topic}:{mode}"
-                    key=("learning.goal_request",topic.lower(),objective.lower())
-                    if key in existing_keys: continue
-                    payload={"goal_topic":topic,"domain":domain,"objective":objective,
-                             "mode":mode,"source":"self_directed_curriculum","status":"needs_evidence"}
-                    row=self.learning_gate.request("learning.goal_request",payload,
-                                                    f"درخواست یادگیری: {topic} — {mode}")
-                    if row is not None:
-                        created+=1; existing_keys.add(key)
-                if current+created >= target: break
-            if current+created >= target: break
-        return {"ok":True,"target":target,"created":created,
-                "total":self.learning_gate.stats().get("total",0),
-                "pending":self.learning_gate.stats().get("pending",0)}
+    def generate_curriculum_learning_inputs(self, batch_size=24):
+        """Generate the next diverse batch from the single canonical curriculum stream."""
+        rows=self.self_directed_learning.curriculum_batch(batch_size)
+        created=[]
+        for row in rows:
+            payload={"goal_topic":row["topic"],"domain":row["domain"],
+                     "objective":row["objective"],"mode":row["mode"],
+                     "source":row["source"],"status":"needs_evidence"}
+            proposal=self.learning_gate.request(
+                "learning.goal_request", payload,
+                f"curriculum:{row['domain']}:{row['topic']}:{row['mode']}"
+            )
+            if proposal is not None:
+                created.append(proposal)
+        return {"ok":True,"requested":len(rows),"created":len(created),
+                "domains":sorted({r["domain"] for r in rows}),
+                "proposals":created}
 
     def _chatgpt_review_path(self):
         return self.root / "data" / "chatgpt_reviews.json"

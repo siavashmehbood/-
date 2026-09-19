@@ -46,14 +46,13 @@ class InputLearningRoutingTests(unittest.TestCase):
             code=fabric.ingest("def hello(): return 1", source="user", input_type="code")
             self.assertEqual([u["kind"] for u in code["units"]], ["procedure_candidate"])
 
-    def test_normal_conversation_becomes_reviewable_signal_without_goal(self):
+    def test_normal_conversation_does_not_become_learning_goal(self):
         with tempfile.TemporaryDirectory() as d:
             runtime=FakeRuntime(); fabric=InputFabric(Path(d), runtime=runtime)
             result=fabric.ingest("من امروز درباره پایتون صحبت می‌کنم.", source="user", input_type="conversation")
-            self.assertEqual(len(runtime.learning.calls), 1)
-            self.assertEqual(runtime.learning.calls[0]["action"], "input_observation_candidate")
+            self.assertEqual(runtime.learning.calls, [])
             self.assertEqual(runtime.self_directed_learning.calls, [])
-            self.assertEqual(result["units"][0]["kind"], "observation_candidate")
+            self.assertEqual(result["units"][0]["kind"], "observation")
 
     def test_questions_and_duplicates_do_not_create_learning_candidates(self):
         with tempfile.TemporaryDirectory() as d:

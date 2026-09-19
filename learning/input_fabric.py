@@ -88,12 +88,7 @@ class InputFabric:
             if declarative and input_type in {"knowledge","document","web_page","feedback"}:
                 units.append({"kind":"claim_candidate","content":sentence,"reusable":True})
         if not units:
-            # Substantive conversation is a learning signal, not an automatic fact.
-            # It becomes reviewable evidence; approval still controls durable learning.
-            if input_type == "conversation" and len(text) >= 12:
-                units.append({"kind":"observation_candidate","content":text,"reusable":True})
-            else:
-                units.append({"kind":"observation","content":text,"reusable":False})
+            units.append({"kind":"observation","content":text,"reusable":False})
         out=[]; seen=set()
         for unit in units:
             key=(unit["kind"],re.sub(r"\s+"," ",unit["content"]).strip().lower())
@@ -118,7 +113,7 @@ class InputFabric:
         self.stats_data.setdefault("domains",{})[event.domain]=int(self.stats_data.get("domains",{}).get(event.domain,0))+1
         self.stats_data.setdefault("sources",{})[source]=int(self.stats_data.get("sources",{}).get(source,0))+1
         self._save()
-        learning_candidates=[u for u in units if u.get("reusable") and u.get("kind") in {"correction","claim_candidate","procedure_candidate","observation_candidate"}]
+        learning_candidates=[u for u in units if u.get("reusable") and u.get("kind") in {"correction","claim_candidate","procedure_candidate"}]
         learning_results=[]
         learning_errors=[]
         if self.runtime is not None and learning_candidates:
@@ -142,8 +137,7 @@ class InputFabric:
         if self.runtime is not None:
             try:self.runtime.events.emit("input_ingested",{"event_id":event.event_id,"source":source,"input_type":input_type,"domain":event.domain,"units":len(units)})
             except Exception:pass
-            goal_candidates=[u for u in learning_candidates if u.get("kind") != "observation_candidate"]
-            if create_goal and event.domain!="general" and goal_candidates:
+            if create_goal and event.domain!="general" and learning_candidates:
                 try:self.runtime.self_directed_learning.create_goal(content[:160],"input_requires_grounded_processing",f"extract_and_verify:{content[:160]}","medium",event.domain)
                 except Exception:pass
         return {"ok":True,"duplicate":False,"event":payload,"units":units,"learning":learning_results,"learning_errors":learning_errors}
