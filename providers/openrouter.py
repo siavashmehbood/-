@@ -109,6 +109,11 @@ class OpenRouterProvider:
         parsed = self._parse(raw)
         meta = {"model": data.get("model"), "usage": data.get("usage")}
         if not isinstance(parsed, dict):
+            upper = raw.upper()
+            if "REJECT" in upper and "LEARN" not in upper:
+                return {"decision": "REJECT", "reason": raw[:500], **meta}
+            if "LEARN" in upper and "REJECT" not in upper:
+                return {"decision": "LEARN", "reason": raw[:500], **meta}
             return {"decision": "ERROR", "reason": "invalid_json", **meta}
         decision = str(parsed.get("decision", "")).upper()
         if decision not in {"LEARN", "REJECT"}:
