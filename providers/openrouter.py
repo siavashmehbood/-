@@ -94,7 +94,7 @@ class OpenRouterProvider:
         payload = {"model": self.model, "messages": [
             {"role": "system", "content": "Return only JSON with decision LEARN or REJECT and a short reason."},
             {"role": "user", "content": prompt}], "temperature": 0, "max_tokens": 120,
-            "usage": {"include": True}}
+            "usage": {"include": True}, "response_format": {"type": "json_object"}}
         request = urllib.request.Request(self.base_url + "/chat/completions",
             data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
             headers={"Authorization": "Bearer " + key, "Content-Type": "application/json"}, method="POST")
