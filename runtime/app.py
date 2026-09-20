@@ -1,6 +1,8 @@
 """Canonical local runtime for the IRAN cognitive architecture."""
 from pathlib import Path
 import json
+import hashlib
+import re
 
 from core.agent import Agent
 from core.brain import Brain
@@ -58,6 +60,7 @@ from tools.builtin import build_registry
 from self.evaluator import Evaluator
 from self.benchmark import CognitiveBenchmark
 from self.improvement_loop import SelfImprovementLoop
+from integrations.chatgpt_review_worker import ChatGPTReviewWorker
 
 
 class IranRuntime:
@@ -68,6 +71,7 @@ class IranRuntime:
         self.config = json.loads((self.root / "config.json").read_text(encoding="utf-8-sig"))
         self.provider = create_provider(self.config)
         self.learning_gate = LearningGate(self.root / "data/learning_proposals.json")
+        self.chatgpt_review_worker = ChatGPTReviewWorker(self.root)
         self.trusted_knowledge = TrustedKnowledgeBootstrap()
         self.self_directed_learning = SelfDirectedLearning(self.root / "data/learning_goals.json")
         # Curriculum goals are generated only by the autonomous learning intake.
@@ -364,7 +368,11 @@ class IranRuntime:
         return self.root / "data" / "chatgpt_reviews.json"
 
     def sync_chatgpt_learning_reviews(self, limit=5000):
-        """Mirror pending learning proposals into the human ChatGPT-review queue."""
+        """Mirror pending learning proposals into the local review queue only.
+
+        This method never calls ChatGPT. It is safe for startup, counters, and
+        GUI refreshes; external validation belongs exclusively to the worker.
+        """
         path = self._chatgpt_review_path()
         path.parent.mkdir(parents=True, exist_ok=True)
         try:
@@ -374,12 +382,17 @@ class IranRuntime:
         if not isinstance(rows, list):
             rows = []
         existing = {str(r.get("proposal_id")) for r in rows if r.get("proposal_id")}
+        fingerprints = {str(r.get("fingerprint")) for r in rows if r.get("fingerprint")}
         created = 0
         for proposal in self.learning_gate.pending(limit):
             pid = str(proposal.get("proposal_id", ""))
             if not pid or pid in existing:
                 continue
             payload = proposal.get("payload") or {}
+            normalized = re.sub(r"\s+", " ", " ".join(str(payload.get(key, "")) for key in ("goal_topic", "goal", "action", "result", "lesson")).strip().lower())
+            fingerprint = hashlib.sha256(normalized.encode("utf-8")).hexdigest() if normalized else ""
+            if fingerprint and fingerprint in fingerprints:
+                continue
             rows.append({
                 "id": "learning_" + pid,
                 "proposal_id": pid,
@@ -394,8 +407,11 @@ class IranRuntime:
                 "source": "learning_gate",
                 "created_at": proposal.get("created_at", ""),
                 "reviewed_at": "",
+                "fingerprint": fingerprint,
             })
             existing.add(pid)
+            if fingerprint:
+                fingerprints.add(fingerprint)
             created += 1
         if created:
             from persistence import atomic_write_json
@@ -405,7 +421,6 @@ class IranRuntime:
                 "reviewed": sum(r.get("review_status") == "reviewed" for r in rows if r.get("source") == "learning_gate")}
 
     def chatgpt_learning_review_status(self, proposal_id):
-        self.sync_chatgpt_learning_reviews()
         path = self._chatgpt_review_path()
         try:
             rows = json.loads(path.read_text(encoding="utf-8")) if path.exists() else []
@@ -416,6 +431,31 @@ class IranRuntime:
             return {"exists": False, "reviewed": False}
         return {"exists": True, "reviewed": row.get("review_status") == "reviewed",
                 "review": str(row.get("review", "")), "row": row}
+
+    def chatgpt_review_status(self):
+        """Return persisted worker state and queue counts without an API call."""
+        path = self._chatgpt_review_path()
+        try:
+            rows = json.loads(path.read_text(encoding="utf-8")) if path.exists() else []
+        except Exception:
+            rows = []
+        rows = rows if isinstance(rows, list) else []
+        status = self.chatgpt_review_worker.status()
+        status.update({
+            "total": len(rows),
+            "pending": sum(r.get("status", "pending") == "pending" and r.get("review_status", "not_reviewed") == "not_reviewed" for r in rows),
+            "human_pending": sum(r.get("status") == "human_pending" for r in rows),
+            "rejected": sum(r.get("status") == "rejected" for r in rows),
+        })
+        return status
+
+    def process_one_chatgpt_learning_review(self):
+        """Run exactly one ChatGPT validation request through the dedicated worker."""
+        self.sync_chatgpt_learning_reviews()
+        result = self.chatgpt_review_worker.process_one()
+        if result.get("reason") == "reviewed" and result.get("learn") is False:
+            self.learning_gate.decide(result.get("proposal_id"), "rejected")
+        return result
 
     def submit_chatgpt_learning_review(self, proposal_id, review_text):
         """Store a review note only; human approval remains a separate gate."""
@@ -438,12 +478,10 @@ class IranRuntime:
         return {"ok": False, "reason": "proposal_not_in_review_queue"}
     def learning_pending(self, limit=50):
         """Return the durable pending proposals for internal learning workflows."""
-        self.sync_chatgpt_learning_reviews(limit=max(5000, int(limit)))
         return self.learning_gate.pending(limit)
 
     def human_learning_pending(self, limit=50):
         """Return only candidates ChatGPT marked correct and routed to the human gate."""
-        self.sync_chatgpt_learning_reviews(limit=max(5000, int(limit)))
         rows = self.learning_gate.pending(max(5000, int(limit) * 5))
         result = []
         for proposal in rows:
@@ -509,6 +547,7 @@ class IranRuntime:
                     applied.append(self._apply_approved_outcome(row.get("payload") or {}))
             decisions = [self.learning_gate.decide(r.get("proposal_id"),"approved") for r in group]
             for decision in decisions:
+                self._set_human_review_status(decision.get("proposal_id"), "approved")
                 self.events.emit("learning_approved",{"proposal_id":decision.get("proposal_id"),"kind":kind,"episode_id":p.get("episode_id")})
             current_decision = next((d for d in decisions if d.get("proposal_id") == proposal_id), decisions[0] if decisions else None)
             return {"ok":True,"proposal":current_decision,"result":applied[0] if applied else {}, "approved_group":len(applied)}
@@ -548,8 +587,27 @@ class IranRuntime:
             elif kind == "user_model.record_facts": result=self.user_model.record_from_facts(p)
             else: return {"ok":False,"reason":"unsupported_proposal_kind","kind":kind}
         decision=self.learning_gate.decide(proposal_id,"approved")
+        self._set_human_review_status(proposal_id, "approved")
         self.events.emit("learning_approved",{"proposal_id":proposal_id,"kind":kind})
         return {"ok":True,"proposal":decision,"result":result}
+
+    def _set_human_review_status(self, proposal_id, status):
+        path = self._chatgpt_review_path()
+        try:
+            rows = json.loads(path.read_text(encoding="utf-8")) if path.exists() else []
+        except Exception:
+            rows = []
+        if not isinstance(rows, list):
+            return False
+        for row in rows:
+            if str(row.get("proposal_id")) == str(proposal_id):
+                row["human_decision"] = status
+                row["status"] = status
+                row["human_decided_at"] = __import__("datetime").datetime.now().isoformat(timespec="seconds")
+                from persistence import atomic_write_json
+                atomic_write_json(path, rows[-5000:])
+                return True
+        return False
 
     def approve_all_learning(self, limit=5000):
         rows=self.learning_gate.pending(limit)
@@ -567,6 +625,7 @@ class IranRuntime:
     def reject_learning(self, proposal_id):
         result=self.learning_gate.decide(proposal_id,"rejected")
         if result is None: return {"ok":False,"reason":"proposal_not_found"}
+        self._set_human_review_status(proposal_id, "rejected")
         self.events.emit("learning_rejected",{"proposal_id":proposal_id,"kind":result.get("kind")})
         return {"ok":True,"proposal":result}
 

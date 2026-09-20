@@ -67,10 +67,14 @@ class ChatWindow(QMainWindow):
         self.runtime = IranRuntime(ROOT)
         self.last_answer = ""; self.messages = []; self.busy = False
         self.autonomy_busy = False
+        self.chatgpt_review_busy = False
         self.build(); self.load_session()
         self.autonomy_timer = QTimer(self)
         self.autonomy_timer.timeout.connect(self.run_autonomous_learning)
         self.autonomy_timer.start(7000)
+        self.chatgpt_review_timer = QTimer(self)
+        self.chatgpt_review_timer.timeout.connect(self.run_chatgpt_review_once)
+        self.chatgpt_review_timer.start(1000)
         QTimer.singleShot(1200, self.run_autonomous_learning)
     def build(self):
         root = QWidget(); self.setCentralWidget(root); outer = QVBoxLayout(root)
@@ -156,6 +160,24 @@ class ChatWindow(QMainWindow):
         if self.autocopy.isChecked(): self.copy_response()
     def on_fail(self, text):
         self.add("خطا", text); self.status.setText("خطا"); self.busy = False; self.send.setEnabled(True); self.persist_session()
+
+    def run_chatgpt_review_once(self):
+        """The only GUI-triggered API path: one serialized worker invocation."""
+        if self.chatgpt_review_busy:
+            return
+        self.chatgpt_review_busy = True
+        try:
+            result = self.runtime.process_one_chatgpt_learning_review()
+            reason = result.get("reason") if isinstance(result, dict) else ""
+            if reason == "rate_limited" or reason == "cooldown":
+                self.chatgpt_pending.setText("ChatGPT: در انتظار / Rate Limit — تلاش بعدی: " + str(result.get("status", {}).get("next_allowed_at", "—")))
+            elif reason == "reviewed":
+                self.status.setText("یک Candidate توسط ChatGPT بررسی شد")
+            self.refresh_chatgpt_count()
+        except Exception as exc:
+            self.status.setText(f"ChatGPT: خطا — {type(exc).__name__}")
+        finally:
+            self.chatgpt_review_busy = False
     def _finish_worker(self, *args):
         thread = self.thread
         worker = self.worker
@@ -259,16 +281,32 @@ class ChatWindow(QMainWindow):
             lesson = str(payload.get("lesson", ""))
             kind = str(row.get("kind", ""))
             proposal_id = str(row.get("proposal_id", ""))
+            review = self.runtime.chatgpt_learning_review_status(proposal_id).get("row", {})
+            try:
+                chatgpt = json.loads(str(review.get("review", "{}")))
+            except Exception:
+                chatgpt = {}
             l.addWidget(QLabel(f"درخواست {index} از {len(rows)} | نوع: {kind} | شناسه: {proposal_id}"))
             box = QPlainTextEdit()
             box.setReadOnly(True)
-            box.setPlainText(f"هدف:\n{goal}\n\nعمل انجام‌شده:\n{action}\n\nنتیجه:\n{result}\n\nدرس استخراج‌شده:\n{lesson}\n\nامتیاز: {payload.get('score', '?')}\nXP این درخواست: 1,000,000")
+            box.setPlainText(
+                f"هدف:\n{goal}\n\nعمل انجام‌شده:\n{action}\n\nنتیجه:\n{result}\n\nدرس استخراج‌شده:\n{lesson}\n\n"
+                f"نظر ChatGPT: {chatgpt.get('answer', '')}\n"
+                f"دلیل ChatGPT: {chatgpt.get('reason', '')}\n"
+                f"اصلاحات پیشنهادی: {chatgpt.get('corrections', [])}\n"
+                f"اعتماد ChatGPT: {chatgpt.get('confidence', '?')}\n"
+                f"وضعیت ChatGPT: {'تأیید شده — منتظر تأیید شما' if review.get('chatgpt_decision') == 'learn' else 'رد شده توسط ChatGPT'}\n"
+                f"زمان بررسی: {review.get('reviewed_at', '—')}\n"
+                f"منبع: {review.get('source', 'learning_gate')}\n\n"
+                f"امتیاز: {payload.get('score', '?')}\nXP این درخواست: 1,000,000"
+            )
             l.addWidget(box, 1)
             buttons = QHBoxLayout()
             copy = QPushButton("کپی درخواست")
             reject = QPushButton("رد کردن")
             approve = QPushButton("تأیید و ثبت ۱,۰۰۰,۰۰۰ XP")
-            buttons.addWidget(copy); buttons.addWidget(reject); buttons.addWidget(approve); l.addLayout(buttons)
+            next_item = QPushButton("مورد بعدی")
+            buttons.addWidget(copy); buttons.addWidget(reject); buttons.addWidget(approve); buttons.addWidget(next_item); l.addLayout(buttons)
             copy.clicked.connect(lambda checked=False, text=box.toPlainText(): (QApplication.clipboard().setText(text), self.status.setText("درخواست کپی شد")))
             pid = proposal_id
             def do_approve(checked=False, proposal_id=pid, page=page):
@@ -296,6 +334,7 @@ class ChatWindow(QMainWindow):
                 if tab_index >= 0: tabs.removeTab(tab_index)
                 if tabs.count() == 0: d.reject()
             approve.clicked.connect(do_approve); reject.clicked.connect(do_reject)
+            next_item.clicked.connect(lambda checked=False, index=index: tabs.setCurrentIndex(min(index, tabs.count() - 1)))
             tabs.addTab(page, f"درخواست {index}")
         close = QPushButton("بستن")
         close.clicked.connect(d.reject)
@@ -339,10 +378,15 @@ class ChatWindow(QMainWindow):
 
     def refresh_chatgpt_count(self):
         try:
-            path = ROOT / "data" / "chatgpt_reviews.json"
-            rows = json.loads(path.read_text(encoding="utf-8")) if path.exists() else []
-            pending = sum(r.get("status", "pending") == "pending" for r in rows)
-            self.chatgpt_pending.setText(f"درخواست‌های بازبینی ChatGPT: {pending:,}")
+            status = self.runtime.chatgpt_review_status()
+            if status.get("cooldown"):
+                self.chatgpt_pending.setText(
+                    f"ChatGPT: در انتظار / Rate Limit | صف: {status.get('pending', 0):,} | تلاش بعدی: {status.get('next_allowed_at', '—')}"
+                )
+            else:
+                self.chatgpt_pending.setText(
+                    f"درخواست‌های بازبینی ChatGPT: {status.get('pending', 0):,} | بازبینی انسانی: {status.get('human_pending', 0):,}"
+                )
         except Exception:
             self.chatgpt_pending.setText("درخواست‌های بازبینی ChatGPT: خطا")
 
