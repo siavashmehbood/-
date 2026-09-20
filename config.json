@@ -1,10 +1,10 @@
 {
   "name": "ایران",
-  "version": "0.55.0",
+  "version": "0.54.0",
   "model": {
-    "provider": "external",
-    "name": "Internet Validator",
-    "mode": "validation"
+    "provider": "iran",
+    "name": "Iran Symbolic Core",
+    "mode": "offline-symbolic"
   },
   "memory": {
     "db": "data/iran.db",
@@ -34,5 +34,13 @@
     "service_interval": 10,
     "autonomy_journal": "data/autonomy_journal.json",
     "autonomous_goal_state": "data/autonomous_goal_state.json"
+  },
+  "openrouter": {
+    "base_url": "https://openrouter.ai/api/v1",
+    "model": "openrouter/free",
+    "timeout": 45
+  },
+  "learning_validation": {
+    "enabled": true
   }
 }
