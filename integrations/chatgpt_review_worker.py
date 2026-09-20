@@ -100,13 +100,29 @@ class ChatGPTReviewWorker:
                       and row.get("review_status", "not_reviewed") == "not_reviewed"
                       and row.get("status", "pending") == "pending"), None)
 
+    def _windows_user_env(self, name):
+        if os.name != "nt":
+            return ""
+        try:
+            import winreg
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, "Environment") as key:
+                return str(winreg.QueryValueEx(key, name)[0]).strip()
+        except Exception:
+            return ""
+
+    def _env_value(self, name, default=""):
+        return (os.environ.get(name) or self._windows_user_env(name) or default).strip()
+
     def _default_transport(self, row):
-        api_key = os.environ.get("OPENAI_API_KEY", "").strip()
+        # Desktop GUI launched with pythonw may not inherit a newly-created
+        # user environment variable. Fall back to HKCU\Environment without
+        # ever exposing the secret in logs/UI.
+        api_key = self._env_value("OPENAI_API_KEY")
         if not api_key:
             raise RuntimeError("OPENAI_API_KEY is not configured")
-        base = os.environ.get("OPENAI_API_BASE", "https://api.openai.com/v1").rstrip("/")
+        base = self._env_value("OPENAI_API_BASE", "https://api.openai.com/v1").rstrip("/")
         default_model = "gpt-5-mini" if "manus.im" in base else "gpt-4o-mini"
-        model = os.environ.get("OPENAI_MODEL", default_model)
+        model = self._env_value("OPENAI_MODEL", default_model)
         payload = {
             "model": model,
             "temperature": 0,
