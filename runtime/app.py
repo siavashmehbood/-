@@ -428,6 +428,13 @@ class IranRuntime:
             rows = []
         row = next((r for r in rows if str(r.get("proposal_id")) == str(proposal_id)), None)
         if not row:
+            proposal = self.learning_gate.get(proposal_id)
+            external = (proposal or {}).get("payload", {}).get("_external_validation", {})
+            if str(external.get("decision", "")).upper() == "LEARN":
+                return {"exists": True, "reviewed": True,
+                        "review": str(external.get("reason", "")),
+                        "row": {"proposal_id": str(proposal_id), "chatgpt_decision": "learn",
+                                "review_status": "reviewed", "source": "openrouter"}}
             return {"exists": False, "reviewed": False}
         return {"exists": True, "reviewed": row.get("review_status") == "reviewed",
                 "review": str(row.get("review", "")), "row": row}
