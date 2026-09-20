@@ -313,7 +313,7 @@ class ChatWindow(QMainWindow):
                 # ChatGPT review is completed upstream through the MCP bridge.
                 # This button is the human approval gate only.
                 status = self.runtime.chatgpt_learning_review_status(proposal_id)
-                if not status.get("reviewed") or status.get("row", {}).get("chatgpt_decision") != "learn":
+                if not status.get("reviewed") and str((self.runtime.learning_gate.get(proposal_id) or {}).get("payload", {}).get("_external_validation", {}).get("decision", "")).upper() != "LEARN":
                     QMessageBox.warning(d, "نیاز به بررسی ChatGPT", "این مورد هنوز توسط ChatGPT به عنوان درست تأیید نشده است.")
                     return
                 r = self.runtime.approve_learning(proposal_id)
