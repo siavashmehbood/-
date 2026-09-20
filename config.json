@@ -1,10 +1,10 @@
 {
   "name": "ایران",
-  "version": "0.54.0",
+  "version": "0.55.0",
   "model": {
-    "provider": "iran",
-    "name": "Iran Symbolic Core",
-    "mode": "offline-symbolic"
+    "provider": "external",
+    "name": "Internet Validator",
+    "mode": "validation"
   },
   "memory": {
     "db": "data/iran.db",
