@@ -90,6 +90,8 @@ class IranRuntime:
         reviewer_config = load_json_with_backup(self.root / "reviewers.local.json", self.config.get("reviewers", {}))
         self.reviewer_manager = ProviderManager(self.root, {"reviewers": reviewer_config}, self.internet_access)
         self.chatgpt_review_worker.manager = self.reviewer_manager
+        if hasattr(self.provider, "reviewer_manager"):
+            self.provider.reviewer_manager = self.reviewer_manager
         self.policy = SecurityPolicy(self.config, internet_access=self.internet_access)
         self.registry = build_registry(self.root, self.memory, self.internet_access)
         self.brain = Brain(self.provider)

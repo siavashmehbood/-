@@ -85,3 +85,15 @@ def test_remaining_budget_limits_provider_timeout(tmp_path):
     assert m.review({})['ok']
     assert 0 < observed[0] <= 1
     assert p.timeout == 30
+
+
+def test_legacy_provider_does_not_bypass_network_manager(tmp_path, monkeypatch):
+    from providers.factory import create_provider
+    from providers.remote import RemoteProvider
+    import urllib.request
+    def forbidden(*a, **kw): raise AssertionError('legacy network request')
+    monkeypatch.setattr(urllib.request, 'urlopen', forbidden)
+    legacy = create_provider({'model':{'provider':'openrouter'}})
+    assert legacy.validate('candidate')['reason']=='reviewer_manager_not_configured'
+    assert isinstance(legacy.generate([{'role':'user','content':'سلام'}]), str)
+    assert RemoteProvider().validate('candidate')['decision']=='ERROR'

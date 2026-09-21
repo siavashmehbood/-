@@ -61,3 +61,29 @@ def test_reviewer_receives_full_claim_and_provenance(runtime):
     runtime.chatgpt_review_worker.transport=lambda row:(seen.append(row) or {'learn':False})
     runtime.process_one_chatgpt_learning_review()
     assert seen[0]['payload'] == payload
+
+
+def test_waiting_queue_survives_restart_then_resumes_without_duplicate(runtime):
+    from providers.reviewer import ProviderManager
+    from tests.test_reviewer_providers import FakeProvider
+    p = runtime.learning_gate.request('knowledge.add_fact', {'subject':'restart fixture','predicate':'is','object':'blue'})
+    runtime.internet_access.disable()
+    assert runtime.process_one_chatgpt_learning_review()['state'] == 'WAITING_FOR_REVIEWER'
+    runtime.close()
+    restored = IranRuntime(runtime.root)
+    try:
+        a=FakeProvider('offline-fixture',{'learn':True})
+        restored.chatgpt_review_worker.manager = ProviderManager(restored.root,{},restored.internet_access,[a])
+        assert restored.process_one_chatgpt_learning_review()['reason']=='internet_off'
+        assert a.calls==0
+        restored.internet_access.enable()
+        assert restored.process_one_chatgpt_learning_review()['reason']=='reviewed'
+        assert restored.approve_learning(p['proposal_id'])['ok']
+        again=restored.learning_gate.request('knowledge.add_fact', {'subject':'restart fixture','predicate':'is','object':'blue'})
+        assert again['proposal_id']==p['proposal_id'] and again['status']=='approved'
+        restored.process_one_chatgpt_learning_review()
+        assert a.calls==1
+        assert len(restored.knowledge.query('restart fixture'))==1
+        assert restored.effect_learning.stats()['xp']==0
+    finally:
+        restored.close()
