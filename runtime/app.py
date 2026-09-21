@@ -3,6 +3,8 @@ from pathlib import Path
 from persistence import json_transaction, file_lock, load_json_with_backup
 import json
 import hashlib
+import threading
+from learning.approval_transaction import serialized, recover, approval_checkpoint
 import re
 
 from core.agent import Agent
@@ -70,6 +72,9 @@ class IranRuntime:
 
     def __init__(self, root):
         self.root = Path(root)
+        self._mutation_lock = threading.RLock()
+        self._recovery_required = False
+        recover(self.root)
         self.config = json.loads((self.root / "config.json").read_text(encoding="utf-8-sig"))
         self.provider = create_provider(self.config)
         self.learning_gate = LearningGate(self.root / "data/learning_proposals.json")
@@ -174,16 +179,19 @@ class IranRuntime:
                     self.knowledge.add_fact(subject, predicate, object_, confidence,
                                             "verified_local_seed")
 
+    @serialized
     def handle(self, text):
         # One public ingress: capture the learning signal first, then route cognition.
         self.input_fabric.ingest(text, source="user", input_type="conversation",
                                  provenance={"channel": "runtime.handle"}, create_goal=True)
         return self.cognitive_system.dispatch(text)
 
+    @serialized
     def ingest_input(self, content, source="system", input_type="other", **kwargs):
         """Public multi-source learning ingress for documents, web, code, feedback and experiments."""
         return self.input_fabric.ingest(content, source=source, input_type=input_type, **kwargs)
 
+    @serialized
     def ingest_inputs(self, items, **kwargs):
         return self.input_fabric.ingest_batch(items, **kwargs)
 
@@ -203,13 +211,10 @@ class IranRuntime:
             )
             result.update(learned or {})
             result["learned"] = True
-            try:
-                result["effect_learning"] = self.effect_learning.evaluate(
-                    p.get("goal",""), p.get("action",""), p.get("result",""),
-                    p.get("expected", ""), {"verified": bool(p.get("verified")), "score": p.get("score",0), "source": p.get("verification_source","approval")},
-                    p.get("strategy","default"), p.get("domain","general"), p.get("episode_id",""), p.get("attempt",0))
-            except Exception as exc:
-                result["effect_learning"] = {"error": type(exc).__name__}
+            result["effect_learning"] = self.effect_learning.evaluate(
+                p.get("goal",""), p.get("action",""), p.get("result",""),
+                p.get("expected", ""), {"verified": bool(p.get("verified")), "score": p.get("score",0), "source": p.get("verification_source","approval")},
+                p.get("strategy","default"), p.get("domain","general"), p.get("episode_id",""), p.get("attempt",0))
             # Two independently approved successes of the same action form a
             # reusable local skill. This promotion happens inside approval.
             if float(p.get("score", 0)) >= .75:
@@ -302,12 +307,14 @@ class IranRuntime:
             self.self_directed_learning.update_outcome(goal.goal_id, "testing", len(bundle["agreements"]), success=False)
         return {"stored": True, "proposal_id": bundle["proposal_id"], "agreements": len(bundle["agreements"]), "sources": len(bundle["sources"]), "learning_goals_updated": len(goals)}
 
+    @serialized
     def learn_from_internet(self, topic, urls=None, auto=True):
         return self.internet_learning.learn(topic, urls, auto=auto)
 
     def internet_learning_status(self):
         return self.internet_learning.status()
 
+    @serialized
     def capability_learning_step(self, topic, auto=True):
         """Drive the canonical internet -> experiment -> skill -> transfer loop."""
         return self.capability_learning.learn_topic(topic, auto=auto)
@@ -355,6 +362,7 @@ class IranRuntime:
         goals = self.self_directed_learning.next_curriculum_goals(limit=batch_size)
         return {"ok":True, "goals":goals, "created":len(goals), "review_queue":self.chatgpt_review_status()}
 
+    @serialized
     def learning_tick(self):
         if not self.internet_access.status()["enabled"]:
             return {"ok":False, "reason":"internet_off"}
@@ -368,6 +376,7 @@ class IranRuntime:
             return result
         return {"ok":True,"reason":"no_ready_learning_goal"}
 
+    @serialized
     def maintenance_step(self):
         return {"local":self.autonomous_supervisor_step(), "learning":self.learning_tick()}
 
@@ -519,9 +528,18 @@ class IranRuntime:
         })
         return status
 
+    @serialized
     def approve_learning(self, proposal_id):
         with file_lock(self.root / "data" / "learning_apply.lock"):
-            return self._approve_learning(proposal_id)
+            proposal = self.learning_gate.get(proposal_id)
+            if not proposal or proposal.get('status') != 'pending':
+                return self._approve_learning(proposal_id)
+            review = self.chatgpt_learning_review_status(proposal_id)
+            if not review.get('reviewed'):
+                return self._approve_learning(proposal_id)
+            ids = {proposal_id}
+            with approval_checkpoint(self, ids):
+                return self._approve_learning(proposal_id)
 
     def _approve_learning(self, proposal_id):
         proposal=self.learning_gate.get(proposal_id)
@@ -544,24 +562,6 @@ class IranRuntime:
                     "message":"ChatGPT این مورد را برای یادگیری تأیید نکرده است.",
                     "proposal":proposal,"review":review.get("review", "")}
         kind=proposal.get("kind"); p=proposal.get("payload") or {}
-        if kind == "outcome.record" and p.get("episode_id"):
-            siblings = [r for r in self.learning_gate.pending(5000)
-                        if r.get("kind") == "outcome.record"
-                        and (r.get("payload") or {}).get("episode_id") == p.get("episode_id")]
-            group = [proposal] + [r for r in siblings if r.get("proposal_id") != proposal_id]
-            group_reviews = [self.chatgpt_learning_review_status(r.get("proposal_id")) for r in group]
-            if not all(r.get("reviewed") and r.get("row", {}).get("chatgpt_decision") == "learn" for r in group_reviews):
-                return {"ok":False,"reason":"chatgpt_review_required","message":"ابتدا همه اجزای این اجرای تاییدشده باید بازبینی شوند.","proposal":proposal}
-            applied = []
-            with self.learning_gate.bypass():
-                for row in group:
-                    applied.append(self._apply_approved_outcome(row.get("payload") or {}))
-            decisions = [self.learning_gate.decide(r.get("proposal_id"),"approved") for r in group]
-            for decision in decisions:
-                self._set_human_review_status(decision.get("proposal_id"), "approved")
-                self.events.emit("learning_approved",{"proposal_id":decision.get("proposal_id"),"kind":kind,"episode_id":p.get("episode_id")})
-            current_decision = next((d for d in decisions if d.get("proposal_id") == proposal_id), decisions[0] if decisions else None)
-            return {"ok":True,"proposal":current_decision,"result":applied[0] if applied else {}, "approved_group":len(applied)}
         with self.learning_gate.bypass():
             if kind == "knowledge.add_fact": result=self.knowledge.add_fact(p["subject"],p["predicate"],p["object"],p.get("confidence",1.0),p.get("source","approved"))
             elif kind == "trusted_knowledge.bootstrap": result=self._apply_trusted_knowledge(proposal)
@@ -625,6 +625,7 @@ class IranRuntime:
                 skipped.append({"proposal_id":row.get("proposal_id"),"reason":str(exc)})
         return {"ok":True,"approved":len(results),"skipped":skipped,"remaining":self.learning_gate.stats().get("pending",0)}
 
+    @serialized
     def reject_learning(self, proposal_id):
         result=self.learning_gate.decide(proposal_id,"rejected")
         if result is None: return {"ok":False,"reason":"proposal_not_found"}
@@ -672,14 +673,17 @@ class IranRuntime:
         output["prediction"] = self.prediction.calibration()
         return output
 
+    @serialized
     def benchmark_run(self):
         return self.benchmark.run(self.brain.language, self.provider, self.brain,
                                   self.orchestrator.planner, self.kernel).__dict__
 
+    @serialized
     def roadmap_benchmark(self):
         from self.roadmap_benchmark import PersianRoadmapBenchmark
         return PersianRoadmapBenchmark().run(self)
 
+    @serialized
     def scenario_benchmark(self, limit=None):
         from self.scenario_benchmark import PersianScenarioBenchmark
         return PersianScenarioBenchmark().run(self, limit=limit)
@@ -707,6 +711,7 @@ class IranRuntime:
         self.events.emit("task_created", {"task_id": task.task_id, "description": description})
         return self.tasks.get(task.task_id)
 
+    @serialized
     def execute_verified_action(self, task_id, tool_name, expected_effect, evidence=None, **kwargs):
         self.tasks.transition(task_id, TaskStatus.RUNNING.value, "action execution")
         action = self.actions.execute(task_id, tool_name, expected_effect, **kwargs)
@@ -772,6 +777,7 @@ class IranRuntime:
         return {"task": self.tasks.get(task["task_id"]), "plan": plan,
                 "primary": primary_v.__dict__, "diagnosis": diagnosis.__dict__,
                 "replan": decision.__dict__, "alternative": alt_v.__dict__}
+    @serialized
     def execute_verified_goal(self, goal, primary, alternative=None, expected_effect="", kwargs=None):
         kwargs = dict(kwargs or {})
         goal_record = self.goals.add(str(goal))
@@ -932,15 +938,19 @@ class IranRuntime:
             self.skills._save()
         return result
 
+    @serialized
     def autonomous_step(self):
         return self.autonomy.step()
 
+    @serialized
     def autonomous_run(self, cycles=1):
         return self.autonomy.run(cycles)
 
+    @serialized
     def autonomous_supervisor_step(self):
         return self.autonomous_supervisor.step()
 
+    @serialized
     def autonomous_supervisor_run(self, cycles=1):
         return self.autonomous_supervisor.run(cycles)
 
