@@ -7,7 +7,7 @@ The same isolated runtime evaluation was run against the baseline snapshot and t
 | --- | ---: | ---: |
 | Behavioral runtime scenarios | 8 / 15 | 15 / 15 |
 | Existing baseline pytest suite | 303 passed | preserved, no removed/relaxed tests |
-| Full revised pytest suite | — | 375 passed |
+| Full revised pytest suite | — | 381 passed |
 | Legacy unittest discovery | 234 passed | 234 passed |
 
 The 15 scenarios cover topic switching, verified action recovery, multi-turn identity recall, correction, reference resolution, unknown handling, restart memory, external then human approval, hidden candidates, feedback without XP, candidate deduplication, untrusted review metadata, source conflict detection, offline/provider fallback and approved knowledge reuse credited once. See `runtime_evaluation.json` for individual outcomes and `evaluation/runtime_suite.py` to reproduce. This is a regression suite, not a percentage measure of general intelligence.
@@ -32,3 +32,5 @@ Real CLI startup and commands are exercised separately. GUI testing here is Linu
 - Existing legacy pipeline wrappers remain technical debt. The report does not declare a completed architecture rewrite.
 
 Verification follow-up: unrelated informational answers are rejected, relevant stored facts can support short answers, and the final consistency check retains existing REPAIR/CLARIFY/UNKNOWN status and reasons. These checks do not establish arbitrary factual truth.
+
+Runtime ownership is tested with two objects, two subprocesses, separate roots, failed initialization, abrupt exit and attempted use after close. Only one runtime may own a data directory.

@@ -17,6 +17,8 @@ def serialized(operation):
     @wraps(operation)
     def call(runtime, *args, **kwargs):
         with runtime.__dict__.setdefault('_mutation_lock', threading.RLock()):
+            if getattr(runtime, '_closed', False):
+                raise RuntimeError('Runtime is closed')
             if getattr(runtime, '_recovery_required', False):
                 raise RuntimeError('Interrupted learning approval: restart required for recovery')
             return operation(runtime, *args, **kwargs)

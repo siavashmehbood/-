@@ -107,3 +107,34 @@ def load_critical_json(path, default):
     if present:
         raise StateCorruptionError('Unreadable durable state: ' + str(path))
     return default
+
+
+class RuntimeAlreadyRunning(RuntimeError):
+    """Another runtime owns the learned stores in this data directory."""
+
+
+def acquire_runtime_ownership(path):
+    """Hold a nonblocking OS lock until the returned handle is closed.
+
+    The file remains on disk; process termination releases its lock, so stale
+    PID files cannot strand a queue. This is separate from short queue locks.
+    """
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    handle = path.open('a+b')
+    try:
+        handle.seek(0, 2)
+        if handle.tell() == 0:
+            handle.write(b'0')
+            handle.flush()
+        handle.seek(0)
+        if os.name == 'nt':
+            import msvcrt
+            msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError as exc:
+        handle.close()
+        raise RuntimeAlreadyRunning('Data directory is already owned or cannot be locked: ' + str(path.parent)) from exc
+    return handle

@@ -12,7 +12,7 @@ python main.py
 python gui.py
 ```
 
-روی Windows نیز `python gui.py` همان `gui.ChatWindow` را اجرا می‌کند. هم‌زمان فقط **یک runtime برای هر پوشهٔ داده** اجرا کنید. `data/` شامل حافظه و صف پایدار است؛ آن را برای پاک‌سازی cache حذف نکنید. داده‌ها، logها، تنظیمات محلی و secretها در Git ثبت نمی‌شوند.
+روی Windows نیز `python gui.py` همان `gui.ChatWindow` را اجرا می‌کند. برای هر پوشهٔ داده فقط **یک runtime** مجاز است؛ قفل سیستم‌عامل از بازشدن هم‌زمان runtime دوم جلوگیری می‌کند. `data/` شامل حافظه و صف پایدار است؛ آن را برای پاک‌سازی cache حذف نکنید. داده‌ها، logها، تنظیمات محلی و secretها در Git ثبت نمی‌شوند.
 
 دستورهای مهم: `/internet off`، `/internet on`، `/learn pending`، `/learnweb <topic> [url ...]`، `/memory`، `/trace`، `/health` و `/exit`. رابط گرافیکی چت، وضعیت اینترنت و ناظرها، صف تأیید انسانی، آمار یادگیری، XP و trace را نشان می‌دهد.
 

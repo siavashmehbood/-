@@ -1,6 +1,6 @@
 """Canonical local runtime for the IRAN cognitive architecture."""
 from pathlib import Path
-from persistence import json_transaction, file_lock, load_json_with_backup
+from persistence import json_transaction, file_lock, load_json_with_backup, acquire_runtime_ownership
 import json
 import hashlib
 import threading
@@ -72,6 +72,14 @@ class IranRuntime:
 
     def __init__(self, root):
         self.root = Path(root)
+        self._ownership = acquire_runtime_ownership(self.root / 'data/runtime_owner.lock')
+        try:
+            self._initialize()
+        except BaseException:
+            self.close()
+            raise
+
+    def _initialize(self):
         self._mutation_lock = threading.RLock()
         self._recovery_required = False
         recover(self.root)
@@ -960,6 +968,10 @@ class IranRuntime:
         return self.autonomous_supervisor.snapshot()
 
     def close(self):
+        with self.__dict__.setdefault('_mutation_lock', threading.RLock()):
+            self._close_resources()
+
+    def _close_resources(self):
         if getattr(self, "_closed", False):
             return
         self._closed = True
@@ -975,6 +987,10 @@ class IranRuntime:
             self.memory.close()
         except Exception:
             pass
+        ownership = getattr(self, '_ownership', None)
+        if ownership is not None:
+            ownership.close()
+            self._ownership = None
 
     def __del__(self):
         try:
