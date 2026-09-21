@@ -159,7 +159,15 @@ def run(repository):
         require(not calls, 'corrupt cooldown allowed a request')
         require(result.get('state')=='WAITING_FOR_REVIEWER', 'candidate not waiting')
         require(bool(r.learning_gate.pending()), 'candidate lost')
-    for name, operation in [('corrupt_reviewer_state',corrupt_reviewer_state), ('recover_then_learn',recover_then_learn), ('knowledge_correction',knowledge_correction), ('conflicting_knowledge',conflicting_knowledge), ('topic_switch',topic_switch), ('verified_action_recovery',verified_action), ('multi_turn_memory',recall), ('correction',correction), ('reference_resolution',reference), ('unknown',unknown), ('restart_memory',restart), ('review_then_human',approval), ('hidden_candidate',hidden), ('feedback_no_xp',feedback), ('deduplication',duplicate), ('forged_review_rejected',forged), ('source_conflict',conflict), ('provider_offline_fallback',provider), ('learn_apply_observe_credit_once',reuse)]:
+    def corroborating_sources(r):
+        for source in ('reference_a','reference_b'):
+            p=r.knowledge.add_fact('ایران','پایتخت','تهران',source=source)
+            mark_chatgpt_correct(r,p['proposal_id'],'fixture only')
+            require(r.approve_learning(p['proposal_id'])['ok'], 'corroboration not applied')
+        require('تهران' in r.handle('پایتخت ایران کجاست؟'), 'known fact not retrieved')
+        require({'reference_a','reference_b'} <= set(r.cognitive_system.last_trace.evidence_sources), 'corroborating source lost')
+        require(r.effect_learning.stats()['xp']==0, 'corroboration minted XP')
+    for name, operation in [('corroborating_sources',corroborating_sources), ('corrupt_reviewer_state',corrupt_reviewer_state), ('recover_then_learn',recover_then_learn), ('knowledge_correction',knowledge_correction), ('conflicting_knowledge',conflicting_knowledge), ('topic_switch',topic_switch), ('verified_action_recovery',verified_action), ('multi_turn_memory',recall), ('correction',correction), ('reference_resolution',reference), ('unknown',unknown), ('restart_memory',restart), ('review_then_human',approval), ('hidden_candidate',hidden), ('feedback_no_xp',feedback), ('deduplication',duplicate), ('forged_review_rejected',forged), ('source_conflict',conflict), ('provider_offline_fallback',provider), ('learn_apply_observe_credit_once',reuse)]:
         case(name, operation)
     return {'cases': results, 'passed': sum(x['passed'] for x in results), 'total': len(results), 'live_external_services': 'NOT_TESTED'}
 

@@ -91,59 +91,64 @@
   "current": {
     "cases": [
       {
+        "case": "corroborating_sources",
+        "passed": true,
+        "seconds": 0.07
+      },
+      {
         "case": "corrupt_reviewer_state",
-        "passed": true,
-        "seconds": 0.017
-      },
-      {
-        "case": "recover_then_learn",
-        "passed": true,
-        "seconds": 0.014
-      },
-      {
-        "case": "knowledge_correction",
-        "passed": true,
-        "seconds": 0.018
-      },
-      {
-        "case": "conflicting_knowledge",
-        "passed": true,
-        "seconds": 0.013
-      },
-      {
-        "case": "topic_switch",
         "passed": true,
         "seconds": 0.008
       },
       {
-        "case": "verified_action_recovery",
+        "case": "recover_then_learn",
         "passed": true,
-        "seconds": 0.009
+        "seconds": 0.019
       },
       {
-        "case": "multi_turn_memory",
-        "passed": true,
-        "seconds": 0.012
-      },
-      {
-        "case": "correction",
+        "case": "knowledge_correction",
         "passed": true,
         "seconds": 0.017
       },
       {
+        "case": "conflicting_knowledge",
+        "passed": true,
+        "seconds": 0.017
+      },
+      {
+        "case": "topic_switch",
+        "passed": true,
+        "seconds": 0.013
+      },
+      {
+        "case": "verified_action_recovery",
+        "passed": true,
+        "seconds": 0.015
+      },
+      {
+        "case": "multi_turn_memory",
+        "passed": true,
+        "seconds": 0.021
+      },
+      {
+        "case": "correction",
+        "passed": true,
+        "seconds": 0.024
+      },
+      {
         "case": "reference_resolution",
         "passed": true,
-        "seconds": 0.012
+        "seconds": 0.017
       },
       {
         "case": "unknown",
         "passed": true,
-        "seconds": 0.007
+        "seconds": 0.009
       },
       {
         "case": "restart_memory",
         "passed": true,
-        "seconds": 0.015
+        "seconds": 0.017
       },
       {
         "case": "review_then_human",
@@ -153,41 +158,41 @@
       {
         "case": "hidden_candidate",
         "passed": true,
-        "seconds": 0.005
+        "seconds": 0.006
       },
       {
         "case": "feedback_no_xp",
         "passed": true,
-        "seconds": 0.014
+        "seconds": 0.017
       },
       {
         "case": "deduplication",
         "passed": true,
-        "seconds": 0.005
+        "seconds": 0.006
       },
       {
         "case": "forged_review_rejected",
         "passed": true,
-        "seconds": 0.004
+        "seconds": 0.006
       },
       {
         "case": "source_conflict",
         "passed": true,
-        "seconds": 0.005
+        "seconds": 0.008
       },
       {
         "case": "provider_offline_fallback",
         "passed": true,
-        "seconds": 0.005
+        "seconds": 0.007
       },
       {
         "case": "learn_apply_observe_credit_once",
         "passed": true,
-        "seconds": 0.023
+        "seconds": 0.021
       }
     ],
-    "passed": 19,
-    "total": 19,
+    "passed": 20,
+    "total": 20,
     "live_external_services": "NOT_TESTED"
   },
   "baseline_commit": "5476939e50852f550d3cd67acc4f1e8319b9612e",
@@ -962,5 +967,11 @@
       "total": 19,
       "live_external_services": "NOT_TESTED"
     }
+  },
+  "provenance_checkpoint": {
+    "baseline_commit": "266656ae7140b940606d7a821ddba0cd09a72c80",
+    "before_passed": 19,
+    "after_passed": 20,
+    "total": 20
   }
 }

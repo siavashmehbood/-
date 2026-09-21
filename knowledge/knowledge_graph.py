@@ -21,8 +21,30 @@ class KnowledgeGraph:
             if proposal is not None: return proposal
         for old in self.facts:
             if old['subject']==fact['subject'] and old['predicate']==fact['predicate'] and old['object']==fact['object']:
+                self._record_source(old, fact)
                 old.update({'confidence':max(old.get('confidence',0),fact['confidence']),'updated_at':fact['updated_at']}); self._save(); return old
+        self._record_source(fact, fact)
         self.facts.append(fact); self._save(); return fact
+
+    @staticmethod
+    def _record_source(stored, incoming):
+        # One observation per source: corroboration retains attribution without
+        # duplicating the fact or treating repeat ingestion as independent proof.
+        if 'source_observations' not in stored:
+            stored['source_observations'] = [{
+                'source': stored.get('source', 'internal'),
+                'confidence': stored.get('confidence', 0),
+                'first_recorded_at': stored.get('updated_at'),
+                'last_recorded_at': stored.get('updated_at'),
+            }]
+        observations = stored['source_observations']
+        prior = next((x for x in observations if x['source'] == incoming['source']), None)
+        if prior is None:
+            observations.append({'source':incoming['source'], 'confidence':incoming['confidence'],
+                'first_recorded_at':incoming['updated_at'], 'last_recorded_at':incoming['updated_at']})
+        else:
+            prior['last_recorded_at'] = incoming['updated_at']
+            prior['confidence'] = max(prior['confidence'], incoming['confidence'])
 
     def contradict(self,subject,predicate,object_,confidence=.7,source='internal'):
         candidate={'subject':str(subject),'predicate':str(predicate),'object':str(object_),'confidence':float(confidence),'source':str(source)}

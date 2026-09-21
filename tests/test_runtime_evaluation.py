@@ -119,3 +119,25 @@ def test_explicit_knowledge_correction_requires_both_reviews_and_survives_restar
     assert r.cognitive_system.last_trace.evidence_status=='SUPPORTED'
     assert len([f for f in r.knowledge.facts if f['subject']=='ایران' and f['predicate']=='پایتخت'])==2
     r.close()
+
+
+def test_approved_corroboration_retains_both_sources_without_duplicate_fact(tmp_path):
+    from tests.chatgpt_test_helper import mark_chatgpt_correct
+    shutil.copy(Path(__file__).parents[1]/'config.json',tmp_path)
+    r=IranRuntime(tmp_path)
+    for source in ('reference_a','reference_b'):
+        p=r.knowledge.add_fact('ایران','پایتخت','تهران',source=source)
+        mark_chatgpt_correct(r,p['proposal_id'],'fixture only')
+        assert r.approve_learning(p['proposal_id'])['ok']
+    rows=[f for f in r.knowledge.facts if f['subject']=='ایران' and f['predicate']=='پایتخت']
+    assert len(rows)==1
+    assert {'reference_a','reference_b'} <= {x['source'] for x in rows[0]['source_observations']}
+    assert 'تهران' in r.handle('پایتخت ایران کجاست؟')
+    assert {'reference_a','reference_b'} <= set(r.cognitive_system.last_trace.evidence_sources)
+    assert r.effect_learning.stats()['xp']==0
+    r.close()
+    r=IranRuntime(tmp_path)
+    assert 'تهران' in r.handle('پایتخت ایران کجاست؟')
+    assert {'reference_a','reference_b'} <= set(r.cognitive_system.last_trace.evidence_sources)
+    assert r.effect_learning.stats()['xp']==0
+    r.close()

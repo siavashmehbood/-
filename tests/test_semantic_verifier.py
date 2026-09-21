@@ -102,3 +102,17 @@ def test_explicit_correction_can_reactivate_prior_value_after_restart(tmp_path):
     result=SemanticVerifier().verify('پایتخت ایران کجاست؟','تهران',evidence=graph.facts)
     assert result.accepted and result.evidence_status=='SUPPORTED'
     assert len(graph.facts)==2
+
+
+def test_repeated_source_does_not_inflate_observation_count_or_confidence(tmp_path):
+    from knowledge.knowledge_graph import KnowledgeGraph
+    graph=KnowledgeGraph(tmp_path/'facts.json')
+    for _ in range(10):
+        graph.add_fact('ایران','پایتخت','تهران',.7,'same source')
+    fact=graph.facts[0]
+    assert len(graph.facts)==1 and len(fact['source_observations'])==1
+    assert fact['confidence']==.7
+    observation=fact['source_observations'][0]
+    assert observation['first_recorded_at'] and observation['last_recorded_at']
+    result=SemanticVerifier().verify('پایتخت ایران کجاست؟','تهران',evidence=graph.facts)
+    assert result.evidence_sources==['same source']

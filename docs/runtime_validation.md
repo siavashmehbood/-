@@ -7,7 +7,7 @@ The same isolated runtime evaluation was run against the baseline snapshot and t
 | --- | ---: | ---: |
 | Behavioral runtime scenarios | 8 / 15 | 15 / 15 |
 | Existing baseline pytest suite | 303 passed | preserved, no removed/relaxed tests |
-| Full revised pytest suite | — | 417 passed |
+| Full revised pytest suite | — | 419 passed |
 | Legacy unittest discovery | 234 passed | 234 passed |
 
 The 15 scenarios cover topic switching, verified action recovery, multi-turn identity recall, correction, reference resolution, unknown handling, restart memory, external then human approval, hidden candidates, feedback without XP, candidate deduplication, untrusted review metadata, source conflict detection, offline/provider fallback and approved knowledge reuse credited once. See `runtime_evaluation.json` for individual outcomes and `evaluation/runtime_suite.py` to reproduce. This is a regression suite, not a percentage measure of general intelligence.
@@ -120,3 +120,18 @@ corruption; ingestion deduplication recovers from backup; missing-primary goal
 state also recovers from backup. These stores reuse the existing critical loader
 and atomic writer. Full pytest: 417 passed; unittest: 234 passed; behavioral
 runtime evaluation: 19/19. No new provider credentials or network requests.
+
+
+## Corroborating provenance
+
+A regression reproduced two approved sources collapsing into the first source
+on a deduplicated fact. The graph now retains one source observation per source,
+with first/last local recording times and reported confidence. These are local
+recording timestamps, not invented retrieval timestamps. Existing source fields
+are retained for compatibility; legacy observations migrate lazily on update.
+Answer evidence traces expose all recorded source identifiers. Repeating a
+source adds neither another observation nor XP nor confidence merely by repetition.
+This does not establish that two sources are independent or factually correct.
+
+Full pytest: 419 passed; unittest: 234 passed. Same runtime suite: 19/20 before,
+20/20 after. Approved corroboration remains available after restart.

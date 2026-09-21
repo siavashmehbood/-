@@ -46,7 +46,12 @@ class SemanticVerifier:
         if not facts:
             return "NOT_ENOUGH_INFO", []
         groups = {}
-        sources = list(dict.fromkeys(str(f.get('source') or 'stored_fact') for f in facts))
+        sources = []
+        for fact in facts:
+            sources.append(str(fact.get('source') or 'stored_fact'))
+            sources.extend(str(row['source']) for row in fact.get('source_observations', [])
+                           if isinstance(row, dict) and row.get('source'))
+        sources = list(dict.fromkeys(sources))
         for fact in facts:
             predicate = str(fact.get('predicate', '')).strip().lower()
             if predicate in self.FUNCTIONAL or fact.get('cardinality') == 'one':
