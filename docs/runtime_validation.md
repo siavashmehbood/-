@@ -7,7 +7,7 @@ The same isolated runtime evaluation was run against the baseline snapshot and t
 | --- | ---: | ---: |
 | Behavioral runtime scenarios | 8 / 15 | 15 / 15 |
 | Existing baseline pytest suite | 303 passed | preserved, no removed/relaxed tests |
-| Full revised pytest suite | — | 404 passed |
+| Full revised pytest suite | — | 411 passed |
 | Legacy unittest discovery | 234 passed | 234 passed |
 
 The 15 scenarios cover topic switching, verified action recovery, multi-turn identity recall, correction, reference resolution, unknown handling, restart memory, external then human approval, hidden candidates, feedback without XP, candidate deduplication, untrusted review metadata, source conflict detection, offline/provider fallback and approved knowledge reuse credited once. See `runtime_evaluation.json` for individual outcomes and `evaluation/runtime_suite.py` to reproduce. This is a regression suite, not a percentage measure of general intelligence.
@@ -94,3 +94,19 @@ Full pytest: 404 passed; unittest: 234 passed. Identical runtime evaluation:
 while retaining the old fact. This is not a claim of complete corruption-proof
 storage: arbitrary semantic/schema corruption and physical disk loss remain
 outside these tests.
+
+
+## Reviewer-state recovery checkpoint
+
+Four regressions reproduced queue replacement after corruption, false zero GUI
+counts despite a valid backup, worker cooldown bypass and provider cooldown
+bypass. Queue transactions/readers and cooldown readers now use critical loading.
+Unreadable provider health reports ERROR and sends no request; unreadable worker
+state preserves the candidate in WAITING_FOR_REVIEWER. Valid backups retain
+rate-limit deadlines. Both damaged copies are left intact for recovery.
+
+An actual Qt offscreen regression also checks visible state errors, a working
+chat send button after review-queue failure, and an error dialog instead of an
+uncaught review-status exception. No Windows desktop interaction is claimed.
+Full pytest: 411 passed; unittest: 234 passed. The expanded identical runtime
+suite improves from 18/19 at `dafd21e` to 19/19.

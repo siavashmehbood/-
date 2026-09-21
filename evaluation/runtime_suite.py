@@ -146,7 +146,20 @@ def run(repository):
             require(other.knowledge.best_fact('retained fixture','is')['object']=='blue', 'prior knowledge lost')
         finally:
             other.close()
-    for name, operation in [('recover_then_learn',recover_then_learn), ('knowledge_correction',knowledge_correction), ('conflicting_knowledge',conflicting_knowledge), ('topic_switch',topic_switch), ('verified_action_recovery',verified_action), ('multi_turn_memory',recall), ('correction',correction), ('reference_resolution',reference), ('unknown',unknown), ('restart_memory',restart), ('review_then_human',approval), ('hidden_candidate',hidden), ('feedback_no_xp',feedback), ('deduplication',duplicate), ('forged_review_rejected',forged), ('source_conflict',conflict), ('provider_offline_fallback',provider), ('learn_apply_observe_credit_once',reuse)]:
+    def corrupt_reviewer_state(r):
+        r.internet_access.enable()
+        r.knowledge.add_fact('cooldown fixture','is','blue')
+        r.sync_chatgpt_learning_reviews()
+        worker=r.chatgpt_review_worker
+        calls=[]
+        worker.transport=lambda row: calls.append(row) or {'learn':True}
+        worker.state_path.write_text('{broken',encoding='utf-8')
+        worker.state_path.with_suffix('.json.bak').write_text('{broken',encoding='utf-8')
+        result=worker.process_one()
+        require(not calls, 'corrupt cooldown allowed a request')
+        require(result.get('state')=='WAITING_FOR_REVIEWER', 'candidate not waiting')
+        require(bool(r.learning_gate.pending()), 'candidate lost')
+    for name, operation in [('corrupt_reviewer_state',corrupt_reviewer_state), ('recover_then_learn',recover_then_learn), ('knowledge_correction',knowledge_correction), ('conflicting_knowledge',conflicting_knowledge), ('topic_switch',topic_switch), ('verified_action_recovery',verified_action), ('multi_turn_memory',recall), ('correction',correction), ('reference_resolution',reference), ('unknown',unknown), ('restart_memory',restart), ('review_then_human',approval), ('hidden_candidate',hidden), ('feedback_no_xp',feedback), ('deduplication',duplicate), ('forged_review_rejected',forged), ('source_conflict',conflict), ('provider_offline_fallback',provider), ('learn_apply_observe_credit_once',reuse)]:
         case(name, operation)
     return {'cases': results, 'passed': sum(x['passed'] for x in results), 'total': len(results), 'live_external_services': 'NOT_TESTED'}
 

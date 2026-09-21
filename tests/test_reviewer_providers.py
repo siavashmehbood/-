@@ -97,3 +97,26 @@ def test_legacy_provider_does_not_bypass_network_manager(tmp_path, monkeypatch):
     assert legacy.validate('candidate')['reason']=='reviewer_manager_not_configured'
     assert isinstance(legacy.generate([{'role':'user','content':'سلام'}]), str)
     assert RemoteProvider().validate('candidate')['decision']=='ERROR'
+
+
+def test_corrupt_health_blocks_requests_without_erasing_cooldown(tmp_path):
+    p=FakeProvider('a',{'learn':True})
+    m=manager(tmp_path,[p])
+    m.path.parent.mkdir(parents=True,exist_ok=True)
+    m.path.write_text('{broken')
+    m.path.with_suffix('.json.bak').write_text('{broken backup')
+    assert m.health()[0]['state']=='ERROR'
+    assert m.review({})['state']=='WAITING_FOR_REVIEWER'
+    assert p.calls==0
+    assert m.path.read_text()=='{broken'
+
+
+def test_provider_recovers_rate_limit_from_backup(tmp_path):
+    from persistence import atomic_write_json
+    p=FakeProvider('a',{'learn':True});m=manager(tmp_path,[p])
+    state={'a':{'state':'RATE_LIMITED','next_allowed':1200,'reason':'http_429'}}
+    atomic_write_json(m.path,state);atomic_write_json(m.path,state)
+    m.path.write_text('{broken')
+    assert m.health()[0]['state']=='RATE_LIMITED'
+    assert m.review({})['state']=='WAITING_FOR_REVIEWER'
+    assert p.calls==0

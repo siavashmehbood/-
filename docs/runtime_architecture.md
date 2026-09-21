@@ -67,3 +67,10 @@ critical JSON loading: valid backup recovery or an explicit corruption error,
 never silent empty-state replacement. Skill/procedure writes use the same atomic
 writer as graph state. Approval checkpoints snapshot recovered store values so
 learning can continue after recoverable corruption.
+
+
+Review queue transactions also fail closed on unreadable state. Counts read the
+same recovered queue as approval checks. Provider/worker cooldown corruption
+cannot authorize a fresh request: health exposes an error and candidates remain
+waiting. The GUI reports this failure separately from normal rate limiting and
+keeps local chat usable when review queue synchronization fails.

@@ -58,3 +58,28 @@ def test_human_decision_wait_does_not_block_gui(tmp_path, monkeypatch):
     assert len(ticks)>=10 and max(b-a for a,b in zip(ticks,ticks[1:]))<.2
     assert window.runtime.effect_learning.stats()['xp']==0
     window.close();app.processEvents()
+
+
+def test_corrupt_review_state_is_visible_without_stranding_chat(tmp_path, monkeypatch):
+    shutil.copy(Path(__file__).parents[1]/'config.json',tmp_path)
+    monkeypatch.setattr(gui,'ROOT',tmp_path)
+    app=QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    window=gui.ChatWindow();window.show()
+    window.autonomy_timer.stop();window.chatgpt_review_timer.stop()
+    state=window.runtime.chatgpt_review_worker.state_path
+    state.write_text('{broken');state.with_suffix('.json.bak').write_text('{broken')
+    window.refresh_chatgpt_count()
+    assert 'خطا' in window.chatgpt_pending.text()
+    assert 'Rate Limit' not in window.chatgpt_pending.text()
+    queue=window.runtime._chatgpt_review_path()
+    queue.write_text('{broken');queue.with_suffix('.json.bak').write_text('{broken')
+    window.busy=True;window.send.setEnabled(False)
+    window.on_done('پاسخ محلی آزمایشی',.01)
+    assert not window.busy and window.send.isEnabled()
+    assert 'خطا' in window.status.text()
+    assert queue.read_text()=='{broken'
+    dialogs=[]
+    monkeypatch.setattr(window,'_dialog',lambda title,text:dialogs.append((title,text)))
+    window.show_chatgpt_reviews()
+    assert dialogs and 'خطا' in dialogs[-1][1]
+    window.close();app.processEvents()

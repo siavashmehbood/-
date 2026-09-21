@@ -450,7 +450,7 @@ class IranRuntime:
     def chatgpt_learning_review_status(self, proposal_id):
         # Only the durable reviewer record is authoritative. Candidate-supplied
         # _external_validation is untrusted input, never approval evidence.
-        rows = load_json_with_backup(self._chatgpt_review_path(), [])
+        rows = load_critical_json(self._chatgpt_review_path(), [])
         row = next((r for r in rows if str(r.get("proposal_id")) == str(proposal_id)), None)
         if not row:
             return {"exists": False, "reviewed": False}
@@ -460,11 +460,7 @@ class IranRuntime:
     def chatgpt_review_status(self):
         """Return persisted worker state and queue counts without an API call."""
         path = self._chatgpt_review_path()
-        try:
-            rows = json.loads(path.read_text(encoding="utf-8")) if path.exists() else []
-        except Exception:
-            rows = []
-        rows = rows if isinstance(rows, list) else []
+        rows = load_critical_json(path, [])
         status = self.chatgpt_review_worker.status()
         status.update({
             "providers": self.reviewer_manager.health() if hasattr(self, "reviewer_manager") else [],
@@ -503,7 +499,7 @@ class IranRuntime:
 
     def human_learning_pending(self, limit=50):
         """Return only candidates ChatGPT marked correct and routed to the human gate."""
-        reviews = {r.get("proposal_id"): r for r in load_json_with_backup(self._chatgpt_review_path(), [])}
+        reviews = {r.get("proposal_id"): r for r in load_critical_json(self._chatgpt_review_path(), [])}
         result = []
         for proposal in self.learning_gate.pending(100000):
             review = reviews.get(proposal.get("proposal_id"), {})

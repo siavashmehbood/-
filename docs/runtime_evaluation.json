@@ -91,39 +91,44 @@
   "current": {
     "cases": [
       {
+        "case": "corrupt_reviewer_state",
+        "passed": true,
+        "seconds": 0.021
+      },
+      {
         "case": "recover_then_learn",
         "passed": true,
-        "seconds": 0.034
+        "seconds": 0.018
       },
       {
         "case": "knowledge_correction",
         "passed": true,
-        "seconds": 0.025
+        "seconds": 0.024
       },
       {
         "case": "conflicting_knowledge",
         "passed": true,
-        "seconds": 0.017
+        "seconds": 0.026
       },
       {
         "case": "topic_switch",
         "passed": true,
-        "seconds": 0.014
+        "seconds": 0.018
       },
       {
         "case": "verified_action_recovery",
         "passed": true,
-        "seconds": 0.016
+        "seconds": 0.015
       },
       {
         "case": "multi_turn_memory",
         "passed": true,
-        "seconds": 0.02
+        "seconds": 0.019
       },
       {
         "case": "correction",
         "passed": true,
-        "seconds": 0.025
+        "seconds": 0.027
       },
       {
         "case": "reference_resolution",
@@ -133,27 +138,27 @@
       {
         "case": "unknown",
         "passed": true,
-        "seconds": 0.011
+        "seconds": 0.012
       },
       {
         "case": "restart_memory",
         "passed": true,
-        "seconds": 0.021
+        "seconds": 0.019
       },
       {
         "case": "review_then_human",
         "passed": true,
-        "seconds": 0.015
+        "seconds": 0.011
       },
       {
         "case": "hidden_candidate",
         "passed": true,
-        "seconds": 0.008
+        "seconds": 0.007
       },
       {
         "case": "feedback_no_xp",
         "passed": true,
-        "seconds": 0.018
+        "seconds": 0.019
       },
       {
         "case": "deduplication",
@@ -168,21 +173,21 @@
       {
         "case": "source_conflict",
         "passed": true,
-        "seconds": 0.007
+        "seconds": 0.008
       },
       {
         "case": "provider_offline_fallback",
         "passed": true,
-        "seconds": 0.008
+        "seconds": 0.01
       },
       {
         "case": "learn_apply_observe_credit_once",
         "passed": true,
-        "seconds": 0.026
+        "seconds": 0.034
       }
     ],
-    "passed": 18,
-    "total": 18,
+    "passed": 19,
+    "total": 19,
     "live_external_services": "NOT_TESTED"
   },
   "baseline_commit": "5476939e50852f550d3cd67acc4f1e8319b9612e",
@@ -747,6 +752,214 @@
       ],
       "passed": 18,
       "total": 18,
+      "live_external_services": "NOT_TESTED"
+    }
+  },
+  "review_state_checkpoint": {
+    "baseline_commit": "dafd21ea4adfd955e536d4ac143049c6d18b0a39",
+    "baseline": {
+      "cases": [
+        {
+          "case": "corrupt_reviewer_state",
+          "passed": false,
+          "failure": "AssertionError: corrupt cooldown allowed a request",
+          "seconds": 0.058
+        },
+        {
+          "case": "recover_then_learn",
+          "passed": true,
+          "seconds": 0.03
+        },
+        {
+          "case": "knowledge_correction",
+          "passed": true,
+          "seconds": 0.024
+        },
+        {
+          "case": "conflicting_knowledge",
+          "passed": true,
+          "seconds": 0.02
+        },
+        {
+          "case": "topic_switch",
+          "passed": true,
+          "seconds": 0.015
+        },
+        {
+          "case": "verified_action_recovery",
+          "passed": true,
+          "seconds": 0.015
+        },
+        {
+          "case": "multi_turn_memory",
+          "passed": true,
+          "seconds": 0.018
+        },
+        {
+          "case": "correction",
+          "passed": true,
+          "seconds": 0.024
+        },
+        {
+          "case": "reference_resolution",
+          "passed": true,
+          "seconds": 0.02
+        },
+        {
+          "case": "unknown",
+          "passed": true,
+          "seconds": 0.012
+        },
+        {
+          "case": "restart_memory",
+          "passed": true,
+          "seconds": 0.019
+        },
+        {
+          "case": "review_then_human",
+          "passed": true,
+          "seconds": 0.013
+        },
+        {
+          "case": "hidden_candidate",
+          "passed": true,
+          "seconds": 0.008
+        },
+        {
+          "case": "feedback_no_xp",
+          "passed": true,
+          "seconds": 0.018
+        },
+        {
+          "case": "deduplication",
+          "passed": true,
+          "seconds": 0.007
+        },
+        {
+          "case": "forged_review_rejected",
+          "passed": true,
+          "seconds": 0.008
+        },
+        {
+          "case": "source_conflict",
+          "passed": true,
+          "seconds": 0.007
+        },
+        {
+          "case": "provider_offline_fallback",
+          "passed": true,
+          "seconds": 0.008
+        },
+        {
+          "case": "learn_apply_observe_credit_once",
+          "passed": true,
+          "seconds": 0.024
+        }
+      ],
+      "passed": 18,
+      "total": 19,
+      "live_external_services": "NOT_TESTED"
+    },
+    "revised": {
+      "cases": [
+        {
+          "case": "corrupt_reviewer_state",
+          "passed": true,
+          "seconds": 0.021
+        },
+        {
+          "case": "recover_then_learn",
+          "passed": true,
+          "seconds": 0.018
+        },
+        {
+          "case": "knowledge_correction",
+          "passed": true,
+          "seconds": 0.024
+        },
+        {
+          "case": "conflicting_knowledge",
+          "passed": true,
+          "seconds": 0.026
+        },
+        {
+          "case": "topic_switch",
+          "passed": true,
+          "seconds": 0.018
+        },
+        {
+          "case": "verified_action_recovery",
+          "passed": true,
+          "seconds": 0.015
+        },
+        {
+          "case": "multi_turn_memory",
+          "passed": true,
+          "seconds": 0.019
+        },
+        {
+          "case": "correction",
+          "passed": true,
+          "seconds": 0.027
+        },
+        {
+          "case": "reference_resolution",
+          "passed": true,
+          "seconds": 0.018
+        },
+        {
+          "case": "unknown",
+          "passed": true,
+          "seconds": 0.012
+        },
+        {
+          "case": "restart_memory",
+          "passed": true,
+          "seconds": 0.019
+        },
+        {
+          "case": "review_then_human",
+          "passed": true,
+          "seconds": 0.011
+        },
+        {
+          "case": "hidden_candidate",
+          "passed": true,
+          "seconds": 0.007
+        },
+        {
+          "case": "feedback_no_xp",
+          "passed": true,
+          "seconds": 0.019
+        },
+        {
+          "case": "deduplication",
+          "passed": true,
+          "seconds": 0.007
+        },
+        {
+          "case": "forged_review_rejected",
+          "passed": true,
+          "seconds": 0.007
+        },
+        {
+          "case": "source_conflict",
+          "passed": true,
+          "seconds": 0.008
+        },
+        {
+          "case": "provider_offline_fallback",
+          "passed": true,
+          "seconds": 0.01
+        },
+        {
+          "case": "learn_apply_observe_credit_once",
+          "passed": true,
+          "seconds": 0.034
+        }
+      ],
+      "passed": 19,
+      "total": 19,
       "live_external_services": "NOT_TESTED"
     }
   }

@@ -15,7 +15,7 @@ import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
-from persistence import atomic_write_json, json_transaction, load_json_with_backup, file_lock
+from persistence import atomic_write_json, json_transaction, load_critical_json, StateCorruptionError, file_lock
 
 
 class ReviewerUnavailable(Exception):
@@ -55,7 +55,7 @@ class ChatGPTReviewWorker:
             return None
 
     def _load_rows(self):
-        rows = load_json_with_backup(self.reviews_path, [])
+        rows = load_critical_json(self.reviews_path, [])
         return rows if isinstance(rows, list) else []
 
     def _save_rows(self, rows):
@@ -70,12 +70,7 @@ class ChatGPTReviewWorker:
             "last_success_at": None,
             "last_error": None,
         }
-        try:
-            value = json.loads(self.state_path.read_text(encoding="utf-8")) if self.state_path.exists() else {}
-        except (OSError, ValueError):
-            value = {}
-        if not isinstance(value, dict):
-            value = {}
+        value = load_critical_json(self.state_path, {})
         default.update({key: value[key] for key in default if key in value})
         return default
 
@@ -84,7 +79,11 @@ class ChatGPTReviewWorker:
         atomic_write_json(self.state_path, state)
 
     def status(self):
-        state = self._load_state()
+        try:
+            state = self._load_state()
+        except StateCorruptionError:
+            return {"state":"ERROR", "last_error":"worker_state_corrupt",
+                    "next_allowed_at":None, "cooldown":True, "cooldown_seconds":0}
         now = self.clock()
         next_allowed = self._parse_iso(state.get("next_allowed_at"))
         return {
@@ -138,7 +137,11 @@ class ChatGPTReviewWorker:
             if self.manager is not None and not self.manager.internet.status()["enabled"]:
                 candidate = self._candidate(self._load_rows())
                 return self._waiting((candidate or {}).get("proposal_id"), "internet_off")
-            state = self._load_state()
+            try:
+                state = self._load_state()
+            except StateCorruptionError:
+                candidate = self._candidate(self._load_rows())
+                return self._waiting((candidate or {}).get("proposal_id"), "worker_state_corrupt")
             next_allowed = self._parse_iso(state.get("next_allowed_at"))
             if next_allowed and next_allowed > now:
                 return {"ok": False, "reason": "cooldown", "status": self.status()}

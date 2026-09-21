@@ -87,3 +87,60 @@ def test_waiting_queue_survives_restart_then_resumes_without_duplicate(runtime):
         assert restored.effect_learning.stats()['xp']==0
     finally:
         restored.close()
+
+
+def test_corrupt_review_queue_is_not_replaced_during_sync(runtime):
+    from persistence import StateCorruptionError
+    p=runtime.knowledge.add_fact('queue fixture','is','blue')
+    runtime.sync_chatgpt_learning_reviews()
+    path=runtime._chatgpt_review_path()
+    path.write_text('{broken')
+    path.with_suffix('.json.bak').write_text('{broken backup')
+    with pytest.raises(StateCorruptionError):
+        runtime.sync_chatgpt_learning_reviews()
+    assert path.read_text()=='{broken'
+    assert runtime.learning_gate.get(p['proposal_id'])['status']=='pending'
+
+
+def test_review_counts_use_recovered_queue(runtime):
+    from persistence import atomic_write_json
+    from tests.chatgpt_test_helper import mark_chatgpt_correct
+    p=runtime.knowledge.add_fact('count fixture','is','blue')
+    mark_chatgpt_correct(runtime,p['proposal_id'],'fixture only')
+    path=runtime._chatgpt_review_path()
+    atomic_write_json(path,json.loads(path.read_text()))
+    path.write_text('{broken')
+    assert runtime.chatgpt_review_status()['human_pending']==1
+    assert runtime.human_learning_pending()[0]['proposal_id']==p['proposal_id']
+
+
+def test_corrupt_worker_cooldown_never_sends_request(runtime):
+    runtime.knowledge.add_fact('cooldown fixture','is','blue')
+    runtime.sync_chatgpt_learning_reviews()
+    worker=runtime.chatgpt_review_worker
+    calls=[]
+    worker.transport=lambda row: calls.append(row) or {'learn':True}
+    worker.state_path.write_text('{broken')
+    worker.state_path.with_suffix('.json.bak').write_text('{broken backup')
+    result=worker.process_one()
+    assert not calls
+    assert result['state']=='WAITING_FOR_REVIEWER'
+    assert result['reason']=='worker_state_corrupt'
+    assert worker.status()['state']=='ERROR'
+    assert worker.state_path.read_text()=='{broken'
+
+
+def test_worker_recovers_cooldown_from_backup(runtime):
+    from persistence import atomic_write_json
+    runtime.knowledge.add_fact('backup cooldown','is','blue')
+    runtime.sync_chatgpt_learning_reviews()
+    worker=runtime.chatgpt_review_worker
+    worker.clock=lambda:1000
+    state={'next_allowed_at':worker._iso(1200)}
+    atomic_write_json(worker.state_path,state);atomic_write_json(worker.state_path,state)
+    worker.state_path.write_text('{broken')
+    calls=[]
+    worker.transport=lambda row: calls.append(row) or {'learn':True}
+    assert worker.process_one()['reason']=='cooldown'
+    assert not calls
+    assert worker.status()['cooldown_seconds']==200

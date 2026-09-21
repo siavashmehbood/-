@@ -80,7 +80,7 @@ def file_lock(path):
 def json_transaction(path, default):
     path = Path(path)
     with file_lock(path.with_suffix(path.suffix + '.lock')):
-        value = load_json_with_backup(path, default)
+        value = load_critical_json(path, default)
         before = json.dumps(value, sort_keys=True)
         yield value
         if json.dumps(value, sort_keys=True) != before or not path.exists():

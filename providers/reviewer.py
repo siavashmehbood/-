@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from pathlib import Path
 from urllib.parse import urlsplit
-from persistence import json_transaction, load_json_with_backup
+from persistence import json_transaction, load_critical_json, StateCorruptionError
 
 ENDPOINTS = {
     'openrouter': ('https://openrouter.ai/api/v1', 'OPENROUTER_API_KEY'),
@@ -170,7 +170,12 @@ class ProviderManager:
             self.invalid_config = True
 
     def health(self):
-        stored = load_json_with_backup(self.path, {})
+        try:
+            stored = load_critical_json(self.path, {})
+        except StateCorruptionError:
+            # Never infer fresh quota/cooldown from unreadable durable health.
+            return [{'provider':p.name, 'state':'ERROR', 'reason':'provider_state_corrupt',
+                     'next_allowed':None, 'last_success':None} for p in self.providers]
         result = [{'provider':'configuration','state':'INVALID_CONFIG','reason':'invalid_manager_configuration'}] if self.invalid_config else []
         for p in self.providers:
             status, reason = p.availability()

@@ -171,12 +171,12 @@ class ChatWindow(QMainWindow):
         self.thread.start()
     def on_done(self, text, elapsed):
         self.add("ایران", text); self.elapsed.setText(f"زمان: {elapsed:.3f} ثانیه")
-        self.queue_chatgpt_review(text); self.refresh_chatgpt_count()
         trace = self.runtime.cognitive_system.last_trace
         self.conf.setText(f"اطمینان: {trace.confidence:.0%}" if trace is not None else "اطمینان: —")
         self.quality.setText(f"بررسی پاسخ: {trace.verification_status}" if trace is not None else "بررسی پاسخ: —")
         self.status.setText("آماده"); self.busy = False; self.send.setEnabled(True); self.refresh_events(); self.refresh_learning_stats(); self.persist_session()
         if self.autocopy.isChecked(): self.copy_response()
+        self.queue_chatgpt_review(text); self.refresh_chatgpt_count()
     def on_fail(self, text):
         self.add("خطا", text); self.status.setText("خطا"); self.busy = False; self.send.setEnabled(True); self.persist_session()
 
@@ -390,12 +390,17 @@ class ChatWindow(QMainWindow):
         l.addWidget(box,1); close=QPushButton("بستن"); close.clicked.connect(d.accept); l.addWidget(close); d.exec()
 
     def queue_chatgpt_review(self, answer):
-        self.runtime.sync_chatgpt_learning_reviews()
+        try:
+            self.runtime.sync_chatgpt_learning_reviews()
+        except Exception as exc:
+            self.status.setText(f"خطا در صف ناظر: {exc}")
 
     def refresh_chatgpt_count(self):
         try:
             status = self.runtime.chatgpt_review_status()
-            if status.get("cooldown"):
+            if status.get("state") == "ERROR":
+                self.chatgpt_pending.setText(f"ناظر: خطا در داده‌های ذخیره‌شده | {status.get('last_error', '')}")
+            elif status.get("cooldown"):
                 self.chatgpt_pending.setText(
                     f"ناظر: در انتظار / Rate Limit | صف: {status.get('pending', 0):,} | تلاش بعدی: {status.get('next_allowed_at', '—')}"
                 )
@@ -408,7 +413,11 @@ class ChatWindow(QMainWindow):
 
     def show_chatgpt_reviews(self):
         # Pending candidate content is private until the external review accepts it.
-        status = self.runtime.chatgpt_review_status()
+        try:
+            status = self.runtime.chatgpt_review_status()
+        except Exception as exc:
+            self._dialog("وضعیت ناظر آنلاین", f"خطا در خواندن وضعیت ناظر: {exc}")
+            return
         health = "\n".join(f"{p['provider']}: {p['state']} — {p['reason']}" for p in status.get("providers", []))
         self._dialog("وضعیت ناظر آنلاین", f"صف: {status.get('pending',0)}\nدر انتظار ناظر: {status.get('waiting',0)}\nآماده بازبینی شما: {status.get('human_pending',0)}\nآخرین خطا: {status.get('last_error') or '—'}\n\n{health}")
 
