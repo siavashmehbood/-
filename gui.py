@@ -78,6 +78,7 @@ class ChatWindow(QMainWindow):
         self.runtime = IranRuntime(ROOT)
         self.last_answer = ""; self.messages = []; self.busy = False
         self._jobs = {}
+        self._job_callbacks = {}
         self._closing = False
         self.autonomy_busy = False
         self.chatgpt_review_busy = False
@@ -138,7 +139,7 @@ class ChatWindow(QMainWindow):
                    ("آزمون بنچمارک", self.run_benchmark), ("بازبینی یادگیری", self.review_pending_learning),
                    ("درس‌های یادگرفته‌شده", self.show_learned_lessons),
                    ("تایید همه یادگیری‌ها", self.approve_all_learning_ui),
-                   ("حذف کامل صف یادگیری", self.clear_all_learning_ui),
+                   ("رد موارد صف یادگیری", self.clear_all_learning_ui),
                    ("تنظیمات", self.show_settings)]
         for text, fn in buttons:
             b = QPushButton(text); b.clicked.connect(fn); l.addWidget(b)
@@ -171,14 +172,17 @@ class ChatWindow(QMainWindow):
     def on_done(self, text, elapsed):
         self.add("ایران", text); self.elapsed.setText(f"زمان: {elapsed:.3f} ثانیه")
         self.queue_chatgpt_review(text); self.refresh_chatgpt_count()
-        self.conf.setText("اطمینان: محاسبه شد"); self.quality.setText(f"کیفیت: {len(str(text))} نویسه")
+        trace = self.runtime.cognitive_system.last_trace
+        self.conf.setText(f"اطمینان: {trace.confidence:.0%}" if trace is not None else "اطمینان: —")
+        self.quality.setText(f"بررسی پاسخ: {trace.verification_status}" if trace is not None else "بررسی پاسخ: —")
         self.status.setText("آماده"); self.busy = False; self.send.setEnabled(True); self.refresh_events(); self.refresh_learning_stats(); self.persist_session()
         if self.autocopy.isChecked(): self.copy_response()
     def on_fail(self, text):
         self.add("خطا", text); self.status.setText("خطا"); self.busy = False; self.send.setEnabled(True); self.persist_session()
 
-    def _start_job(self, name, operation):
+    def _start_job(self, name, operation, on_result=None):
         if self._closing or name in self._jobs: return False
+        if on_result is not None: self._job_callbacks[name] = on_result
         thread = QThread(self); thread.setObjectName(name)
         worker = BackgroundJob(name, operation); worker.moveToThread(thread)
         self._jobs[name] = (thread, worker)
@@ -192,6 +196,8 @@ class ChatWindow(QMainWindow):
         thread.start(); return True
 
     def _job_result(self, name, result):
+        callback = self._job_callbacks.pop(name, None)
+        if callback is not None: callback(result)
         if name == "review":
             reason = result.get("reason", "")
             self.status.setText("ناظر: " + reason)
@@ -200,6 +206,8 @@ class ChatWindow(QMainWindow):
         self.refresh_chatgpt_count(); self.refresh_learning_stats(); self.refresh_events()
 
     def _job_error(self, name, reason):
+        callback = self._job_callbacks.pop(name, None)
+        if callback is not None: callback({"ok": False, "reason": reason})
         self.status.setText(f"خطا در {name}: {reason}")
 
     def _job_finished(self):
@@ -254,13 +262,8 @@ class ChatWindow(QMainWindow):
             )
             if answer != QMessageBox.StandardButton.Yes:
                 return
-            result = self.runtime.approve_all_learning(max(5000, pending))
-            self.refresh_learning_stats(); self.refresh_events(); self.refresh_chatgpt_count()
-            QMessageBox.information(
-                self, "یادگیری",
-                f"تعداد تاییدشده: {result.get('approved', 0):,}\n"
-                f"باقی‌مانده: {result.get('remaining', 0):,}"
-            )
+            self._start_job("approve_all", lambda: self.runtime.approve_all_learning(max(5000, pending)),
+                            lambda result: self.status.setText(f"یادگیری‌های تأییدشده: {result.get('approved', 0)}"))
         except Exception as e:
             QMessageBox.warning(self, "خطا", str(e))
 
@@ -275,16 +278,12 @@ class ChatWindow(QMainWindow):
         if answer != QMessageBox.StandardButton.Yes:
             return
         try:
-            pending = self.runtime.learning_pending(100000)
-            removed_pending = sum(bool(self.runtime.reject_learning(r["proposal_id"]).get("ok")) for r in pending)
-            removed_reviews = removed_pending
-            self.refresh_learning_stats()
-            self.refresh_chatgpt_count()
-            self.refresh_events()
-            QMessageBox.information(
-                self, "صف پاک شد",
-                f"pending حذف‌شده: {removed_pending:,}\nبازبینی‌های ChatGPT حذف‌شده: {removed_reviews:,}\n\nصف برای شروع دوباره آماده است."
-            )
+            def reject_pending():
+                pending = self.runtime.learning_pending(100000)
+                count = sum(bool(self.runtime.reject_learning(r["proposal_id"]).get("ok")) for r in pending)
+                return {"rejected": count}
+            self._start_job("reject_all", reject_pending,
+                            lambda result: self.status.setText(f"درخواست‌های ردشده: {result.get('rejected', 0)}"))
         except Exception as e:
             QMessageBox.warning(self, "خطا در پاک‌سازی", str(e))
 
@@ -346,30 +345,23 @@ class ChatWindow(QMainWindow):
             buttons.addWidget(copy); buttons.addWidget(reject); buttons.addWidget(approve); buttons.addWidget(next_item); l.addLayout(buttons)
             copy.clicked.connect(lambda checked=False, text=box.toPlainText(): (QApplication.clipboard().setText(text), self.status.setText("درخواست کپی شد")))
             pid = proposal_id
-            def do_approve(checked=False, proposal_id=pid, page=page):
-                # ChatGPT review is completed upstream through the MCP bridge.
-                # This button is the human approval gate only.
-                status = self.runtime.chatgpt_learning_review_status(proposal_id)
-                if not status.get("reviewed") or status.get("row", {}).get("chatgpt_decision") != "learn":
-                    QMessageBox.warning(d, "نیاز به بررسی ChatGPT", "این مورد هنوز توسط ChatGPT به عنوان درست تأیید نشده است.")
+            def finish_decision(result, page=page, approve=approve, reject=reject):
+                approve.setEnabled(True); reject.setEnabled(True)
+                if not result.get("ok"):
+                    self.status.setText("ثبت تصمیم ناموفق: " + str(result.get("reason", "unknown")))
                     return
-                r = self.runtime.approve_learning(proposal_id)
-                if not r.get("ok"):
-                    QMessageBox.warning(d, "تأیید ناموفق", str(r)); return
-                self.status.setText("یادگیری تأیید و با ۱,۰۰۰,۰۰۰ XP ثبت شد")
-                self.refresh_learning_stats(); self.refresh_events()
+                self.status.setText("تصمیم ثبت شد؛ XP فقط پس از ارزیابی اثر ثبت می‌شود")
                 tab_index = tabs.indexOf(page)
                 if tab_index >= 0: tabs.removeTab(tab_index)
                 if tabs.count() == 0: d.accept()
-            def do_reject(checked=False, proposal_id=pid, page=page):
-                r = self.runtime.reject_learning(proposal_id)
-                if not r.get("ok"):
-                    QMessageBox.warning(d, "رد ناموفق", str(r)); return
-                self.status.setText("درخواست یادگیری رد شد")
-                self.refresh_learning_stats(); self.refresh_events()
-                tab_index = tabs.indexOf(page)
-                if tab_index >= 0: tabs.removeTab(tab_index)
-                if tabs.count() == 0: d.reject()
+            def do_approve(checked=False, proposal_id=pid, approve=approve, reject=reject, finish=finish_decision):
+                if self._start_job("decision:" + proposal_id,
+                                   lambda: self.runtime.approve_learning(proposal_id), finish):
+                    approve.setEnabled(False); reject.setEnabled(False)
+            def do_reject(checked=False, proposal_id=pid, approve=approve, reject=reject, finish=finish_decision):
+                if self._start_job("decision:" + proposal_id,
+                                   lambda: self.runtime.reject_learning(proposal_id), finish):
+                    approve.setEnabled(False); reject.setEnabled(False)
             approve.clicked.connect(do_approve); reject.clicked.connect(do_reject)
             next_item.clicked.connect(lambda checked=False, index=index: tabs.setCurrentIndex(min(index, tabs.count() - 1)))
             tabs.addTab(page, f"درخواست {index}")

@@ -50,7 +50,7 @@ class Memory:
             if len(out)>=limit:break
         return out
     def add_semantic_fact(self,subject,predicate,value,confidence=.65,source='inference'):
-        now=datetime.now().isoformat(timespec='seconds'); s=self._norm(subject); p=self._norm(predicate); v=self._norm(value)
+        now=datetime.now().isoformat(timespec='microseconds'); s=self._norm(subject); p=self._norm(predicate); v=self._norm(value)
         if self.gate is not None:
             payload={'subject':s,'predicate':p,'value':v,'confidence':float(confidence),'source':str(source)}
             proposal=self.gate.request('memory.add_semantic_fact',payload,f'Semantic fact: {s} / {p} / {v}')

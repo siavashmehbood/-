@@ -31,3 +31,30 @@ def test_slow_reviewer_keeps_gui_responsive_and_closes_safely(tmp_path,monkeypat
     assert max(b-a for a,b in zip(ticks,ticks[1:]))<.2
     assert len(window.runtime.human_learning_pending())==1
     window.close();app.processEvents()
+
+
+def test_human_decision_wait_does_not_block_gui(tmp_path, monkeypatch):
+    import threading
+    from tests.chatgpt_test_helper import mark_chatgpt_correct
+    shutil.copy(Path(__file__).parents[1]/'config.json',tmp_path)
+    monkeypatch.setattr(gui,'ROOT',tmp_path)
+    app=QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    window=gui.ChatWindow(); window.show()
+    window.autonomy_timer.stop(); window.chatgpt_review_timer.stop()
+    p=window.runtime.learning_gate.request('knowledge.add_fact', {'subject':'gui fixture','predicate':'is','object':'blue'})
+    mark_chatgpt_correct(window.runtime,p['proposal_id'],'fixture')
+    locked=threading.Event()
+    def hold_runtime():
+        with window.runtime._mutation_lock:
+            locked.set(); time.sleep(.25)
+    holder=threading.Thread(target=hold_runtime); holder.start(); assert locked.wait(1)
+    results=[]; ticks=[]; timer=QTimer(); timer.timeout.connect(lambda:ticks.append(time.monotonic()));timer.start(10)
+    assert window._start_job('decision:'+p['proposal_id'], lambda:window.runtime.approve_learning(p['proposal_id']),results.append)
+    until=time.monotonic()+2
+    while time.monotonic()<until and window._jobs:
+        app.processEvents();time.sleep(.002)
+    holder.join();timer.stop()
+    assert results and results[0]['ok']
+    assert len(ticks)>=10 and max(b-a for a,b in zip(ticks,ticks[1:]))<.2
+    assert window.runtime.effect_learning.stats()['xp']==0
+    window.close();app.processEvents()

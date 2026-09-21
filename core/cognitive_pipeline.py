@@ -44,6 +44,11 @@ class CognitivePipeline:
             pass
 
     def _persist_answer(self, text, answer, answer_type="DIRECT_FACT", score=.95):
+        checked = self.semantic_verifier.verify(text, answer)
+        score = min(score, checked.score)
+        if not checked.accepted:
+            answer = "UNKNOWN: پاسخ تولیدشده بررسی سازگاری را نگذرانده است."
+            answer_type = "UNKNOWN"
         e = self.engine
         e.state.update(text, answer, answer_type, {}, score)
         e.state.save(e.state_path)
@@ -52,7 +57,7 @@ class CognitivePipeline:
             self.runtime.memory.add("assistant", answer, .68, confidence=score)
         except Exception:
             pass
-        self._emit("response_generated", {"goal": text, "route": "canonical", "mode": answer_type, "confidence": score, "verified": True})
+        self._emit("response_generated", {"goal": text, "route": "canonical", "mode": answer_type, "confidence": score, "verified": checked.accepted})
         try:
             self.runtime.orchestrator.metrics.record("response", .0)
         except Exception:
@@ -67,8 +72,8 @@ class CognitivePipeline:
             knowledge_count=0,
             reasoning_status="NOT_RUN",
             answer_status=answer_type,
-            verification_status="PASS",
-            verification_reasons=[],
+            verification_status="PASS" if checked.accepted else "UNKNOWN",
+            verification_reasons=list(checked.reasons) + list(checked.contradictions),
             missing_units=[],
             confidence=float(score),
             sources=["local_deterministic"] ,
@@ -1478,18 +1483,9 @@ def _v76_run(self, text):
     clean_text = clean(text)
     low = clean_text.lower()
     state = self.engine.state
-    if any(x in low for x in ("\u0627\u0633\u0645 \u0645\u0646 \u0686\u06cc \u0628\u0648\u062f", "\u0627\u0633\u0645 \u0645\u0646 \u0686\u06cc\u0647", "\u0646\u0627\u0645 \u0645\u0646 \u0686\u06cc\u0633\u062a", "\u0627\u0633\u0645\u0645 \u0686\u06cc \u0628\u0648\u062f")):
-        facts = self.runtime.user_model.facts(predicate="name", limit=5)
-        if facts:
-            name = facts[-1].get("object", "").strip()
-            if name:
-                return self._persist_answer(clean_text, "\u0627\u0633\u0645 \u0634\u0645\u0627 \u00ab" + name + "\u00bb \u0627\u0633\u062a.", "MEMORY", .99)
-    if any(x in low for x in ("??? ?? ?? ???", "??? ?? ???", "??? ?? ????", "???? ?? ???")):
-        facts = self.runtime.user_model.facts(predicate="name", limit=5)
-        if facts:
-            name = facts[-1].get("object", "").strip()
-            if name:
-                return self._persist_answer(clean_text, f"??? ??? ?{name}? ???.", "MEMORY", .99)
+    identity = self.runtime.user_model.answer_identity(clean_text)
+    if identity is not None:
+        return self._persist_answer(clean_text, identity, "MEMORY", .98)
     if low in {"چرا؟", "چرا"} and "پایتخت ایران" in clean(state.current_topic):
         return self._persist_answer(clean_text, "درباره همان سؤال قبلی صحبت می‌کنیم: پایتخت ایران چیست و چرا این پاسخ را دادیم؟", "FOLLOW_UP", .98)
     if "موضوع قبلی رو ادامه بده" in low or "بحث قبلی رو ادامه بده" in low:

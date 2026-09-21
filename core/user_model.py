@@ -117,10 +117,19 @@ class UserModel:
         if predicate:
             sql += " AND predicate=?"
             args.append(predicate)
-        sql += " ORDER BY confidence DESC, updated_at DESC LIMIT ?"
+        sql += " ORDER BY updated_at DESC, id DESC LIMIT ?"
         args.append(int(limit))
         rows = self.memory.conn.execute(sql, tuple(args)).fetchall()
         return [{"subject":r[0],"predicate":r[1],"object":r[2],"confidence":r[3],"source":r[4],"timestamp":r[5],"type":"FACT"} for r in rows]
+
+    def answer_identity(self, text):
+        query = self._clean(text)
+        if not re.search(r"(?:اسم|نام)(?:\s+من|م)\s+(?:چیست|چیه|چی(?:\s+بود)?|چه(?:\s+بود)?)", query):
+            return None
+        facts = self.current_belief('name', limit=1)
+        if not facts:
+            return 'UNKNOWN: هنوز نامی از شما در حافظه ثبت نشده است.'
+        return f"اسم شما «{facts[0]['object']}» است."
 
     def current_belief(self, predicate, limit=1):
         """Return the current belief while retaining all historical fact rows."""
