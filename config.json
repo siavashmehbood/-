@@ -42,5 +42,79 @@
   },
   "learning_validation": {
     "enabled": true
+  },
+  "reviewers": {
+    "max_attempts": 4,
+    "max_seconds": 40,
+    "providers": {
+      "openrouter": {
+        "enabled": false,
+        "base_url": "https://openrouter.ai/api/v1",
+        "key_env": "OPENROUTER_API_KEY",
+        "model_env": "OPENROUTER_MODEL",
+        "model": "",
+        "timeout": 10,
+        "retries": 0,
+        "cooldown": 60,
+        "min_interval": 15,
+        "free_policy": {
+          "budget": 0,
+          "confirmed": false,
+          "models": [],
+          "expires_at": ""
+        }
+      },
+      "gemini": {
+        "enabled": false,
+        "base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
+        "key_env": "GEMINI_API_KEY",
+        "model_env": "GEMINI_MODEL",
+        "model": "",
+        "timeout": 10,
+        "retries": 0,
+        "cooldown": 60,
+        "min_interval": 15,
+        "free_policy": {
+          "budget": 0,
+          "confirmed": false,
+          "models": [],
+          "expires_at": ""
+        }
+      },
+      "groq": {
+        "enabled": false,
+        "base_url": "https://api.groq.com/openai/v1",
+        "key_env": "GROQ_API_KEY",
+        "model_env": "GROQ_MODEL",
+        "model": "",
+        "timeout": 10,
+        "retries": 0,
+        "cooldown": 60,
+        "min_interval": 15,
+        "free_policy": {
+          "budget": 0,
+          "confirmed": false,
+          "models": [],
+          "expires_at": ""
+        }
+      },
+      "cerebras": {
+        "enabled": false,
+        "base_url": "https://api.cerebras.ai/v1",
+        "key_env": "CEREBRAS_API_KEY",
+        "model_env": "CEREBRAS_MODEL",
+        "model": "",
+        "timeout": 10,
+        "retries": 0,
+        "cooldown": 60,
+        "min_interval": 15,
+        "free_policy": {
+          "budget": 0,
+          "confirmed": false,
+          "models": [],
+          "expires_at": ""
+        }
+      }
+    }
   }
 }

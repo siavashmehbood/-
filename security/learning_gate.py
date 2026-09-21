@@ -78,7 +78,7 @@ class LearningGate:
         canonical=json.dumps(identity,ensure_ascii=False,sort_keys=True,default=str)
         proposal_id='learn_'+hashlib.sha256((str(kind)+'|'+canonical).encode('utf-8')).hexdigest()[:20]
         with self._lock, self._process_lock():
-            existing=next((r for r in self._rows if r.get('proposal_id')==proposal_id and r.get('status')=='pending'),None)
+            existing=next((r for r in self._rows if r.get('proposal_id')==proposal_id and r.get('status') in {'pending', 'rejected'}),None)
             if existing: return dict(existing)
             approved=next((r for r in self._rows if r.get('proposal_id')==proposal_id and r.get('status')=='approved'),None)
             if approved: return dict(approved)

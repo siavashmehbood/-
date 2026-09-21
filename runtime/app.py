@@ -62,6 +62,7 @@ from self.evaluator import Evaluator
 from self.benchmark import CognitiveBenchmark
 from self.improvement_loop import SelfImprovementLoop
 from integrations.chatgpt_review_worker import ChatGPTReviewWorker
+from providers.reviewer import ProviderManager
 
 
 class IranRuntime:
@@ -81,6 +82,9 @@ class IranRuntime:
         self.events = EventLog(self.root / self.config["runtime"]["event_log"])
         self.goals = GoalStore(self.root / self.config["runtime"].get("goals", "data/goals.json"))
         self.internet_access = InternetAccessManager(self.root / "data/internet_access.json")
+        reviewer_config = load_json_with_backup(self.root / "reviewers.local.json", self.config.get("reviewers", {}))
+        self.reviewer_manager = ProviderManager(self.root, {"reviewers": reviewer_config}, self.internet_access)
+        self.chatgpt_review_worker.manager = self.reviewer_manager
         self.policy = SecurityPolicy(self.config, internet_access=self.internet_access)
         self.registry = build_registry(self.root, self.memory, self.internet_access)
         self.brain = Brain(self.provider)
@@ -423,8 +427,10 @@ class IranRuntime:
         rows = rows if isinstance(rows, list) else []
         status = self.chatgpt_review_worker.status()
         status.update({
+            "providers": self.reviewer_manager.health() if hasattr(self, "reviewer_manager") else [],
+            "waiting": sum(r.get("status") == "WAITING_FOR_REVIEWER" for r in rows),
             "total": len(rows),
-            "pending": sum(r.get("status", "pending") == "pending" and r.get("review_status", "not_reviewed") == "not_reviewed" for r in rows),
+            "pending": sum(r.get("status", "pending") in {"pending", "WAITING_FOR_REVIEWER"} and r.get("review_status", "not_reviewed") == "not_reviewed" for r in rows),
             "human_pending": sum(r.get("status") == "human_pending" for r in rows),
             "rejected": sum(r.get("status") == "rejected" for r in rows),
         })
@@ -444,18 +450,12 @@ class IranRuntime:
         if not review_text:
             return {"ok": False, "reason": "empty_review"}
         self.sync_chatgpt_learning_reviews()
-        path = self._chatgpt_review_path()
-        try:
-            rows = json.loads(path.read_text(encoding="utf-8")) if path.exists() else []
-        except Exception:
-            rows = []
-        for row in rows:
-            if str(row.get("proposal_id")) == str(proposal_id):
-                row["review_note"] = review_text
-                row["review_note_at"] = __import__("datetime").datetime.now().isoformat(timespec="seconds")
-                from persistence import atomic_write_json
-                atomic_write_json(path, rows[-5000:])
-                return {"ok": True, "proposal_id": str(proposal_id), "review_status": row.get("review_status", "not_reviewed")}
+        with json_transaction(self._chatgpt_review_path(), []) as rows:
+            for row in rows:
+                if str(row.get("proposal_id")) == str(proposal_id):
+                    row["review_note"] = review_text
+                    row["review_note_at"] = __import__("datetime").datetime.now().isoformat(timespec="seconds")
+                    return {"ok": True, "proposal_id": str(proposal_id), "review_status": row.get("review_status", "not_reviewed")}
         return {"ok": False, "reason": "proposal_not_in_review_queue"}
     def learning_pending(self, limit=50):
         """Return the durable pending proposals for internal learning workflows."""
@@ -463,14 +463,13 @@ class IranRuntime:
 
     def human_learning_pending(self, limit=50):
         """Return only candidates ChatGPT marked correct and routed to the human gate."""
-        rows = self.learning_gate.pending(max(5000, int(limit) * 5))
+        reviews = {r.get("proposal_id"): r for r in load_json_with_backup(self._chatgpt_review_path(), [])}
         result = []
-        for proposal in rows:
-            review = self.chatgpt_learning_review_status(proposal.get("proposal_id"))
-            if review.get("reviewed") and review.get("row", {}).get("chatgpt_decision") == "learn":
+        for proposal in self.learning_gate.pending(100000):
+            review = reviews.get(proposal.get("proposal_id"), {})
+            if review.get("review_status") == "reviewed" and review.get("chatgpt_decision") == "learn" and review.get("status") == "human_pending":
                 result.append(proposal)
-                if len(result) >= int(limit):
-                    break
+                if len(result) >= int(limit): break
         return result
     def learning_history(self, limit=200):
         return self.learning_gate.history(limit)

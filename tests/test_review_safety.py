@@ -10,6 +10,7 @@ from integrations.chatgpt_review_worker import ChatGPTReviewWorker
 def runtime(tmp_path):
     shutil.copy(Path(__file__).parents[1] / 'config.json', tmp_path)
     r = IranRuntime(tmp_path)
+    r.internet_access.enable()
     yield r
     r.close()
 

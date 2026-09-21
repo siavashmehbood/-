@@ -58,6 +58,17 @@ class Worker(QObject):
         except Exception as e:
             self.fail.emit(f"خطا در پاسخ: {e}")
 
+class BackgroundJob(QObject):
+    done = Signal(str, object)
+    failed = Signal(str, str)
+    ended = Signal()
+    def __init__(self, name, operation):
+        super().__init__(); self.name = name; self.operation = operation
+    def run(self):
+        try: self.done.emit(self.name, self.operation())
+        except Exception as exc: self.failed.emit(self.name, type(exc).__name__)
+        finally: self.ended.emit()
+
 class ChatWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -66,6 +77,8 @@ class ChatWindow(QMainWindow):
         self.setLayoutDirection(Qt.RightToLeft)
         self.runtime = IranRuntime(ROOT)
         self.last_answer = ""; self.messages = []; self.busy = False
+        self._jobs = {}
+        self._closing = False
         self.autonomy_busy = False
         self.chatgpt_review_busy = False
         self.build(); self.load_session()
@@ -113,12 +126,15 @@ class ChatWindow(QMainWindow):
         bottom.addLayout(actions); l.addLayout(bottom); return w
     def rightbar(self):
         w = QWidget(); l = QVBoxLayout(w); l.setSpacing(7); l.addWidget(QLabel("وضعیت شناختی"))
-        self.conf = QLabel("اطمینان: —"); self.quality = QLabel("کیفیت: —"); self.intent = QLabel("هدف: —"); self.elapsed = QLabel("زمان: —"); self.experience_xp = QLabel("XP این نشست: ۱,۰۰۰,۰۰۰ | تجربه جدید: ۰")
-        self.chatgpt_pending = QLabel("درخواست‌های بازبینی ChatGPT: ۰")
+        self.conf = QLabel("اطمینان: —"); self.quality = QLabel("کیفیت: —"); self.intent = QLabel("هدف: —"); self.elapsed = QLabel("زمان: —"); self.experience_xp = QLabel("XP تأییدشده: ۰")
+        self.chatgpt_pending = QLabel("درخواست‌های بازبینی ناظر: ۰")
         for x in (self.conf, self.quality, self.intent, self.elapsed, self.experience_xp, self.chatgpt_pending): l.addWidget(x)
+        self.internet_button = QPushButton()
+        self.internet_button.clicked.connect(self.toggle_internet)
+        l.addWidget(self.internet_button); self.refresh_internet()
         l.addSpacing(8); l.addWidget(QLabel("آخرین رویدادها")); self.events = QListWidget(); l.addWidget(self.events, 1)
         buttons = [("حافظه", self.show_memory), ("ردیابی پاسخ", self.show_trace),
-                   ("بازبینی ChatGPT", self.show_chatgpt_reviews),
+                   ("وضعیت ناظر آنلاین", self.show_chatgpt_reviews),
                    ("آزمون بنچمارک", self.run_benchmark), ("بازبینی یادگیری", self.review_pending_learning),
                    ("درس‌های یادگرفته‌شده", self.show_learned_lessons),
                    ("تایید همه یادگیری‌ها", self.approve_all_learning_ui),
@@ -139,7 +155,7 @@ class ChatWindow(QMainWindow):
         if who == "ایران": self.last_answer = text
         self.update_title_stats()
     def send_message(self):
-        if self.busy: return
+        if self.busy or self._closing or "autonomy" in self._jobs: return
         text = self.input.toPlainText().strip()
         if not text: return
         self.input.clear(); self.add("شما", text); self.busy = True; self.send.setEnabled(False); self.status.setText("در حال پردازش...")
@@ -161,29 +177,68 @@ class ChatWindow(QMainWindow):
     def on_fail(self, text):
         self.add("خطا", text); self.status.setText("خطا"); self.busy = False; self.send.setEnabled(True); self.persist_session()
 
+    def _start_job(self, name, operation):
+        if self._closing or name in self._jobs: return False
+        thread = QThread(self); thread.setObjectName(name)
+        worker = BackgroundJob(name, operation); worker.moveToThread(thread)
+        self._jobs[name] = (thread, worker)
+        thread.started.connect(worker.run)
+        worker.done.connect(self._job_result, Qt.QueuedConnection)
+        worker.failed.connect(self._job_error, Qt.QueuedConnection)
+        worker.ended.connect(thread.quit)
+        worker.ended.connect(worker.deleteLater)
+        thread.finished.connect(self._job_finished)
+        thread.finished.connect(thread.deleteLater)
+        thread.start(); return True
+
+    def _job_result(self, name, result):
+        if name == "review":
+            reason = result.get("reason", "")
+            self.status.setText("ناظر: " + reason)
+        elif name == "benchmark":
+            self._dialog("نتیجه ارزیابی", str(result))
+        self.refresh_chatgpt_count(); self.refresh_learning_stats(); self.refresh_events()
+
+    def _job_error(self, name, reason):
+        self.status.setText(f"خطا در {name}: {reason}")
+
+    def _job_finished(self):
+        name = self.sender().objectName()
+        self._jobs.pop(name, None)
+        if self._closing and not self._jobs and not self.busy:
+            QTimer.singleShot(0, self.close)
+
     def run_chatgpt_review_once(self):
-        """The only GUI-triggered API path: one serialized worker invocation."""
-        if self.chatgpt_review_busy:
-            return
-        self.chatgpt_review_busy = True
-        try:
-            result = self.runtime.process_one_chatgpt_learning_review()
-            reason = result.get("reason") if isinstance(result, dict) else ""
-            if reason == "rate_limited" or reason == "cooldown":
-                self.chatgpt_pending.setText("ChatGPT: در انتظار / Rate Limit — تلاش بعدی: " + str(result.get("status", {}).get("next_allowed_at", "—")))
-            elif reason == "reviewed":
-                self.status.setText("یک Candidate توسط ChatGPT بررسی شد")
-            self.refresh_chatgpt_count()
-        except Exception as exc:
-            self.status.setText(f"ChatGPT: خطا — {type(exc).__name__}")
-        finally:
-            self.chatgpt_review_busy = False
+        self._start_job("review", self.runtime.process_one_chatgpt_learning_review)
+
+    def refresh_internet(self):
+        enabled = self.runtime.internet_access.status()["enabled"]
+        self.internet_button.setText("اینترنت: روشن — خاموش کن" if enabled else "اینترنت: خاموش — روشن کن")
+
+    def toggle_internet(self):
+        access = self.runtime.internet_access
+        access.disable() if access.status()["enabled"] else access.enable()
+        self.refresh_internet()
+        self.run_chatgpt_review_once()
+
+    def _dialog(self, title, text):
+        d=QDialog(self); d.setWindowTitle(title); d.resize(850,550)
+        layout=QVBoxLayout(d); view=QPlainTextEdit(); view.setReadOnly(True)
+        view.setPlainText(text); layout.addWidget(view)
+        button=QPushButton("بستن");button.clicked.connect(d.accept);layout.addWidget(button)
+        d.exec()
+
     def _finish_worker(self, *args):
         thread = self.thread
         worker = self.worker
         worker.deleteLater()
         thread.quit()
         thread.finished.connect(thread.deleteLater)
+        thread.finished.connect(self._chat_finished)
+
+    def _chat_finished(self):
+        if self._closing and not self._jobs: QTimer.singleShot(0, self.close)
+
     def approve_all_learning_ui(self):
         try:
             stats = self.runtime.learning_status()
@@ -273,11 +328,11 @@ class ChatWindow(QMainWindow):
             box.setReadOnly(True)
             box.setPlainText(
                 f"هدف:\n{goal}\n\nعمل انجام‌شده:\n{action}\n\nنتیجه:\n{result}\n\nدرس استخراج‌شده:\n{lesson}\n\n"
-                f"نظر ChatGPT: {chatgpt.get('answer', '')}\n"
-                f"دلیل ChatGPT: {chatgpt.get('reason', '')}\n"
+                f"نظر ناظر: {chatgpt.get('answer', '')}\n"
+                f"دلیل ناظر: {chatgpt.get('reason', '')}\n"
                 f"اصلاحات پیشنهادی: {chatgpt.get('corrections', [])}\n"
-                f"اعتماد ChatGPT: {chatgpt.get('confidence', '?')}\n"
-                f"وضعیت ChatGPT: {'تأیید شده — منتظر تأیید شما' if review.get('chatgpt_decision') == 'learn' else 'رد شده توسط ChatGPT'}\n"
+                f"اعتماد ناظر: {chatgpt.get('confidence', '?')}\n"
+                f"وضعیت ناظر: {'تأیید شده — منتظر تأیید شما' if review.get('chatgpt_decision') == 'learn' else 'رد شده توسط ChatGPT'}\n"
                 f"زمان بررسی: {review.get('reviewed_at', '—')}\n"
                 f"منبع: {review.get('source', 'learning_gate')}\n\n"
                 f"امتیاز: {payload.get('score', '?')}\nXP این درخواست: 1,000,000"
@@ -295,7 +350,7 @@ class ChatWindow(QMainWindow):
                 # ChatGPT review is completed upstream through the MCP bridge.
                 # This button is the human approval gate only.
                 status = self.runtime.chatgpt_learning_review_status(proposal_id)
-                if not status.get("reviewed") and str((self.runtime.learning_gate.get(proposal_id) or {}).get("payload", {}).get("_external_validation", {}).get("decision", "")).upper() != "LEARN":
+                if not status.get("reviewed") or status.get("row", {}).get("chatgpt_decision") != "learn":
                     QMessageBox.warning(d, "نیاز به بررسی ChatGPT", "این مورد هنوز توسط ChatGPT به عنوان درست تأیید نشده است.")
                     return
                 r = self.runtime.approve_learning(proposal_id)
@@ -350,43 +405,20 @@ class ChatWindow(QMainWindow):
             status = self.runtime.chatgpt_review_status()
             if status.get("cooldown"):
                 self.chatgpt_pending.setText(
-                    f"ChatGPT: در انتظار / Rate Limit | صف: {status.get('pending', 0):,} | تلاش بعدی: {status.get('next_allowed_at', '—')}"
+                    f"ناظر: در انتظار / Rate Limit | صف: {status.get('pending', 0):,} | تلاش بعدی: {status.get('next_allowed_at', '—')}"
                 )
             else:
                 self.chatgpt_pending.setText(
-                    f"درخواست‌های بازبینی ChatGPT: {status.get('pending', 0):,} | بازبینی انسانی: {status.get('human_pending', 0):,}"
+                    f"درخواست‌های بازبینی ناظر: {status.get('pending', 0):,} | بازبینی انسانی: {status.get('human_pending', 0):,}"
                 )
         except Exception:
-            self.chatgpt_pending.setText("درخواست‌های بازبینی ChatGPT: خطا")
+            self.chatgpt_pending.setText("درخواست‌های بازبینی ناظر: خطا")
 
     def show_chatgpt_reviews(self):
-        # The current IRAN build is offline-only: do not create an external API path.
-        path=ROOT/'data'/'chatgpt_reviews.json'
-        rows=[]
-        try:
-            if path.exists():
-                rows=json.loads(path.read_text(encoding='utf-8'))
-        except Exception as e:
-            QMessageBox.warning(self, 'بازبینی ChatGPT', f'خطا در خواندن بازبینی‌ها: {e}'); return
-        pending = [r for r in rows if r.get('status', 'pending') == 'pending']
-        if not rows:
-            QMessageBox.information(self, 'بازبینی ChatGPT', 'هنوز درخواستی برای بازبینی ثبت نشده است.\n\nبعد از دریافت هر پاسخ از ایران، اینجا یک درخواست جدید ساخته می‌شود.')
-            return
-        d=QDialog(self); d.setWindowTitle(f'درخواست بازبینی ChatGPT — {len(pending)} در انتظار | {len(rows)} کل'); d.resize(980,720); d.setLayoutDirection(Qt.RightToLeft)
-        l=QVBoxLayout(d); l.addWidget(QLabel(f'درخواست‌های آماده برای ارسال به ChatGPT: {len(pending)} | کل درخواست‌ها: {len(rows)}'))
-        tabs=QTabWidget(); l.addWidget(tabs,1)
-        for i,row in enumerate(rows,1):
-            page=QWidget(); pl=QVBoxLayout(page); q=QPlainTextEdit(); q.setReadOnly(True)
-            if row.get('source') == 'autonomous_learning':
-                body=('تجربه یادگیری خودکار\n\nهدف:\n'+str(row.get('goal',''))+'\n\nعمل:\n'+str(row.get('action',''))+'\n\nنتیجه:\n'+str(row.get('answer',''))+'\n\nدرس استخراج‌شده:\n'+str(row.get('lesson',''))+'\n\nوضعیت: '+str(row.get('status','pending')))
-                prompt=('این تجربه را برای ایران بررسی کن.\n\nهدف:\n'+str(row.get('goal',''))+'\n\nعمل:\n'+str(row.get('action',''))+'\n\nنتیجه:\n'+str(row.get('answer',''))+'\n\nدرس استخراج‌شده:\n'+str(row.get('lesson',''))+'\n\nخطاها، کمبودها و اصلاح پیشنهادی را مشخص کن.')
-            else:
-                body=('پرسش:\n'+str(row.get('question',''))+'\n\nپاسخ ایران:\n'+str(row.get('answer',''))+'\n\nوضعیت: '+str(row.get('status','pending')))
-                prompt=('این پاسخ ایران را بررسی کن.\n\nپرسش:\n'+str(row.get('question',''))+'\n\nپاسخ ایران:\n'+str(row.get('answer',''))+'\n\nلطفاً خطاها، کمبودها و اصلاح پیشنهادی را مشخص کن.')
-            q.setPlainText(body); pl.addWidget(q,1)
-            cp=QPushButton('کپی بسته بازبینی برای ChatGPT'); cp.clicked.connect(lambda checked=False, prompt=prompt: QApplication.clipboard().setText(prompt)); pl.addWidget(cp)
-            tabs.addTab(page,f'مورد {i}')
-        close=QPushButton('بستن'); close.clicked.connect(d.accept); l.addWidget(close); d.exec()
+        # Pending candidate content is private until the external review accepts it.
+        status = self.runtime.chatgpt_review_status()
+        health = "\n".join(f"{p['provider']}: {p['state']} — {p['reason']}" for p in status.get("providers", []))
+        self._dialog("وضعیت ناظر آنلاین", f"صف: {status.get('pending',0)}\nدر انتظار ناظر: {status.get('waiting',0)}\nآماده بازبینی شما: {status.get('human_pending',0)}\nآخرین خطا: {status.get('last_error') or '—'}\n\n{health}")
 
     def paste_clipboard(self):
         self.input.insertPlainText(QApplication.clipboard().text()); self.input.setFocus()
@@ -398,12 +430,12 @@ class ChatWindow(QMainWindow):
         else: self.status.setText("متنی انتخاب نشده است")
     def update_title_stats(self): self.setWindowTitle(f"ایران — معماری شناختی | {len(self.messages)} پیام")
     def closeEvent(self, event):
-        try:
-            self.persist_session()
-            self.runtime.close()
-        except Exception:
-            pass
-        event.accept()
+        self._closing = True
+        self.autonomy_timer.stop(); self.chatgpt_review_timer.stop()
+        if self._jobs or self.busy:
+            self.status.setText("در انتظار پایان عملیات برای بستن امن…")
+            event.ignore(); return
+        self.persist_session(); self.runtime.close(); event.accept()
 
     def persist_session(self):
         try: (ROOT / "logs" / "current_session.json").write_text(json.dumps(self.messages, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -431,22 +463,8 @@ class ChatWindow(QMainWindow):
         d = ROOT / "logs"; d.mkdir(exist_ok=True); p = d / f"conversation_{datetime.now():%Y%m%d_%H%M%S}.txt"
         p.write_text(self.chat.toPlainText(), encoding="utf-8"); self.status.setText(f"ذخیره شد: {p.name}")
     def run_autonomous_learning(self):
-        if self.autonomy_busy or self.busy:
-            return
-        self.autonomy_busy = True
-        try:
-            report = self.runtime.autonomous_supervisor_step()
-            request = report.get("learning_request") if isinstance(report, dict) else None
-            if request and request.get("status") == "pending":
-                self.queue_autonomous_review(request)
-                self.status.setText("یادگیری خودکار: یک تجربه برای تأیید آماده است")
-            else:
-                self.status.setText("یادگیری خودکار: در حال کاوش و آزمایش")
-            self.refresh_learning_stats(); self.refresh_events()
-        except Exception as e:
-            self.status.setText(f"یادگیری خودکار: خطا — {type(e).__name__}")
-        finally:
-            self.autonomy_busy = False
+        if self.busy or self._jobs: return
+        self._start_job("autonomy", self.runtime.autonomous_supervisor_step)
 
     def queue_autonomous_review(self, request):
         self.runtime.sync_chatgpt_learning_reviews()
@@ -523,8 +541,8 @@ class ChatWindow(QMainWindow):
         l = QVBoxLayout(d); box = QPlainTextEdit(); box.setReadOnly(True); box.setPlainText(text); l.addWidget(box, 1)
         close = QPushButton("بستن"); close.clicked.connect(d.accept); l.addWidget(close); d.exec()
     def run_benchmark(self):
-        try: QMessageBox.information(self, "آزمون بنچمارک", str(self.runtime.roadmap_benchmark()))
-        except Exception as e: QMessageBox.warning(self, "آزمون بنچمارک", f"خطا: {e}")
+        if not self.busy and not self._jobs:
+            self._start_job("benchmark", self.runtime.roadmap_benchmark)
     def show_settings(self):
         d = QDialog(self); d.setWindowTitle("تنظیمات"); d.setLayoutDirection(Qt.RightToLeft); l = QVBoxLayout(d)
         l.addWidget(QLabel("هسته: IRAN Symbolic Core")); l.addWidget(QLabel("حالت: کاملاً محلی و نمادین"))

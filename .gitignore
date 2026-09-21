@@ -42,3 +42,6 @@ sandbox/
 Thumbs.db
 .DS_Store
 docs/*.docx
+# Per-machine reviewer policies and attestations
+reviewers.local.json
+*.lock

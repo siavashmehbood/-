@@ -18,6 +18,10 @@ from pathlib import Path
 from persistence import atomic_write_json, json_transaction, load_json_with_backup, file_lock
 
 
+class ReviewerUnavailable(Exception):
+    pass
+
+
 class RateLimitError(Exception):
     def __init__(self, retry_after=None, message="rate limited"):
         super().__init__(message)
@@ -35,6 +39,7 @@ class ChatGPTReviewWorker:
         self.transport = transport
         self.clock = clock or time.time
         self._lock = threading.Lock()
+        self.manager = None
 
     @staticmethod
     def _iso(ts):
@@ -50,10 +55,7 @@ class ChatGPTReviewWorker:
             return None
 
     def _load_rows(self):
-        try:
-            rows = json.loads(self.reviews_path.read_text(encoding="utf-8")) if self.reviews_path.exists() else []
-        except (OSError, ValueError):
-            rows = []
+        rows = load_json_with_backup(self.reviews_path, [])
         return rows if isinstance(rows, list) else []
 
     def _save_rows(self, rows):
@@ -98,7 +100,7 @@ class ChatGPTReviewWorker:
     def _candidate(self, rows):
         return next((row for row in rows if row.get("source") == "learning_gate"
                       and row.get("review_status", "not_reviewed") == "not_reviewed"
-                      and row.get("status", "pending") == "pending"), None)
+                      and row.get("status", "pending") in {"pending", "WAITING_FOR_REVIEWER"}), None)
 
     def _windows_user_env(self, name):
         if os.name != "nt":
@@ -114,56 +116,28 @@ class ChatGPTReviewWorker:
         return (os.environ.get(name) or self._windows_user_env(name) or default).strip()
 
     def _default_transport(self, row):
-        # Desktop GUI launched with pythonw may not inherit a newly-created
-        # user environment variable. Fall back to HKCU\Environment without
-        # ever exposing the secret in logs/UI.
-        api_key = self._env_value("OPENAI_API_KEY")
-        if not api_key:
-            raise RuntimeError("OPENAI_API_KEY is not configured")
-        base = self._env_value("OPENAI_API_BASE", "https://api.openai.com/v1").rstrip("/")
-        default_model = "gpt-5-mini" if "manus.im" in base else "gpt-4o-mini"
-        model = self._env_value("OPENAI_MODEL", default_model)
-        payload = {
-            "model": model,
-            "temperature": 0,
-            "response_format": {"type": "json_object"},
-            "messages": [
-                {"role": "system", "content": "Validate one learning candidate. Return JSON only with learn (boolean), reason (string), corrections (array), confidence (number), and answer (string). Do not apply learning."},
-                {"role": "user", "content": json.dumps({"candidate": row}, ensure_ascii=False)},
-            ],
-        }
-        request = urllib.request.Request(
-            base + "/chat/completions",
-            data=json.dumps(payload).encode("utf-8"),
-            headers={"Authorization": "Bearer " + api_key, "Content-Type": "application/json"},
-            method="POST",
-        )
-        try:
-            with urllib.request.urlopen(request, timeout=45) as response:
-                body = json.loads(response.read().decode("utf-8"))
-        except urllib.error.HTTPError as exc:
-            retry = exc.headers.get("Retry-After") if exc.headers else None
-            if exc.code == 429:
-                try:
-                    retry = float(retry)
-                except (TypeError, ValueError):
-                    retry = None
-                raise RateLimitError(retry, "HTTP 429") from exc
-            raise RuntimeError(f"HTTP {exc.code}") from exc
-        if isinstance(body, dict) and body.get("error"):
-            error = body["error"]
-            message = error.get("message", "API error") if isinstance(error, dict) else str(error)
-            raise RuntimeError(message)
-        content = body["choices"][0]["message"]["content"]
-        result = json.loads(content) if isinstance(content, str) else content
-        if not isinstance(result, dict) or not isinstance(result.get("learn"), bool):
-            raise ValueError("validator returned invalid decision")
-        return result
+        if self.manager is None:
+            raise ReviewerUnavailable("reviewer_manager_not_configured")
+        reviewed = self.manager.review(row)
+        if not reviewed.get("ok"):
+            raise ReviewerUnavailable(reviewed.get("reason", "no_reviewer_available"))
+        return reviewed["result"]
+
+    def _waiting(self, proposal_id, reason):
+        with json_transaction(self.reviews_path, []) as rows:
+            for row in rows:
+                if row.get("proposal_id") == proposal_id and row.get("status") in {"pending", "WAITING_FOR_REVIEWER"}:
+                    row["status"] = "WAITING_FOR_REVIEWER"
+                    row["failure_reason"] = reason
+        return {"ok":False, "reason":reason, "state":"WAITING_FOR_REVIEWER", "status":self.status()}
 
     def process_one(self):
         """Validate one candidate, or return a durable cooldown/no-candidate result."""
         with self._lock, file_lock(self.root / "data" / "review_worker.lock"):
             now = self.clock()
+            if self.manager is not None and not self.manager.internet.status()["enabled"]:
+                candidate = self._candidate(self._load_rows())
+                return self._waiting((candidate or {}).get("proposal_id"), "internet_off")
             state = self._load_state()
             next_allowed = self._parse_iso(state.get("next_allowed_at"))
             if next_allowed and next_allowed > now:
@@ -185,6 +159,11 @@ class ChatGPTReviewWorker:
                 result = (self.transport or self._default_transport)(dict(row))
                 if not isinstance(result, dict) or not isinstance(result.get("learn"), bool):
                     raise ValueError("validator returned invalid decision")
+            except ReviewerUnavailable as exc:
+                state["next_allowed_at"] = self._iso(now + self.MIN_INTERVAL)
+                state["last_error"] = str(exc)
+                self._save_state(state)
+                return self._waiting(row.get("proposal_id"), str(exc))
             except RateLimitError as exc:
                 previous = int(state.get("backoff_seconds") or 15)
                 retry = max(0, float(exc.retry_after)) if exc.retry_after is not None else previous
@@ -199,6 +178,9 @@ class ChatGPTReviewWorker:
                 state["last_error"] = f"{type(exc).__name__}: {exc}"[:500]
                 self._save_state(state)
                 return {"ok": False, "reason": "worker_error", "error": state["last_error"], "status": self.status()}
+            row["provider"] = result.get("provider", "injected_transport")
+            row["model"] = result.get("model", "")
+            row.pop("failure_reason", None)
             row["review"] = json.dumps({
                 "learn": result["learn"],
                 "reason": str(result.get("reason", "")),
