@@ -30,3 +30,13 @@ def test_short_route_calls_actual_verifier(tmp_path, monkeypatch):
     assert calls and r.cognitive_system.last_trace.verification_status == 'UNKNOWN'
     assert 'fixture_failed_consistency' in r.cognitive_system.last_trace.verification_reasons
     r.close()
+
+
+def test_role_statement_does_not_replace_personal_name(tmp_path):
+    shutil.copy(Path(__file__).parents[1]/'config.json', tmp_path)
+    r=IranRuntime(tmp_path)
+    r.handle('من علی هستم.'); r.handle('من دانشجو هستم.')
+    assert 'علی' in r.handle('اسم من چیست؟')
+    assert all(f['object']!='دانشجو' for f in r.user_model.facts(predicate='name'))
+    assert any(f['object']=='دانشجو' for f in r.user_model.facts(predicate='role'))
+    r.close()

@@ -38,7 +38,7 @@ class UserModel:
             if m_name:
                 value = m_name.group(1).strip(" ،,")
                 creator_match = re.fullmatch(creator + r"(?:\s+.+)?", value, re.I)
-                if value and not creator_match:
+                if value and not creator_match and not re.fullmatch(role_words, value, re.I):
                     facts.append(self._fact("name", value, .98))
         if re.match(r"^" + man + r"\s+" + creator + r"(?:\s+.+?)?\s+" + end + r"$", t, re.I) or re.search(r"(?:^|\s)سازنده(?:\s|،|,)" , t):
             facts.append(self._fact("role", "creator", .97))

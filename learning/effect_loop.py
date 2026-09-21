@@ -15,6 +15,19 @@ class EffectLearningLoop:
     def _load(self):
         data = load_critical_json(self.path, {})
         self.state.update(data)
+        # Preserve the historical balance and ledger while migrating credit
+        # identities written before episode-independent deduplication.
+        evaluations = {row.get('key'): row for row in self.state['evaluations']}
+        changed = False
+        for credit in self.state['credits']:
+            if not isinstance(credit, dict) or credit.get('effect_key'):
+                continue
+            evaluated = evaluations.get(credit.get('key'))
+            if evaluated is not None:
+                credit['effect_key'] = self._credit_key(evaluated)
+                changed = True
+        if changed:
+            self._save()
 
     def _save(self):
         atomic_write_json(self.path, self.state)
@@ -23,6 +36,10 @@ class EffectLearningLoop:
     def _key(row):
         raw="|".join(str(row.get(k,"")) for k in ("goal","action","result","strategy","domain","episode_id","attempt"))
         return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+    @classmethod
+    def _credit_key(cls, row):
+        return cls._key({k:v for k,v in row.items() if k not in {'episode_id', 'attempt'}})
 
     def _rules_for(self, strategy, domain):
         return [r for r in self.learning.rules
@@ -45,8 +62,8 @@ class EffectLearningLoop:
         allow_credit = allow_credit and approved
         rule_updates = self._update_rules(strategy,domain,score,verified) if approved and key not in existing else []
         credit=False
-        credit_key = self._key({k:v for k,v in row.items() if k not in {"episode_id", "attempt"}})
-        if allow_credit and verified and score>=.75 and credit_key not in {x.get("key") for x in self.state["credits"]}:
+        credit_key = self._credit_key(row)
+        if allow_credit and verified and score>=.75 and credit_key not in {x.get("effect_key", x.get("key")) for x in self.state["credits"]}:
             self.state["xp"]+=1000000; self.state["validated"]+=1
             self.state["credits"].append({"key":credit_key,"xp":1000000,"time":row["time"]}); credit=True
         self._save()
