@@ -74,7 +74,12 @@ class LearningGate:
         finally: self._local.bypass_depth=max(0,int(getattr(self._local,'bypass_depth',1))-1)
     def request(self,kind,payload,summary=''):
         if self.bypassed: return None
-        identity = {k:v for k,v in payload.items() if k not in {"time", "timestamp", "created_at", "updated_at", "_external_validation", "episode_id", "attempt"}}
+        def stable(value):
+            if isinstance(value, dict):
+                return {k:stable(v) for k,v in value.items() if k not in {"time", "timestamp", "created_at", "updated_at", "retrieved_at", "_external_validation", "episode_id", "attempt"}}
+            if isinstance(value, list): return [stable(v) for v in value]
+            return value
+        identity = stable(payload)
         canonical=json.dumps(identity,ensure_ascii=False,sort_keys=True,default=str)
         proposal_id='learn_'+hashlib.sha256((str(kind)+'|'+canonical).encode('utf-8')).hexdigest()[:20]
         with self._lock, self._process_lock():

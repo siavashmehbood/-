@@ -265,6 +265,8 @@ class IranRuntime:
         payload = proposal.get("payload") or proposal
         bundle = {
             "proposal_id": payload.get("proposal_id"),
+            "gate_proposal_id": proposal.get("proposal_id") if proposal.get("payload") else None,
+            "review": self.chatgpt_learning_review_status(proposal.get("proposal_id")) if proposal.get("payload") else {},
             "topic": payload.get("topic"),
             "confidence": payload.get("confidence", 0),
             "agreements": payload.get("agreements", []),
@@ -277,7 +279,7 @@ class IranRuntime:
         if not duplicate:
             rows.append(bundle)
             from persistence import atomic_write_json
-            atomic_write_json(path, rows[-1000:])
+            atomic_write_json(path, rows)
         for agreement in bundle["agreements"]:
             claim = str(agreement.get("claim", "")).strip()
             if not claim: continue
@@ -349,27 +351,50 @@ class IranRuntime:
             "status": self.capability_learning_status(),
         }
 
-    def generate_curriculum_learning_inputs(self, batch_size=24):
-        """Generate the next diverse batch from the single canonical curriculum stream."""
-        rows=self.self_directed_learning.curriculum_batch(batch_size)
-        created=[]
-        for row in rows:
-            payload={"goal_topic":row["topic"],"domain":row["domain"],
-                     "objective":row["objective"],"mode":row["mode"],
-                     "source":row["source"],"status":"needs_evidence"}
-            proposal=self.learning_gate.request(
-                "learning.goal_request", payload,
-                f"curriculum:{row['domain']}:{row['topic']}:{row['mode']}"
-            )
-            if proposal is not None:
-                created.append(proposal)
-        # Every newly created learning request enters the ChatGPT review queue immediately.
-        # Approval remains a separate human-controlled gate; syncing never approves learning.
-        review_sync = self.sync_chatgpt_learning_reviews(limit=5000)
-        return {"ok":True,"requested":len(rows),"created":len(created),
-                "review_queue":review_sync,
-                "domains":sorted({r["domain"] for r in rows}),
-                "proposals":created}
+    def generate_curriculum_learning_inputs(self, batch_size=8):
+        goals = self.self_directed_learning.next_curriculum_goals(limit=batch_size)
+        return {"ok":True, "goals":goals, "created":len(goals), "review_queue":self.chatgpt_review_status()}
+
+    def learning_tick(self):
+        if not self.internet_access.status()["enabled"]:
+            return {"ok":False, "reason":"internet_off"}
+        for row in self.self_directed_learning.prioritize(20):
+            goal=row["goal"]
+            if goal["status"] not in {"needs_evidence", "conflict"}: continue
+            if not self.internet_learning.discover(goal["topic"]): continue
+            if goal.get("attempts", 0) >= int(self.config.get("learning_max_attempts", 3)): continue
+            result=self.learn_from_internet(goal["topic"])
+            self.self_directed_learning.update_outcome(goal["goal_id"], "awaiting_review" if result.get("review") else "needs_evidence")
+            return result
+        return {"ok":True,"reason":"no_ready_learning_goal"}
+
+    def maintenance_step(self):
+        return {"local":self.autonomous_supervisor_step(), "learning":self.learning_tick()}
+
+    def observe_knowledge_use(self, question, answer):
+        """Record actual reuse of an approved claim; feedback alone cannot award XP."""
+        if str(answer).startswith("UNKNOWN:"): return []
+        rows=load_json_with_backup(self.trusted_knowledge_path, [])
+        used=[]
+        for bundle in rows:
+            pid=bundle.get("gate_proposal_id")
+            proposal=self.learning_gate.get(pid) if pid else None
+            if not proposal or proposal.get("status") != "approved": continue
+            claims=[str(a.get("claim", "")) for a in bundle.get("agreements", [])]
+            matched=[claim for claim in claims if claim and claim in str(answer)]
+            if not matched: continue
+            # Exact retrieval is a narrow, reproducible effect, not a claim of general intelligence.
+            for claim in matched:
+                with self.learning_gate.bypass():
+                    outcome=self.effect_learning.evaluate(bundle["topic"], "approved_claim_retrieval", claim, claim,
+                        {"verified":True,"score":.9,"source":"approved_claim_in_runtime_answer","effect_observed":True},
+                        strategy="knowledge_retrieval",domain="knowledge")
+                used.append({"proposal_id":pid,"question":question,"claim":claim,"effect":outcome})
+                for goal in self.self_directed_learning.goals:
+                    if goal.topic == bundle["topic"]:
+                        self.self_directed_learning.record_assessment(goal.goal_id, hashlib.sha256(claim.encode()).hexdigest(), .9, True)
+        if used: self.events.emit("approved_knowledge_used", {"uses":used})
+        return used
 
     def _chatgpt_review_path(self):
         return self.root / "data" / "chatgpt_reviews.json"
@@ -981,7 +1006,7 @@ class IranRuntime:
             return json.dumps(self.capability_learning_status(), ensure_ascii=False)
         if parts[0] in {"/learn", "/learning"}:
             if len(parts) < 2 or parts[1] in {"pending", "list"}:
-                rows=self.learning_pending()
+                rows=self.human_learning_pending()
                 return "no_pending_learning" if not rows else json.dumps(rows,ensure_ascii=False)
             if parts[1] in {"approve", "reject"} and len(parts) >= 3:
                 result=self.approve_learning(parts[2]) if parts[1]=="approve" else self.reject_learning(parts[2])

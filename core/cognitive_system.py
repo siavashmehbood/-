@@ -105,7 +105,15 @@ class CognitiveSystem:
         answer = self.pipeline.run(text)
         self.last_answer = answer
         self.last_trace = getattr(self.dialogue, "last_trace", None)
+        if str(answer).startswith("UNKNOWN:"):
+            self.runtime.self_directed_learning.observe_gap(text, "unknown_answer")
+            if self.last_trace is not None:
+                self.last_trace.verification_status = "UNKNOWN"
+                self.last_trace.confidence = min(.35, self.last_trace.confidence)
+        elif self.last_trace is not None and (self.last_trace.confidence < .5 or self.last_trace.verification_status in {"REPAIR", "CLARIFY"}):
+            self.runtime.self_directed_learning.observe_gap(text, "verification_or_confidence_gap")
         self._post_turn_learning(text, answer, self.last_trace)
+        self.runtime.observe_knowledge_use(text, answer)
         self.last_output = self.unified_output()
         return answer
 
@@ -171,58 +179,8 @@ class CognitiveSystem:
                 source = "user_correction"
             elif repaired:
                 source = "verifier_repair"
-            if source != "verified_success" and (len(str(answer).strip()) >= 12 or source == "user_correction"):
-                learning_gate = getattr(self.runtime, "learning_gate", None)
-                if learning_gate is not None:
-                    failure_score = max(0.0, min(1.0, 1.0 - confidence))
-                    proposal = learning_gate.request(
-                        "learning.record_experience",
-                        {
-                            "goal": goal,
-                            "action": "observe_learning_signal",
-                            "result": str(answer)[:4000],
-                            "score": max(candidate_score if verification_status == "PASS" else failure_score, 0.60 if source == "user_correction" else 0.0),
-                            "signal_source": source,
-                            "intent": str(intent),
-                            "strategy": str(priority.get("meta", {}).get("strategy") or intent or "evidence-first"),
-                            "domain": "dialogue",
-                        },
-                        f"سیگنال یادگیری {source}: {goal}"
-                    )
-                    priority["learning_signal_candidate"] = proposal
-                    priority["learning_signal_source"] = source
-                    if proposal is not None:
-                        self.runtime.events.emit("learning_candidate_created", {
-                            "proposal_id": proposal.get("proposal_id"),
-                            "goal": goal, "source": source, "canonical": True,
-                        })
-            # Every independently verified, meaningful turn may generate a learning
-            # candidate. The candidate is NOT durable learning and earns NO XP until
-            # it passes the existing human approval gate.
-            candidate_score = max(0.0, min(1.0, confidence))
-            if verification_status == "PASS" and candidate_score >= 0.60 and len(str(answer).strip()) >= 12:
-                learning_gate = getattr(self.runtime, "learning_gate", None)
-                if learning_gate is not None:
-                    payload = {
-                        "goal": goal,
-                        "action": "canonical_turn",
-                        "result": str(answer)[:4000],
-                        "score": candidate_score,
-                        "intent": str(intent),
-                        "strategy": str(priority.get("meta", {}).get("strategy") or intent or "evidence-first"),
-                        "domain": "dialogue",
-                    }
-                    proposal = learning_gate.request(
-                        "learning.record_experience", payload,
-                        f"یادگیری از تعامل تأییدشده: {goal}"
-                    )
-                    priority["learning_candidate"] = proposal
-                    priority["learning_candidate_generated"] = proposal is not None
-                    if proposal is not None:
-                        self.runtime.events.emit("learning_candidate_created", {
-                            "proposal_id": proposal.get("proposal_id"),
-                            "goal": goal, "score": candidate_score, "canonical": True,
-                        })
+            # Knowledge gaps are queued as goals above. Routine outputs and UNKNOWN
+            # text are not new knowledge and must not spam the external reviewer.
             # Existing effect-learning remains stricter: only an explicit active
             # experiment or verified historical reuse can mutate effect-learning state.
             if action not in ("active_experiment", "reuse_best_then_verify"):

@@ -16,6 +16,8 @@ import urllib.parse
 import urllib.request
 
 from learning.trusted_knowledge import TrustedKnowledgeBootstrap
+from persistence import atomic_write_json
+from security.internet_access import validate_public_url
 
 
 class InternetLearningEngine:
@@ -37,31 +39,53 @@ class InternetLearningEngine:
 
     def _save(self):
         self.state_path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = self.state_path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(self.state, ensure_ascii=False, indent=2), encoding="utf-8")
-        tmp.replace(self.state_path)
+        atomic_write_json(self.state_path, self.state)
 
     @staticmethod
     def _strip_html(raw: str) -> str:
         raw = re.sub(r"(?is)<script.*?</script>|<style.*?</style>|<noscript.*?</noscript>", " ", raw)
         raw = re.sub(r"(?is)<!--.*?-->", " ", raw)
         raw = re.sub(r"(?is)<[^>]+>", " ", raw)
-        return re.sub(r"\\s+", " ", unescape(raw)).strip()
+        return re.sub(r"\s+", " ", unescape(raw)).strip()
+
+    def discover(self, topic):
+        sources = self.runtime.config.get("learning_sources", [])
+        return [dict(s) for s in sources if isinstance(s, dict) and s.get("enabled", True)
+                and (not s.get("topics") or any(self.runtime.self_directed_learning.relevance(t, topic) > .2 for t in s["topics"]))][:8]
 
     def fetch(self, url: str, max_chars: int = 30000) -> dict:
         self.runtime.internet_access.require()
-        if not str(url).lower().startswith(("http://", "https://")):
-            raise ValueError("only http/https URLs are allowed")
+        validate_public_url(url)
+        spec = next((s for s in self.discover("") if s.get("url") == url), {})
+        # Look up metadata independently of topic filtering.
+        spec = next((s for s in self.runtime.config.get("learning_sources", []) if s.get("url") == url), spec)
+        class CheckedRedirect(urllib.request.HTTPRedirectHandler):
+            def redirect_request(handler, req, fp, code, msg, headers, newurl):
+                self.runtime.internet_access.require(); validate_public_url(newurl)
+                return super().redirect_request(req, fp, code, msg, headers, newurl)
         req = urllib.request.Request(str(url), headers={"User-Agent": "IRAN-Cognitive/1.0"})
-        with urllib.request.urlopen(req, timeout=20) as response:
-            raw = response.read(max_chars * 4).decode("utf-8", errors="replace")
-        text = self._strip_html(raw)[:max_chars]
-        return {"url": str(url), "title": self._title(raw) or str(url), "text": text}
+        with urllib.request.build_opener(CheckedRedirect()).open(req, timeout=15) as response:
+            raw = response.read(max_chars * 4 + 1).decode("utf-8", errors="replace")
+            content_type = response.headers.get("Content-Type", "")
+        source_type = spec.get("type", "web")
+        if source_type == "structured_api" or "application/json" in content_type:
+            value = json.loads(raw)
+            for key in str(spec.get("text_path", "")).split("."):
+                if key: value = value[int(key)] if isinstance(value, list) else value[key]
+            text = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
+        else:
+            # Remove navigation, script and style blocks before sentence extraction.
+            raw = re.sub(r"(?is)<(nav|header|footer|aside)\b[^>]*>.*?</\1>", " ", raw)
+            text = self._strip_html(raw)
+        return {"url":str(url), "title":spec.get("title") or self._title(raw) or str(url),
+                "text":text[:max_chars], "source_type":source_type,
+                "confidence":min(.9,max(0.,float(spec.get("confidence",.6)))),
+                "retrieved_at":datetime.now().isoformat(timespec="seconds")}
 
     @staticmethod
     def _title(raw: str) -> str:
         m = re.search(r"(?is)<title[^>]*>(.*?)</title>", raw)
-        return re.sub(r"\\s+", " ", unescape(m.group(1))).strip() if m else ""
+        return re.sub(r"\s+", " ", unescape(m.group(1))).strip() if m else ""
 
     def search(self, topic: str, limit: int = 5) -> list[str]:
         self.runtime.internet_access.require()
@@ -121,16 +145,17 @@ class InternetLearningEngine:
         ]
 
     def learn(self, topic: str, urls: list[str] | None = None, auto: bool = True) -> dict:
-        self.runtime.internet_access.require()
+        if not self.runtime.internet_access.status()["enabled"]:
+            return {"ok":False, "reason":"internet_off", "auto_learned":False}
         topic = str(topic).strip()
         if not topic:
             return {"ok": False, "reason": "empty_topic"}
 
         urls = [u for u in (urls or []) if str(u).startswith(("http://", "https://"))]
         if not urls:
-            urls = self.search(topic, 5)
+            urls = [s["url"] for s in self.discover(topic) if s.get("url")]
         if not urls:
-            urls = self._trusted_fallback_urls(topic)
+            return {"ok":False, "reason":"no_configured_sources", "auto_learned":False}
 
         sources = []
         errors = []
@@ -138,16 +163,9 @@ class InternetLearningEngine:
             try:
                 item = self.fetch(url)
                 item["source_id"] = hashlib.sha256(url.encode()).hexdigest()[:12]
-                item["confidence"] = .72
+                item.setdefault("confidence", .6)
+                item.setdefault("retrieved_at", datetime.now().isoformat(timespec="seconds"))
                 sources.append(item)
-                # Feed raw online evidence through the same unified ingress as every other source.
-                try:
-                    self.runtime.input_fabric.ingest(
-                        item.get("text", ""), source="web", input_type="web_page",
-                        domain="", provenance={"url": url, "title": item.get("title", ""), "source_id": item["source_id"]},
-                        confidence=item["confidence"], create_goal=True)
-                except Exception:
-                    pass
             except Exception as exc:
                 errors.append({"url": url, "error": str(exc)[:300]})
 
@@ -175,11 +193,17 @@ class InternetLearningEngine:
             and not any("insufficient" in str(x).lower() for x in proposal.get("issues", []))
             and not any("weak_source_relevance" in str(x).lower() for x in proposal.get("issues", []))
         )
-        # Corroboration is evidence, not permission to learn.
-        gated = self.runtime.learning_gate.request(
-            "trusted_knowledge.bootstrap", proposal,
-            f"بازبینی یادگیری اینترنتی درباره «{topic}»")
-        result["review"] = gated or proposal
+        known = " ".join(str(f.get("object", "")) for f in self.runtime.knowledge.query(topic))
+        claims = " ".join(str(a.get("claim", "")) for a in proposal.get("agreements", []))
+        assessment = self.runtime.self_directed_learning.assess(topic, claims, known, proposal.get("confidence",0))
+        result["assessment"] = assessment
+        # Invalid/conflicting/duplicate evidence stays diagnostic, not reviewer spam.
+        if proposal.get("status") == "ready_for_review" and assessment["learn"]:
+            gated = self.runtime.learning_gate.request("trusted_knowledge.bootstrap", proposal,
+                f"بازبینی یادگیری اینترنتی درباره «{topic}»")
+            result["review"] = gated or proposal
+        else:
+            result["reason"] = "evidence_not_ready" if proposal.get("issues") else assessment["reason"]
         result["corroborated"] = safe
 
         self.state["cycles"] += 1

@@ -8,6 +8,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from security.learning_gate import LearningGate
+from persistence import file_lock, atomic_write_json, load_json_with_backup
 
 REVIEWS = ROOT / "data" / "chatgpt_reviews.json"
 
@@ -22,7 +23,7 @@ def load_rows():
 
 def save_rows(rows):
     REVIEWS.parent.mkdir(parents=True, exist_ok=True)
-    REVIEWS.write_text(json.dumps(rows[-5000:], ensure_ascii=False, indent=2), encoding="utf-8")
+    atomic_write_json(REVIEWS, rows)
 
 
 def reply(i, result):
@@ -34,6 +35,7 @@ def err(i, code, message):
 def _review_payload(row):
     return {
         "proposal_id": str(row.get("proposal_id", "")),
+        "kind": row.get("kind"), "payload": row.get("payload", {}),
         "question": str(row.get("question", "")),
         "goal": str(row.get("goal", "")),
         "action": str(row.get("action", "")),
@@ -43,7 +45,7 @@ def _review_payload(row):
     }
 
 
-def handle(req):
+def _handle(req):
     i = req.get("id")
     method = req.get("method", "")
 
@@ -98,7 +100,7 @@ def handle(req):
             r for r in rows
             if r.get("source") == "learning_gate"
             and r.get("review_status", "not_reviewed") == "not_reviewed"
-            and r.get("status", "pending") == "pending"
+            and r.get("status", "pending") in {"pending", "WAITING_FOR_REVIEWER"}
         ]
         data = [_review_payload(r) for r in pending[:limit]]
         return reply(i, {"content": [{"type": "text", "text": json.dumps(data, ensure_ascii=False)}]})
@@ -124,6 +126,10 @@ def handle(req):
                 "already_reviewed": True,
             }, ensure_ascii=False)}]})
 
+        if row.get("status") not in {"pending", "WAITING_FOR_REVIEWER"}:
+            return err(i, -32006, "candidate_not_pending")
+        if corrections: learn = False
+        row["provider"] = "external_mcp_reviewer"
         row["review"] = json.dumps({
             "learn": learn,
             "reason": reason,
@@ -154,6 +160,11 @@ def handle(req):
         }, ensure_ascii=False)}]})
 
     return err(i, -32601, "tool_not_found")
+
+
+def handle(req):
+    with file_lock(REVIEWS.with_suffix(REVIEWS.suffix + ".lock")):
+        return _handle(req)
 
 
 if __name__ == "__main__":

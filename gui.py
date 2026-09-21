@@ -291,7 +291,7 @@ class ChatWindow(QMainWindow):
     def review_pending_learning(self):
         """نمایش همه درخواست‌های یادگیری در انتظار تأیید."""
         try:
-            rows = self.runtime.human_learning_pending(200)
+            rows = self.runtime.human_learning_pending(50)
         except Exception as e:
             QMessageBox.warning(self, "بازبینی یادگیری", f"خطا: {e}")
             return
@@ -305,7 +305,7 @@ class ChatWindow(QMainWindow):
         d.resize(980, 720)
         d.setLayoutDirection(Qt.RightToLeft)
         outer = QVBoxLayout(d)
-        outer.addWidget(QLabel(f"درخواست‌های در انتظار: {len(rows):,} | XP قابل دریافت: {len(rows) * 1_000_000:,}"))
+        outer.addWidget(QLabel(f"درخواست‌های در انتظار: {len(rows):,} | XP پس از ارزیابی اثر ثبت می‌شود"))
         tabs = QTabWidget()
         outer.addWidget(tabs, 1)
         for index, row in enumerate(rows, 1):
@@ -332,16 +332,16 @@ class ChatWindow(QMainWindow):
                 f"دلیل ناظر: {chatgpt.get('reason', '')}\n"
                 f"اصلاحات پیشنهادی: {chatgpt.get('corrections', [])}\n"
                 f"اعتماد ناظر: {chatgpt.get('confidence', '?')}\n"
-                f"وضعیت ناظر: {'تأیید شده — منتظر تأیید شما' if review.get('chatgpt_decision') == 'learn' else 'رد شده توسط ChatGPT'}\n"
+                f"وضعیت ناظر: {'تأیید شده — منتظر تأیید شما' if review.get('chatgpt_decision') == 'learn' else 'رد شده توسط ناظر'}\n"
                 f"زمان بررسی: {review.get('reviewed_at', '—')}\n"
                 f"منبع: {review.get('source', 'learning_gate')}\n\n"
-                f"امتیاز: {payload.get('score', '?')}\nXP این درخواست: 1,000,000"
+                f"امتیاز: {payload.get('score', '?')}\nمحتوای کامل و منابع:\n{json.dumps(payload, ensure_ascii=False, indent=2)}"
             )
             l.addWidget(box, 1)
             buttons = QHBoxLayout()
             copy = QPushButton("کپی درخواست")
             reject = QPushButton("رد کردن")
-            approve = QPushButton("تأیید و ثبت ۱,۰۰۰,۰۰۰ XP")
+            approve = QPushButton("تأیید یادگیری")
             next_item = QPushButton("مورد بعدی")
             buttons.addWidget(copy); buttons.addWidget(reject); buttons.addWidget(approve); buttons.addWidget(next_item); l.addLayout(buttons)
             copy.clicked.connect(lambda checked=False, text=box.toPlainText(): (QApplication.clipboard().setText(text), self.status.setText("درخواست کپی شد")))
@@ -464,7 +464,7 @@ class ChatWindow(QMainWindow):
         p.write_text(self.chat.toPlainText(), encoding="utf-8"); self.status.setText(f"ذخیره شد: {p.name}")
     def run_autonomous_learning(self):
         if self.busy or self._jobs: return
-        self._start_job("autonomy", self.runtime.autonomous_supervisor_step)
+        self._start_job("autonomy", self.runtime.maintenance_step)
 
     def queue_autonomous_review(self, request):
         self.runtime.sync_chatgpt_learning_reviews()

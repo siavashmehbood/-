@@ -33,6 +33,8 @@ class SourceEvidence:
     domain: str = ""
     claims: list[str] | None = None
     extraction_complete: bool = True
+    retrieved_at: str = ""
+    source_type: str = "reference"
 
 
 def _tokens(text: str) -> set[str]:
@@ -43,7 +45,7 @@ def _tokens(text: str) -> set[str]:
 def _domain(url: str) -> str:
     try:
         host = urlparse(str(url)).netloc.lower().split(":")[0]
-        return host.removeprefix("www.")
+        return ".".join(host.removeprefix("www.").split(".")[-2:])
     except Exception:
         return ""
 
@@ -124,6 +126,7 @@ def evaluate_source(source: dict, topic: str) -> SourceEvidence:
         source_confidence=max(0.0, min(1.0, float(source.get("confidence", source.get("source_confidence", .5))))),
         relevance=round(max(0.0, min(1.0, relevance)), 3), domain=_domain(source.get("url", "")),
         claims=claims, extraction_complete=complete,
+        retrieved_at=str(source.get("retrieved_at", "")), source_type=str(source.get("source_type", "reference")),
     )
 
 
@@ -137,6 +140,17 @@ class TrustedKnowledgeBootstrap:
         domains = {e.domain or e.source_id for e in usable}
         independent = len(domains)
 
+        conflicts = []
+        for i, left in enumerate(usable):
+            for right in usable[i+1:]:
+                if left.domain == right.domain: continue
+                for a in left.claims or []:
+                    for b in right.claims or []:
+                        if _similar(a, b) < .45: continue
+                        neg = lambda t: bool(re.search(r"\b(not|never|false)\b|نیست|نمی", t.lower()))
+                        numbers = lambda t: set(re.findall(r"\d+(?:[.,]\d+)?", t))
+                        if neg(a) != neg(b) or (numbers(a) and numbers(b) and numbers(a) != numbers(b)):
+                            conflicts.append({"left": a, "right": b, "sources": [left.source_id,right.source_id], "reason": "potential_numeric_or_negation_conflict"})
         clusters: list[dict] = []
         for e in usable:
             for claim in e.claims or []:
@@ -164,6 +178,7 @@ class TrustedKnowledgeBootstrap:
             best = None
             for i, left in enumerate(usable):
                 for right in usable[i + 1:]:
+                    if left.domain == right.domain: continue
                     for lc in left.claims or []:
                         for rc in right.claims or []:
                             overlap = len((_tokens(lc) & _tokens(rc) & _tokens(topic)))
@@ -180,11 +195,14 @@ class TrustedKnowledgeBootstrap:
                     "corroboration": "cross_source_paraphrase",
                 })
 
+        if conflicts:
+            agreements = []
+
         avg_conf = sum(e.source_confidence * e.relevance for e in usable) / max(1, len(usable))
         agreement_factor = min(1.0, len(agreements) / max(1, len(usable)))
         independence_factor = min(1.0, independent / 2)
         confidence = round(.45 * avg_conf + .30 * agreement_factor + .25 * independence_factor, 3)
-        issues = []
+        issues = ["source_conflict"] if conflicts else []
         if len(usable) < 2: issues.append("evidence_insufficient")
         if independent < 2: issues.append("sources_not_independent")
         if not agreements: issues.append("no_cross_source_agreement")
@@ -193,12 +211,12 @@ class TrustedKnowledgeBootstrap:
 
         status = "ready_for_review" if not issues else "needs_review"
         proposal_id = "tk_" + __import__("hashlib").sha256(
-            json.dumps({"topic": topic, "sources": [asdict(e) for e in evidence]}, ensure_ascii=False, sort_keys=True).encode("utf-8")
+            json.dumps({"topic": topic, "sources": [{"url":e.url,"text":e.text} for e in evidence]}, ensure_ascii=False, sort_keys=True).encode("utf-8")
         ).hexdigest()[:20]
         return {
             "version": self.VERSION, "proposal_id": proposal_id, "kind": "trusted_knowledge.bootstrap",
             "topic": str(topic), "status": status, "confidence": confidence,
-            "agreements": agreements, "issues": issues,
+            "agreements": agreements, "issues": issues, "conflicts": conflicts,
             "independent_source_count": independent,
             "sources": [asdict(e) for e in evidence],
             "created_at": datetime.now().isoformat(timespec="seconds"),

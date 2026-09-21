@@ -11,6 +11,7 @@ from collections import Counter
 import hashlib
 import json
 import re
+from persistence import atomic_write_json, load_json_with_backup
 
 
 _STOP = set("the and or for with from this that are was were is of to in a an on as by".split())
@@ -31,6 +32,8 @@ class LearningGoal:
     success_count: int = 0
     created_at: str = ""
     updated_at: str = ""
+    stage: str = "foundation"
+    assessments: list | None = None
 
 
 class SelfDirectedLearning:
@@ -114,6 +117,8 @@ class SelfDirectedLearning:
         return best if scores.get(best, 0) else "general"
 
     CURRICULUM = {
+        "astronomy": ["منظومه شمسی", "ستاره ها", "کهکشان ها", "کیهان شناسی"],
+        "logic": ["گزاره", "استنتاج", "منطق محمولات"],
         "mathematics": ["اعداد و محاسبات", "کسر و درصد", "جبر پایه", "معادلات", "هندسه", "توابع", "حسابان", "احتمال", "آمار", "منطق ریاضی"],
         "programming": ["مبانی برنامه نویسی", "Python", "متغیر و نوع داده", "شرط و حلقه", "تابع", "ساختمان داده", "الگوریتم", "خطایابی", "تست نرم افزار", "طراحی نرم افزار"],
         "computer_science": ["مبانی علوم کامپیوتر", "ساختمان داده", "الگوریتم", "پایگاه داده", "سیستم عامل", "شبکه", "امنیت", "مهندسی نرم افزار", "معماری کامپیوتر"],
@@ -182,15 +187,13 @@ class SelfDirectedLearning:
             return
         self.path.parent.mkdir(parents=True, exist_ok=True)
         payload = {"goals": [asdict(g) for g in self.goals], "history": self.history[-2000:]}
-        tmp = self.path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-        tmp.replace(self.path)
+        atomic_write_json(self.path, payload)
 
     def _load(self):
         if not self.path or not self.path.exists():
             return
         try:
-            payload = json.loads(self.path.read_text(encoding="utf-8"))
+            payload = load_json_with_backup(self.path, {})
             rows = payload.get("goals", []) if isinstance(payload, dict) else []
             self.goals = [LearningGoal(**r) for r in rows[-self.max_goals:]]
             self.history = payload.get("history", [])[-2000:] if isinstance(payload, dict) else []
@@ -219,6 +222,7 @@ class SelfDirectedLearning:
         """Create a bounded learning goal from a live question without injecting domain knowledge."""
         parsed = parsed or {}
         question_type = str(parsed.get("question_type", "general"))
+        if known_text.strip(): return None
         if question_type not in {"what", "why", "how", "where", "yes_no"}:
             return None
         topic = str(current_topic or "").strip() or str(parsed.get("topic", "")).strip() or str(text or "").strip()
@@ -285,6 +289,42 @@ class SelfDirectedLearning:
         rows = sorted(self.goals, key=score, reverse=True)
         return [{"goal": asdict(g), "priority_score": round(score(g), 4),
                  "next_action": self.next_action(asdict(g))} for g in rows[:int(limit)]]
+
+    STAGES = ("foundation", "intermediate", "advanced", "practice", "evaluation", "consolidation")
+
+    def observe_gap(self, question, reason):
+        topic = re.sub(r"\s+", " ", str(question)).strip()
+        if len(topic) < 4: return None
+        existing = next((g for g in self.goals if g.topic == topic), None)
+        if existing:
+            return asdict(existing)
+        return self.create_goal(topic, gap=str(reason), objective="find_supported_answer:"+topic,
+                                priority="high", domain=self.detect_domain(topic))
+
+    def next_curriculum_goals(self, domains=None, limit=8):
+        result=[]
+        for domain in (domains or self.CURRICULUM):
+            for topic in self.CURRICULUM.get(domain, []):
+                old = next((g for g in self.goals if g.topic == topic and g.domain == domain), None)
+                if old and old.status == "consolidated": continue
+                result.append(self.create_goal(topic, "curriculum", "demonstrate:"+topic, "medium", domain))
+                break
+            if len(result) >= max(1,min(int(limit),20)): break
+        return result
+
+    def record_assessment(self, goal_id, evidence_id, score, verified):
+        goal=next((g for g in self.goals if g.goal_id==goal_id),None)
+        if goal is None: return None
+        records=goal.assessments or []
+        if not evidence_id or any(r["id"]==evidence_id for r in records): return asdict(goal)
+        records.append({"id":evidence_id,"score":float(score),"verified":bool(verified),"stage":goal.stage})
+        goal.assessments=records
+        if verified and score >= .8:
+            index=self.STAGES.index(goal.stage)
+            if index == len(self.STAGES)-1: goal.status="consolidated"
+            else: goal.stage=self.STAGES[index+1];goal.status="needs_evidence"
+        else: goal.status="needs_evidence"
+        self._save(); return asdict(goal)
 
     def snapshot(self):
         return {"goals": [asdict(g) for g in self.goals], "count": len(self.goals),
