@@ -73,3 +73,37 @@ def test_online_claim_needs_review_and_human_then_is_reused(tmp_path):
     assert claim in r.handle('ستاره نوا چیست؟')
     assert r.effect_learning.stats()['xp']==1_000_000
     r.close()
+
+
+def test_retrieving_many_claims_is_not_curriculum_mastery(tmp_path):
+    path=tmp_path/'goals.json';learner=SelfDirectedLearning(path)
+    goal=learner.next_curriculum_goals(['astronomy'],1)[0]
+    for i in range(12):
+        learner.record_assessment(goal['goal_id'],f'claim-{i}',.9,True,kind='retrieval')
+    restored=SelfDirectedLearning(path)
+    assert restored.goals[0].stage=='foundation'
+    assert restored.goals[0].status!='consolidated'
+    assert len(restored.goals[0].assessments)==12
+    restored.record_assessment(goal['goal_id'],'claim-0',.9,True,kind='retrieval')
+    assert len(restored.goals[0].assessments)==12
+    restored.record_assessment(goal['goal_id'],'held-out-task',.9,True,kind='evaluation')
+    assert restored.goals[0].stage=='intermediate'
+
+
+def test_runtime_claim_reuse_records_retrieval_without_promoting_goal(tmp_path):
+    shutil.copy(Path(__file__).parents[1]/'config.json',tmp_path)
+    r=IranRuntime(tmp_path)
+    goal=r.self_directed_learning.create_goal('ستاره نوا','missing_knowledge','understand the star','medium','astronomy')
+    claim='ستاره نوا یک ستاره آزمایشی با رنگ آبی روشن است.'
+    evidence=sources(claim)
+    for item in evidence:item['title']='ستاره نوا'
+    bundle=r.trusted_knowledge.build('ستاره نوا',evidence)
+    p=r.learning_gate.request('trusted_knowledge.bootstrap',bundle)
+    mark_chatgpt_correct(r,p['proposal_id'],'fixture')
+    assert r.approve_learning(p['proposal_id'])['ok']
+    assert claim in r.handle('ستاره نوا چیست؟')
+    current=next(g for g in r.self_directed_learning.goals if g.goal_id==goal['goal_id'])
+    assert current.stage=='foundation'
+    assert current.assessments[0]['kind']=='retrieval'
+    assert r.effect_learning.stats()['xp']==1_000_000
+    r.close()

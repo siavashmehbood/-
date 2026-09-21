@@ -312,13 +312,21 @@ class SelfDirectedLearning:
             if len(result) >= max(1,min(int(limit),20)): break
         return result
 
-    def record_assessment(self, goal_id, evidence_id, score, verified):
+    def record_assessment(self, goal_id, evidence_id, score, verified, kind="evaluation"):
         goal=next((g for g in self.goals if g.goal_id==goal_id),None)
         if goal is None: return None
         records=goal.assessments or []
-        if not evidence_id or any(r["id"]==evidence_id for r in records): return asdict(goal)
-        records.append({"id":evidence_id,"score":float(score),"verified":bool(verified),"stage":goal.stage})
+        if kind not in {"evaluation", "retrieval"}:
+            raise ValueError("unsupported assessment kind")
+        if not evidence_id or any(r["id"]==evidence_id and r.get("kind", "evaluation")==kind for r in records):
+            return asdict(goal)
+        records.append({"id":evidence_id,"score":float(score),"verified":bool(verified),"stage":goal.stage,"kind":kind})
         goal.assessments=records
+        if kind == "retrieval":
+            # Recall demonstrates availability of a claim, not mastery of the
+            # next curriculum stage. Keep its evidence without promoting it.
+            self._save()
+            return asdict(goal)
         if verified and score >= .8:
             index=self.STAGES.index(goal.stage)
             if index == len(self.STAGES)-1: goal.status="consolidated"

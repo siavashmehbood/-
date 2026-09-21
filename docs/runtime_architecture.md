@@ -34,7 +34,7 @@ Internet OFF prevents new requests; it cannot retroactively cancel an already su
 
 `CognitiveSystem` owns a single `CognitivePipeline`. Memory/context retrieval, reasoning/planning, grounded synthesis and semantic checking remain independently testable components. Early deterministic answers now run the consistency verifier before persistence and all natural-language turns pass the final checker. Consistency PASS is not evidence of factual truth. Unknown responses retain low confidence and create deduplicated learning gaps.
 
-Explicit identity/preference statements from the user are local conversation facts and are usable immediately. Internet and inferred learned claims need external and human approval. Approved knowledge reuse is measured by matching an approved claim to the actual emitted answer. This supports observing exact retrieval and credit deduplication; it does not establish causality or a general improvement in reasoning. Curriculum progression records distinct verified assessments; broad domain mastery still needs richer held-out tasks.
+Explicit identity/preference statements from the user are local conversation facts and are usable immediately. Internet and inferred learned claims need external and human approval. Approved knowledge reuse is measured by matching an approved claim to the actual emitted answer. This supports observing exact retrieval and credit deduplication; it does not establish causality or a general improvement in reasoning. Curriculum progression requires distinct evaluation assessments; retrieval observations are stored separately and do not advance stages; broad domain mastery still needs richer held-out tasks.
 
 ## Legacy audit
 

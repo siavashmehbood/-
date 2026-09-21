@@ -411,7 +411,7 @@ class IranRuntime:
                 used.append({"proposal_id":pid,"question":question,"claim":claim,"effect":outcome})
                 for goal in self.self_directed_learning.goals:
                     if goal.topic == bundle["topic"]:
-                        self.self_directed_learning.record_assessment(goal.goal_id, hashlib.sha256(claim.encode()).hexdigest(), .9, True)
+                        self.self_directed_learning.record_assessment(goal.goal_id, hashlib.sha256(claim.encode()).hexdigest(), .9, True, kind="retrieval")
         if used: self.events.emit("approved_knowledge_used", {"uses":used})
         return used
 
