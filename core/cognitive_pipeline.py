@@ -43,8 +43,17 @@ class CognitivePipeline:
         except Exception:
             pass
 
+    def verification_evidence(self):
+        # Only stored knowledge and explicit user statements; a previous
+        # generated assistant answer cannot prove its own correctness.
+        facts = list(getattr(self.runtime.knowledge, 'facts', []))
+        facts.extend(self.runtime.user_model.current_profile(30))
+        facts.extend({'subject':'user', 'predicate':'statement', 'object':row[1]}
+                     for row in self.runtime.memory.recent(16) if row[0] == 'user')
+        return facts
+
     def _persist_answer(self, text, answer, answer_type="DIRECT_FACT", score=.95):
-        checked = self.semantic_verifier.verify(text, answer)
+        checked = self.semantic_verifier.verify(text, answer, evidence=self.verification_evidence())
         score = min(score, checked.score)
         if not checked.accepted:
             answer = "UNKNOWN: پاسخ تولیدشده بررسی سازگاری را نگذرانده است."

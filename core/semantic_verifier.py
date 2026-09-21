@@ -9,6 +9,7 @@ class VerificationResult:
     score: float
     reasons: list = field(default_factory=list)
     contradictions: list = field(default_factory=list)
+    status: str = "PASS"
 
 
 class SemanticVerifier:
@@ -16,17 +17,26 @@ class SemanticVerifier:
 
     STOP = {"و", "یا", "که", "را", "به", "از", "در", "برای", "با", "این", "آن"}
 
+    ALIASES = {
+        'نام':'اسم', 'اسمم':'اسم', 'نامم':'اسم', 'name':'اسم',
+        'کارم':'کار', 'work_on':'کار',
+        'ساخته':'ساخت', 'بفهمی':'فهم', 'بفهمد':'فهم', 'فهمیدن':'فهم',
+        'creator':'سازنده', 'iran':'ایران', 'پایتون':'python',
+    }
+
     @classmethod
     def tokens(cls, text):
-        words = re.findall(r"[\wآ-ی]+", str(text or "").lower())
-        return {w for w in words if len(w) > 1 and w not in cls.STOP}
+        normalized = str(text or "").lower().replace('ي', 'ی').replace('ك', 'ک')
+        normalized = re.sub(r'مرکز\s+سیاسی(?:\s+کشور)?', 'پایتخت', normalized)
+        words = re.findall(r"[\wآ-ی]+", normalized)
+        return {cls.ALIASES.get(w, w) for w in words if len(w) > 1 and w not in cls.STOP}
 
     @classmethod
     def overlap(cls, a, b):
         x, y = cls.tokens(a), cls.tokens(b)
         return len(x & y) / max(1, len(x | y))
 
-    def verify(self, question, answer, constraints=None, rejected_answers=None):
+    def verify(self, question, answer, constraints=None, rejected_answers=None, evidence=None):
         constraints = constraints or []
         rejected_answers = rejected_answers or []
         reasons = []
@@ -34,8 +44,31 @@ class SemanticVerifier:
         q = str(question or "").strip()
         a = str(answer or "").strip()
         if not a:
-            return VerificationResult(False, 0.0, ["empty_answer"], [])
+            return VerificationResult(False, 0.0, ["empty_answer"], [], "CLARIFY")
+        if a.startswith("UNKNOWN:"):
+            return VerificationResult(True, .35, ['insufficient_evidence'], [], 'UNKNOWN')
+        # Question operators must not make two unrelated topics appear aligned.
+        operators = {'چیست', 'چیه', 'کجاست', 'کجا', 'چه', 'چرا', 'چطور', 'چگونه',
+                     'درباره', 'توضیح', 'بده', 'پاسخ', 'سؤال', 'است', 'هست', 'من', 'شما'}
+        question_terms = self.tokens(q) - operators
+        answer_terms = self.tokens(a) - operators
+        asks_information = bool(re.search(r'[؟?]|چیست|چیه|کجاست|چگونه|چطور|چرا|توضیح\s+بده', q))
+        profile_query = bool(re.search(r'(?:درباره\s+خودم|از\s+من).*(?:گفت|یاد)|خودم.*گفتم', q))
+        relevant = []
+        for fact in evidence or []:
+            if not isinstance(fact, dict) or fact.get('contradicted_by'):
+                continue
+            anchor = self.tokens(str(fact.get('subject','')) + ' ' + str(fact.get('predicate',''))) - operators
+            if (anchor and anchor <= question_terms) or (profile_query and fact.get('subject') == 'user'):
+                relevant.append(str(fact.get('object', fact.get('value', ''))).strip())
+        supported = any(value and self.tokens(value) and self.tokens(value) <= self.tokens(a) for value in relevant)
+        aligned = bool(question_terms & answer_terms) or supported
         score = .72
+        if asks_information and question_terms and not aligned:
+            reasons.append('unrelated_answer')
+            score = .4
+        if relevant and not supported:
+            contradictions.append('provided_evidence_not_used')
         if self.overlap(q, a) >= .08:
             score += .08
         else:
@@ -56,9 +89,5 @@ class SemanticVerifier:
                 score -= .35
                 break
         score = max(0.0, min(1.0, score))
-        return VerificationResult(score >= .70 and not contradictions, score, reasons, contradictions)
-
-
-# The verifier is intentionally a second, narrow gate: the existing planner
-# verifier remains authoritative for normal answer generation; this layer only
-# blocks explicit constraint contradictions or repetition of rejected answers.
+        accepted = score >= .70 and not contradictions
+        return VerificationResult(accepted, score, reasons, contradictions, "PASS" if accepted else "REPAIR")

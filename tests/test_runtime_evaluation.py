@@ -40,3 +40,28 @@ def test_role_statement_does_not_replace_personal_name(tmp_path):
     assert all(f['object']!='دانشجو' for f in r.user_model.facts(predicate='name'))
     assert any(f['object']=='دانشجو' for f in r.user_model.facts(predicate='role'))
     r.close()
+
+
+@pytest.mark.parametrize('prior', ['REPAIR', 'CLARIFY', 'UNKNOWN'])
+def test_final_consistency_check_cannot_erase_prior_failure(tmp_path, monkeypatch, prior):
+    from core.cognitive_pipeline import TurnTrace
+    shutil.copy(Path(__file__).parents[1]/'config.json',tmp_path)
+    r=IranRuntime(tmp_path)
+    def candidate(text):
+        r.dialogue.last_trace=TurnTrace(user_text=text,verification_status=prior,
+            verification_reasons=['missing_required_evidence'],confidence=.4)
+        return 'پایتخت ایران تهران است.'
+    monkeypatch.setattr(r.cognitive_system.pipeline,'run',candidate)
+    r.handle('پایتخت ایران کجاست؟')
+    assert r.cognitive_system.last_trace.verification_status==prior
+    assert 'missing_required_evidence' in r.cognitive_system.last_trace.verification_reasons
+    r.close()
+
+
+def test_unrelated_short_route_rejected_before_memory_commit(tmp_path):
+    shutil.copy(Path(__file__).parents[1]/'config.json',tmp_path)
+    r=IranRuntime(tmp_path)
+    answer=r.cognitive_system.pipeline._persist_answer('پایتخت ایران کجاست؟','موز یک میوه است.')
+    assert answer.startswith('UNKNOWN:')
+    assert not any(row[0]=='assistant' and row[1]=='موز یک میوه است.' for row in r.memory.recent(10))
+    r.close()

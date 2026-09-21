@@ -105,11 +105,16 @@ class CognitiveSystem:
         answer = self.pipeline.run(text)
         # All legacy short routes must pass the same actual consistency check.
         # This is a narrow check, not proof that a factual claim is true.
-        checked = self.pipeline.semantic_verifier.verify(text, answer)
+        checked = self.pipeline.semantic_verifier.verify(text, answer, evidence=self.pipeline.verification_evidence())
         trace = getattr(self.dialogue, "last_trace", None)
         if trace is not None:
-            trace.verification_status = "PASS" if checked.accepted else "REPAIR"
-            trace.verification_reasons = list(checked.reasons) + list(checked.contradictions)
+            previous_status = trace.verification_status
+            if not checked.accepted:
+                trace.verification_status = "REPAIR"
+            elif previous_status not in {"REPAIR", "CLARIFY", "UNKNOWN"}:
+                trace.verification_status = checked.status
+            trace.verification_reasons = list(dict.fromkeys(
+                list(trace.verification_reasons) + list(checked.reasons) + list(checked.contradictions)))
             trace.confidence = min(trace.confidence, checked.score)
         if not checked.accepted:
             answer = "UNKNOWN: پاسخ تولیدشده بررسی سازگاری را نگذرانده است."
