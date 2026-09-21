@@ -1,3 +1,4 @@
+from persistence import atomic_write_json, load_critical_json
 from dataclasses import dataclass, asdict
 from pathlib import Path
 import json, math, re
@@ -21,21 +22,18 @@ class LearningEngine:
         self.experiences=[]; self.rules=[]; self.learned_lessons=[]; self._load(); self._load_rules(); self._load_lessons()
 
     def _load(self):
-        if self.path.exists():
-            try:
-                rows=json.loads(self.path.read_text(encoding='utf-8'))
-                if not isinstance(rows,list): rows=[]
-                seen=set(); kept=[]
-                for row in reversed(rows[-10000:]):
-                    key=self._stable_key(row)
-                    if key in seen: continue
-                    seen.add(key); kept.append(row)
-                self.experiences=list(reversed(kept))[-10000:]
-                if len(self.experiences)!=len(rows[-10000:]): self._save()
-            except Exception: self.experiences=[]
+        rows = load_critical_json(self.path, [])
+        seen = set()
+        kept = []
+        for row in reversed(rows):
+            key = self._stable_key(row)
+            if key not in seen:
+                seen.add(key)
+                kept.append(row)
+        self.experiences = list(reversed(kept))
 
     def _save(self):
-        tmp=self.path.with_suffix('.tmp'); tmp.write_text(json.dumps(self.experiences,ensure_ascii=False,indent=2),encoding='utf-8'); tmp.replace(self.path)
+        atomic_write_json(self.path, self.experiences)
 
     @staticmethod
     def _stable_key(row):
@@ -44,20 +42,16 @@ class LearningEngine:
                 norm(row.get('intent','general')), norm(row.get('strategy','default')), norm(row.get('domain','general')))
 
     def _load_rules(self):
-        if self.rules_path.exists():
-            try: self.rules=json.loads(self.rules_path.read_text(encoding='utf-8'))[-2000:]
-            except Exception: self.rules=[]
+        self.rules = load_critical_json(self.rules_path, [])
 
     def _load_lessons(self):
-        if self.lessons_path.exists():
-            try: self.learned_lessons=json.loads(self.lessons_path.read_text(encoding='utf-8'))[-5000:]
-            except Exception: self.learned_lessons=[]
+        self.learned_lessons = load_critical_json(self.lessons_path, [])
 
     def _save_lessons(self):
-        tmp=self.lessons_path.with_suffix('.tmp'); tmp.write_text(json.dumps(self.learned_lessons,ensure_ascii=False,indent=2),encoding='utf-8'); tmp.replace(self.lessons_path)
+        atomic_write_json(self.lessons_path, self.learned_lessons)
 
     def _save_rules(self):
-        tmp=self.rules_path.with_suffix('.tmp'); tmp.write_text(json.dumps(self.rules,ensure_ascii=False,indent=2),encoding='utf-8'); tmp.replace(self.rules_path)
+        atomic_write_json(self.rules_path, self.rules)
 
     @staticmethod
     def _tokens(text):
@@ -111,7 +105,7 @@ class LearningEngine:
         if duplicate:
             return dict(duplicate)
         else: self.experiences.append(asdict(item))
-        self.experiences=self.experiences[-10000:]; self._save()
+        self._save()
         row=asdict(item)
         self.learn_from_experience(row)
         self._record_lesson(row)
@@ -138,7 +132,7 @@ class LearningEngine:
             existing['samples']=int(existing.get('samples',1))+1; existing['last_seen']=row.get('time','')
         else:
             self.learned_lessons.append({'lesson':text,'goal':goal,'action':action,'score':round(score,3),'samples':1,'first_seen':row.get('time',''),'last_seen':row.get('time',''),'key':key})
-        self.learned_lessons=self.learned_lessons[-5000:]; self._save_lessons()
+        self._save_lessons()
         return text
 
     def record_approved_lesson(self, payload, proposal_id="", source_status="approved"):

@@ -9,7 +9,13 @@ def atomic_write_json(path, value, backup=True):
     import uuid
     temp = path.with_name(path.name + '.' + uuid.uuid4().hex + '.tmp')
     if backup and path.exists():
-        path.with_suffix(path.suffix + '.bak').write_bytes(path.read_bytes())
+        previous = path.read_bytes()
+        try:
+            json.loads(previous)
+        except (ValueError, UnicodeError):
+            pass  # Preserve the last valid backup when recovering a damaged primary.
+        else:
+            path.with_suffix(path.suffix + '.bak').write_bytes(previous)
     payload = json.dumps(value, ensure_ascii=False, indent=2).encode('utf-8')
     with temp.open('wb') as handle:
         handle.write(payload)
@@ -79,3 +85,25 @@ def json_transaction(path, default):
         yield value
         if json.dumps(value, sort_keys=True) != before or not path.exists():
             atomic_write_json(path, value)
+
+
+class StateCorruptionError(RuntimeError):
+    """Existing durable state cannot be read; never silently reset it."""
+
+def load_critical_json(path, default):
+    path = Path(path)
+    present = False
+    for candidate in (path, path.with_suffix(path.suffix + '.bak')):
+        if not candidate.exists():
+            continue
+        present = True
+        try:
+            value = json.loads(candidate.read_text(encoding='utf-8'))
+            if not isinstance(value, type(default)):
+                continue
+            return value
+        except (OSError, ValueError, UnicodeError):
+            continue
+    if present:
+        raise StateCorruptionError('Unreadable durable state: ' + str(path))
+    return default

@@ -4,7 +4,7 @@ import hashlib, json, threading, re
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
-from persistence import atomic_write_json, load_json_with_backup
+from persistence import atomic_write_json, load_critical_json
 import time
 try:
     import msvcrt
@@ -20,7 +20,7 @@ class LearningGate:
     def __init__(self, path):
         self.path=Path(path); self.path.parent.mkdir(parents=True,exist_ok=True)
         self._local=threading.local(); self._lock=threading.RLock()
-        self._rows=load_json_with_backup(self.path,[])
+        self._rows=load_critical_json(self.path,[])
         if not isinstance(self._rows,list): self._rows=[]
 
     @contextmanager
@@ -41,7 +41,7 @@ class LearningGate:
                 elif fcntl is not None:
                     fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
                     locked = True
-                self._rows = load_json_with_backup(self.path, [])
+                self._rows = load_critical_json(self.path, [])
                 if not isinstance(self._rows, list):
                     self._rows = []
                 yield

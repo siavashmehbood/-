@@ -2,7 +2,7 @@
 Local, deterministic, no external models."""
 from pathlib import Path
 import json, hashlib
-from persistence import atomic_write_json, load_json_with_backup
+from persistence import atomic_write_json, load_critical_json
 from datetime import datetime
 
 class EffectLearningLoop:
@@ -13,10 +13,8 @@ class EffectLearningLoop:
         self._load()
 
     def _load(self):
-        try:
-            data=json.loads(self.path.read_text(encoding="utf-8"))
-            if isinstance(data,dict): self.state.update(data)
-        except Exception: pass
+        data = load_critical_json(self.path, {})
+        self.state.update(data)
 
     def _save(self):
         atomic_write_json(self.path, self.state)
