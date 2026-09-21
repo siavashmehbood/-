@@ -74,32 +74,33 @@ class LearningGate:
         finally: self._local.bypass_depth=max(0,int(getattr(self._local,'bypass_depth',1))-1)
     def request(self,kind,payload,summary=''):
         if self.bypassed: return None
-        canonical=json.dumps(payload,ensure_ascii=False,sort_keys=True,default=str)
+        identity = {k:v for k,v in payload.items() if k not in {"time", "timestamp", "created_at", "updated_at", "_external_validation", "episode_id", "attempt"}}
+        canonical=json.dumps(identity,ensure_ascii=False,sort_keys=True,default=str)
         proposal_id='learn_'+hashlib.sha256((str(kind)+'|'+canonical).encode('utf-8')).hexdigest()[:20]
         with self._lock, self._process_lock():
             existing=next((r for r in self._rows if r.get('proposal_id')==proposal_id and r.get('status')=='pending'),None)
             if existing: return dict(existing)
             approved=next((r for r in self._rows if r.get('proposal_id')==proposal_id and r.get('status')=='approved'),None)
-            if approved: return None
+            if approved: return dict(approved)
             duplicate_key=self._learning_duplicate_key(kind, payload)
             if duplicate_key is not None:
                 duplicate=next((r for r in reversed(self._rows)
                                  if r.get('kind')==kind and r.get('status') in {'pending','approved'}
                                  and self._learning_duplicate_key(r.get('kind'), r.get('payload') or {})==duplicate_key),None)
                 if duplicate:
-                    return dict(duplicate) if duplicate.get('status')=='pending' else None
+                    return dict(duplicate)
             now=datetime.now().isoformat(timespec='seconds')
             row={'proposal_id':proposal_id,'kind':str(kind),'summary':str(summary or kind),'payload':payload,'status':'pending','created_at':now,'updated_at':now}
             self._rows.append(row); self._save(); return dict(row)
-    def _save(self): self._rows=self._rows[-5000:]; atomic_write_json(self.path,self._rows)
+    def _save(self): atomic_write_json(self.path,self._rows)
     def pending(self,limit=50):
-        with self._process_lock():
+        with self._lock, self._process_lock():
             return [dict(r) for r in self._rows if r.get('status')=='pending'][-int(limit):][::-1]
     def history(self,limit=200):
-        with self._process_lock():
+        with self._lock, self._process_lock():
             return [dict(r) for r in self._rows[-int(limit):]][::-1]
     def get(self,proposal_id):
-        with self._process_lock():
+        with self._lock, self._process_lock():
             row=next((r for r in self._rows if r.get('proposal_id')==str(proposal_id)),None)
             return dict(row) if row else None
     def decide_many(self, proposal_ids, status='approved'):
@@ -118,7 +119,7 @@ class LearningGate:
             if row.get('status')!='pending': return dict(row)
             row['status']=status; row['updated_at']=datetime.now().isoformat(timespec='seconds'); self._save(); return dict(row)
     def stats(self):
-        with self._process_lock():
+        with self._lock, self._process_lock():
             pending=sum(r.get('status')=='pending' for r in self._rows)
             approved=sum(r.get('status')=='approved' for r in self._rows)
             rejected=sum(r.get('status')=='rejected' for r in self._rows)

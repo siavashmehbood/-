@@ -40,7 +40,7 @@ class LearningEngine:
     @staticmethod
     def _stable_key(row):
         def norm(v): return re.sub(r'\s+', ' ', str(v or '').strip().lower())
-        return (norm(row.get('goal')), norm(row.get('action')), norm(row.get('result'))[:250],
+        return (norm(row.get('goal')), norm(row.get('action')), norm(row.get('result')),
                 norm(row.get('intent','general')), norm(row.get('strategy','default')), norm(row.get('domain','general')))
 
     def _load_rules(self):
@@ -107,9 +107,9 @@ class LearningEngine:
             proposal=self.gate.request('learning.record_experience',asdict(item), f'یادگیری جدید درباره «{goal}»')
             if proposal is not None: return proposal
         # Avoid storing exact duplicate traces repeatedly.
-        duplicate=next((r for r in reversed(self.experiences[-80:]) if self._stable_key(r)==self._stable_key(asdict(item))),None)
+        duplicate=next((r for r in reversed(self.experiences) if self._stable_key(r)==self._stable_key(asdict(item))),None)
         if duplicate:
-            duplicate['score']=round((float(duplicate.get('score',0))+score)/2,4); duplicate['time']=item.time
+            return dict(duplicate)
         else: self.experiences.append(asdict(item))
         self.experiences=self.experiences[-10000:]; self._save()
         row=asdict(item)

@@ -175,21 +175,12 @@ class InternetLearningEngine:
             and not any("insufficient" in str(x).lower() for x in proposal.get("issues", []))
             and not any("weak_source_relevance" in str(x).lower() for x in proposal.get("issues", []))
         )
-        if safe:
-            # Automatic web learning is still forced through the normal gate bypass
-            # context; the bypass is scoped to this already-corrobated, low-risk bundle.
-            with self.runtime.learning_gate.bypass():
-                applied = self.runtime._apply_trusted_knowledge(proposal)
-            result["auto_learned"] = bool(applied.get("stored"))
-            result["verified"] = bool(applied.get("stored")) and not bool(applied.get("duplicate"))
-            if result["auto_learned"]:
-                self.state["learned"] += len(proposal.get("agreements", []))
-        else:
-            gated = self.runtime.learning_gate.request(
-                "trusted_knowledge.bootstrap", proposal,
-                f"بازبینی یادگیری اینترنتی درباره «{topic}»"
-            )
-            result["review"] = gated or proposal
+        # Corroboration is evidence, not permission to learn.
+        gated = self.runtime.learning_gate.request(
+            "trusted_knowledge.bootstrap", proposal,
+            f"بازبینی یادگیری اینترنتی درباره «{topic}»")
+        result["review"] = gated or proposal
+        result["corroborated"] = safe
 
         self.state["cycles"] += 1
         self.state["last"] = {

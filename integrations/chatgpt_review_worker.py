@@ -15,7 +15,7 @@ import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
-from persistence import atomic_write_json
+from persistence import atomic_write_json, json_transaction, load_json_with_backup, file_lock
 
 
 class RateLimitError(Exception):
@@ -58,7 +58,7 @@ class ChatGPTReviewWorker:
 
     def _save_rows(self, rows):
         self.reviews_path.parent.mkdir(parents=True, exist_ok=True)
-        atomic_write_json(self.reviews_path, rows[-5000:])
+        atomic_write_json(self.reviews_path, rows)
 
     def _load_state(self):
         default = {
@@ -162,7 +162,7 @@ class ChatGPTReviewWorker:
 
     def process_one(self):
         """Validate one candidate, or return a durable cooldown/no-candidate result."""
-        with self._lock:
+        with self._lock, file_lock(self.root / "data" / "review_worker.lock"):
             now = self.clock()
             state = self._load_state()
             next_allowed = self._parse_iso(state.get("next_allowed_at"))
@@ -210,7 +210,12 @@ class ChatGPTReviewWorker:
             row["chatgpt_decision"] = "learn" if result["learn"] else "reject"
             row["status"] = "human_pending" if result["learn"] else "rejected"
             row["reviewed_at"] = datetime.fromtimestamp(now, timezone.utc).isoformat(timespec="seconds")
-            self._save_rows(rows)
+            with json_transaction(self.reviews_path, []) as current:
+                target = next((r for r in current if r.get("proposal_id") == row.get("proposal_id")), None)
+                # Do not resurrect a deleted/rejected candidate after an in-flight request.
+                if target is None or target.get("status") not in {"pending", "WAITING_FOR_REVIEWER"}:
+                    return {"ok": False, "reason": "candidate_changed"}
+                target.update(row)
             state["next_allowed_at"] = self._iso(now + self.MIN_INTERVAL)
             state["backoff_seconds"] = 15
             state["last_success_at"] = self._iso(now)

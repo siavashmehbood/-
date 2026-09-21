@@ -673,17 +673,16 @@ def _step_v10(self):
         )
         should_learn = verified and novelty >= 0.35 and bool(expected_effect) and not repeated
         if should_learn:
-            with self.runtime.learning_gate.bypass():
-                learned = self.runtime.learning.record(
-                    goal=objective, action=str(action), result=result_text,
-                    score=0.9, intent="autonomous",
-                    strategy=f"verified-read-only:{action}",
-                    domain="local-learning",
-                    objective=objective,
-                    expected_effect=expected_effect,
-                )
+            learned = self.runtime.learning.record(
+                goal=objective, action=str(action), result=result_text,
+                score=0.9, intent="autonomous",
+                strategy=f"verified-read-only:{action}",
+                domain="local-learning",
+                objective=objective,
+                expected_effect=expected_effect,
+            )
             report["learning"] = {
-                "recorded": True, "verified": True,
+                "recorded": False, "pending_approval": True, "verified": True,
                 "purposeful": True, "novelty": novelty,
                 "strategy": f"verified-read-only:{action}",
             }

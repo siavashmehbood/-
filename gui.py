@@ -212,35 +212,17 @@ class ChatWindow(QMainWindow):
     def clear_all_learning_ui(self):
         answer = QMessageBox.question(
             self, "حذف کامل صف یادگیری",
-            "همه درخواست‌های در انتظار یادگیری و همه درخواست‌های بازبینی ChatGPT حذف شوند؟\n\n"
-            "موارد ردشده حفظ می‌شوند. این کار قابل بازگشت نیست.",
+            "همه درخواست‌های در انتظار رد و از صف فعال خارج شوند؟\n\n"
+            "موارد ردشده حفظ می‌شوند. تاریخچه برای جلوگیری از یادگیری تکراری حفظ می‌شود.",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No
         )
         if answer != QMessageBox.StandardButton.Yes:
             return
         try:
-            proposals_path = ROOT / "data" / "learning_proposals.json"
-            reviews_path = ROOT / "data" / "chatgpt_reviews.json"
-            removed_pending = 0
-            if proposals_path.exists():
-                try:
-                    rows = json.loads(proposals_path.read_text(encoding="utf-8"))
-                except Exception:
-                    rows = []
-                if not isinstance(rows, list):
-                    rows = []
-                kept = [r for r in rows if str(r.get("status", "")) != "pending"]
-                removed_pending = len(rows) - len(kept)
-                proposals_path.write_text(json.dumps(kept, ensure_ascii=False, indent=2), encoding="utf-8")
-            removed_reviews = 0
-            if reviews_path.exists():
-                try:
-                    rows = json.loads(reviews_path.read_text(encoding="utf-8"))
-                except Exception:
-                    rows = []
-                removed_reviews = len(rows) if isinstance(rows, list) else 0
-                reviews_path.write_text("[]", encoding="utf-8")
+            pending = self.runtime.learning_pending(100000)
+            removed_pending = sum(bool(self.runtime.reject_learning(r["proposal_id"]).get("ok")) for r in pending)
+            removed_reviews = removed_pending
             self.refresh_learning_stats()
             self.refresh_chatgpt_count()
             self.refresh_events()
@@ -361,20 +343,7 @@ class ChatWindow(QMainWindow):
         l.addWidget(box,1); close=QPushButton("بستن"); close.clicked.connect(d.accept); l.addWidget(close); d.exec()
 
     def queue_chatgpt_review(self, answer):
-        path = ROOT / "data" / "chatgpt_reviews.json"
-        path.parent.mkdir(parents=True, exist_ok=True)
-        try: rows = json.loads(path.read_text(encoding="utf-8")) if path.exists() else []
-        except Exception: rows = []
-        if not isinstance(rows, list): rows = []
-        question = ""
-        for m in reversed(self.messages):
-            if m.get("who") == "شما": question = str(m.get("text", "")); break
-        if not question: return
-        import hashlib
-        item_id = hashlib.sha256((question + "|" + str(answer)).encode("utf-8")).hexdigest()[:20]
-        if any(r.get("id") == item_id for r in rows): return
-        rows.append({"id": item_id, "question": question, "answer": str(answer), "review": "", "status": "pending", "created_at": datetime.now().isoformat(timespec="seconds")})
-        path.write_text(json.dumps(rows[-500:], ensure_ascii=False, indent=2), encoding="utf-8")
+        self.runtime.sync_chatgpt_learning_reviews()
 
     def refresh_chatgpt_count(self):
         try:
@@ -480,31 +449,7 @@ class ChatWindow(QMainWindow):
             self.autonomy_busy = False
 
     def queue_autonomous_review(self, request):
-        path = ROOT / "data" / "chatgpt_reviews.json"
-        path.parent.mkdir(parents=True, exist_ok=True)
-        try:
-            rows = json.loads(path.read_text(encoding="utf-8")) if path.exists() else []
-        except Exception:
-            rows = []
-        if not isinstance(rows, list): rows = []
-        payload = request.get("payload") or {}
-        proposal_id = str(request.get("proposal_id", ""))
-        if not proposal_id or any(r.get("proposal_id") == proposal_id for r in rows):
-            return
-        rows.append({
-            "id": "autonomous_" + proposal_id,
-            "proposal_id": proposal_id,
-            "question": "بازبینی تجربه یادگیری خودکار ایران",
-            "answer": str(payload.get("result", "")),
-            "goal": str(payload.get("goal", "")),
-            "action": str(payload.get("action", "")),
-            "lesson": str(payload.get("lesson", "")),
-            "review": "",
-            "status": "pending",
-            "source": "autonomous_learning",
-            "created_at": datetime.now().isoformat(timespec="seconds")
-        })
-        path.write_text(json.dumps(rows[-500:], ensure_ascii=False, indent=2), encoding="utf-8")
+        self.runtime.sync_chatgpt_learning_reviews()
         self.refresh_chatgpt_count()
 
     def refresh_learning_stats(self):

@@ -2,6 +2,7 @@
 Local, deterministic, no external models."""
 from pathlib import Path
 import json, hashlib
+from persistence import atomic_write_json, load_json_with_backup
 from datetime import datetime
 
 class EffectLearningLoop:
@@ -18,9 +19,7 @@ class EffectLearningLoop:
         except Exception: pass
 
     def _save(self):
-        tmp=self.path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(self.state,ensure_ascii=False,indent=2),encoding="utf-8")
-        tmp.replace(self.path)
+        atomic_write_json(self.path, self.state)
 
     @staticmethod
     def _key(row):
@@ -43,11 +42,15 @@ class EffectLearningLoop:
         key=self._key(row)
         existing={x.get("key") for x in self.state["evaluations"]}
         if key not in existing: self.state["evaluations"].append({"key":key,**row})
-        rule_updates=self._update_rules(strategy,domain,score,verified)
+        gate = getattr(self.learning, "gate", None)
+        approved = gate is None or gate.bypassed
+        allow_credit = allow_credit and approved
+        rule_updates = self._update_rules(strategy,domain,score,verified) if approved and key not in existing else []
         credit=False
-        if allow_credit and verified and score>=.75 and key not in {x.get("key") for x in self.state["credits"]}:
+        credit_key = self._key({k:v for k,v in row.items() if k not in {"episode_id", "attempt"}})
+        if allow_credit and verified and score>=.75 and credit_key not in {x.get("key") for x in self.state["credits"]}:
             self.state["xp"]+=1000000; self.state["validated"]+=1
-            self.state["credits"].append({"key":key,"xp":1000000,"time":row["time"]}); credit=True
+            self.state["credits"].append({"key":credit_key,"xp":1000000,"time":row["time"]}); credit=True
         self._save()
         return {"verified":verified,"score":score,"effect":effect,"credit_awarded":credit,
                 "xp_awarded":1000000 if credit else 0,"xp_total":self.state["xp"],"credit_gate":"verified_score" if allow_credit else "behavior_change+verification+transfer","rule_updates":rule_updates,

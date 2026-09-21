@@ -1,5 +1,6 @@
 """Canonical local runtime for the IRAN cognitive architecture."""
 from pathlib import Path
+from persistence import json_transaction, file_lock, load_json_with_backup
 import json
 import hashlib
 import re
@@ -187,7 +188,9 @@ class IranRuntime:
 
     def _apply_approved_outcome(self, p):
         outcome=self.outcome_learning
-        outcome.records.append(dict(p)); outcome._save()
+        identity = lambda row: tuple(str(row.get(k, "")) for k in ("goal", "action", "result", "strategy", "domain"))
+        if not any(identity(row) == identity(p) for row in outcome.records):
+            outcome.records.append(dict(p)); outcome._save()
         result = {"recorded": True, "verified": bool(p.get("verified")), "learned": False}
         if bool(p.get("verified")) and self.learning is not None:
             learned = self.learning.record(
@@ -374,67 +377,38 @@ class IranRuntime:
         GUI refreshes; external validation belongs exclusively to the worker.
         """
         path = self._chatgpt_review_path()
-        path.parent.mkdir(parents=True, exist_ok=True)
-        try:
-            rows = json.loads(path.read_text(encoding="utf-8")) if path.exists() else []
-        except Exception:
-            rows = []
-        if not isinstance(rows, list):
-            rows = []
-        existing = {str(r.get("proposal_id")) for r in rows if r.get("proposal_id")}
-        fingerprints = {str(r.get("fingerprint")) for r in rows if r.get("fingerprint")}
+        proposals = self.learning_gate.pending(limit)
         created = 0
-        for proposal in self.learning_gate.pending(limit):
-            pid = str(proposal.get("proposal_id", ""))
-            if not pid or pid in existing:
-                continue
-            payload = proposal.get("payload") or {}
-            normalized = re.sub(r"\s+", " ", " ".join(str(payload.get(key, "")) for key in ("goal_topic", "goal", "action", "result", "lesson")).strip().lower())
-            fingerprint = hashlib.sha256(normalized.encode("utf-8")).hexdigest() if normalized else ""
-            if fingerprint and fingerprint in fingerprints:
-                continue
-            rows.append({
-                "id": "learning_" + pid,
-                "proposal_id": pid,
-                "question": str(proposal.get("summary", "بازبینی درخواست یادگیری")),
-                "goal": str(payload.get("goal_topic", payload.get("goal", ""))),
-                "action": str(payload.get("action", "")),
-                "answer": str(payload.get("result", payload.get("answer", ""))),
-                "lesson": str(payload.get("lesson", "")),
-                "review": "",
-                "review_status": "not_reviewed",
-                "status": "pending",
-                "source": "learning_gate",
-                "created_at": proposal.get("created_at", ""),
-                "reviewed_at": "",
-                "fingerprint": fingerprint,
-            })
-            existing.add(pid)
-            if fingerprint:
-                fingerprints.add(fingerprint)
-            created += 1
-        if created:
-            from persistence import atomic_write_json
-            atomic_write_json(path, rows[-5000:])
-        return {"created": created, "total": len(rows),
-                "not_reviewed": sum(r.get("review_status", "not_reviewed") == "not_reviewed" for r in rows if r.get("source") == "learning_gate"),
-                "reviewed": sum(r.get("review_status") == "reviewed" for r in rows if r.get("source") == "learning_gate")}
+        with json_transaction(path, []) as rows:
+            existing = {str(r.get("proposal_id")): r for r in rows if r.get("proposal_id")}
+            for proposal in proposals:
+                pid = proposal["proposal_id"]
+                if pid in existing:
+                    # Repair legacy autonomous rows without discarding decisions.
+                    row = existing[pid]
+                    row["source"] = "learning_gate"
+                    row.setdefault("payload", proposal.get("payload", {}))
+                    row.setdefault("kind", proposal.get("kind"))
+                    continue
+                rows.append({
+                    "id": "learning_" + pid, "proposal_id": pid,
+                    "question": proposal.get("summary", ""),
+                    "kind": proposal.get("kind"), "payload": proposal.get("payload", {}),
+                    "goal": str(proposal.get("payload", {}).get("goal", "")),
+                    "review": "", "review_status": "not_reviewed", "status": "pending",
+                    "source": "learning_gate", "created_at": proposal.get("created_at", ""),
+                })
+                created += 1
+            total = len(rows)
+            waiting = sum(r.get("review_status", "not_reviewed") == "not_reviewed" for r in rows)
+        return {"created": created, "total": total, "not_reviewed": waiting, "reviewed": total-waiting}
 
     def chatgpt_learning_review_status(self, proposal_id):
-        path = self._chatgpt_review_path()
-        try:
-            rows = json.loads(path.read_text(encoding="utf-8")) if path.exists() else []
-        except Exception:
-            rows = []
+        # Only the durable reviewer record is authoritative. Candidate-supplied
+        # _external_validation is untrusted input, never approval evidence.
+        rows = load_json_with_backup(self._chatgpt_review_path(), [])
         row = next((r for r in rows if str(r.get("proposal_id")) == str(proposal_id)), None)
         if not row:
-            proposal = self.learning_gate.get(proposal_id)
-            external = (proposal or {}).get("payload", {}).get("_external_validation", {})
-            if str(external.get("decision", "")).upper() == "LEARN":
-                return {"exists": True, "reviewed": True,
-                        "review": str(external.get("reason", "")),
-                        "row": {"proposal_id": str(proposal_id), "chatgpt_decision": "learn",
-                                "review_status": "reviewed", "source": "openrouter"}}
             return {"exists": False, "reviewed": False}
         return {"exists": True, "reviewed": row.get("review_status") == "reviewed",
                 "review": str(row.get("review", "")), "row": row}
@@ -507,6 +481,8 @@ class IranRuntime:
         transfers=self.effect_learning.state.get("transfer_evaluations", [])
         improvements=[float(r.get("improvement", 0) or 0) for r in transfers if "improvement" in r]
         status.update({
+            "request_xp": status.get("xp", 0),
+            "xp": effect.get("xp", 0),
             "learned_lessons": len(getattr(self.learning, "learned_lessons", []) or []),
             "verified_lessons": sum(1 for x in (getattr(self.learning, "learned_lessons", []) or []) if x.get("status") == "approved"),
             "effect_xp": effect.get("xp", 0),
@@ -520,6 +496,10 @@ class IranRuntime:
         return status
 
     def approve_learning(self, proposal_id):
+        with file_lock(self.root / "data" / "learning_apply.lock"):
+            return self._approve_learning(proposal_id)
+
+    def _approve_learning(self, proposal_id):
         proposal=self.learning_gate.get(proposal_id)
         if not proposal: return {"ok":False,"reason":"proposal_not_found"}
         if proposal.get("status") != "pending": return {"ok":False,"reason":"proposal_not_pending","proposal":proposal}
@@ -532,7 +512,7 @@ class IranRuntime:
         if decision != "learn":
             try:
                 parsed = json.loads(str(review.get("review", "")))
-                decision = "learn" if bool(parsed.get("learn")) else "reject"
+                decision = "learn" if parsed.get("learn") is True else "reject"
             except Exception:
                 decision = None
         if decision != "learn":
@@ -546,7 +526,7 @@ class IranRuntime:
                         and (r.get("payload") or {}).get("episode_id") == p.get("episode_id")]
             group = [proposal] + [r for r in siblings if r.get("proposal_id") != proposal_id]
             group_reviews = [self.chatgpt_learning_review_status(r.get("proposal_id")) for r in group]
-            if not all(r.get("reviewed") for r in group_reviews):
+            if not all(r.get("reviewed") and r.get("row", {}).get("chatgpt_decision") == "learn" for r in group_reviews):
                 return {"ok":False,"reason":"chatgpt_review_required","message":"ابتدا همه اجزای این اجرای تاییدشده باید بازبینی شوند.","proposal":proposal}
             applied = []
             with self.learning_gate.bypass():
@@ -599,21 +579,13 @@ class IranRuntime:
         return {"ok":True,"proposal":decision,"result":result}
 
     def _set_human_review_status(self, proposal_id, status):
-        path = self._chatgpt_review_path()
-        try:
-            rows = json.loads(path.read_text(encoding="utf-8")) if path.exists() else []
-        except Exception:
-            rows = []
-        if not isinstance(rows, list):
-            return False
-        for row in rows:
-            if str(row.get("proposal_id")) == str(proposal_id):
-                row["human_decision"] = status
-                row["status"] = status
-                row["human_decided_at"] = __import__("datetime").datetime.now().isoformat(timespec="seconds")
-                from persistence import atomic_write_json
-                atomic_write_json(path, rows[-5000:])
-                return True
+        with json_transaction(self._chatgpt_review_path(), []) as rows:
+            for row in rows:
+                if str(row.get("proposal_id")) == str(proposal_id):
+                    row["human_decision"] = status
+                    row["status"] = status
+                    row["human_decided_at"] = __import__("datetime").datetime.now().isoformat(timespec="seconds")
+                    return True
         return False
 
     def approve_all_learning(self, limit=5000):

@@ -265,12 +265,15 @@ class CapabilityLearningEngine:
         if transfer:
             self.state["transfers"] += 1
             skill["transfer_episodes"] = 2
-            with self.runtime.learning_gate.bypass():
-                stored = self.runtime.skills.upsert(
-                    name=skill["name"], description=skill["description"], domain=skill["domain"],
-                    goal_patterns=skill["goal_patterns"], procedure=skill["procedure"],
-                    preconditions=skill["preconditions"], required_capabilities=skill["required_capabilities"],
-                    risk=skill["risk"], confidence=skill["confidence"], skill_id=skill["skill_id"])
+            payload = {k:skill[k] for k in ("name", "description", "domain", "goal_patterns", "procedure", "preconditions", "required_capabilities", "risk", "confidence", "skill_id")}
+            proposal = self.runtime.learning_gate.request("skills.upsert", payload, "Verified capability: " + candidate["topic"])
+            if proposal is not None:
+                self.state["last"] = {"topic": candidate["topic"], "status": "pending_approval"}
+                self._save()
+                return {"ok": True, "candidate": candidate, "experiment": experiment,
+                        "results": results, "skill": skill, "transfer_verified": True,
+                        "pending_approval": True, "proposal": proposal}
+            stored = self.runtime.skills.upsert(**payload)
             self.state["skills_promoted"] += 1
             self.runtime.events.emit("capability_skill_promoted", {
                 "skill_id": stored.get("skill_id"), "topic": candidate["topic"],
