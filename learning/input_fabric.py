@@ -3,6 +3,7 @@ from dataclasses import dataclass, asdict
 from datetime import datetime
 from pathlib import Path
 import hashlib, json, re, uuid
+from persistence import atomic_write_json, load_critical_json
 
 @dataclass
 class InputEvent:
@@ -37,16 +38,13 @@ class InputFabric:
         self.stats_data={"ingested":0,"duplicates":0,"units":0,"domains":{},"sources":{}}
         self._load()
     def _load(self):
-        try:
-            p=json.loads(self.path.read_text(encoding="utf-8"))
-            self.events=(p.get("events",[]) if isinstance(p,dict) else [])[-self.max_events:]
-            self.seen={self._key(r.get("source",""),r.get("input_type",""),r.get("content","")) for r in self.events}
-            if isinstance(p,dict): self.stats_data.update(p.get("stats",{}))
-        except Exception: self.events=[]; self.seen=set()
+        payload=load_critical_json(self.path,{})
+        self.events=payload.get("events",[])[-self.max_events:]
+        self.seen={self._key(r.get("source",""),r.get("input_type",""),r.get("content","")) for r in self.events}
+        self.stats_data.update(payload.get("stats",{}))
     def _save(self):
-        self.path.parent.mkdir(parents=True,exist_ok=True)
         payload={"version":1,"events":self.events[-self.max_events:],"stats":self.stats_data}
-        tmp=self.path.with_suffix(".tmp"); tmp.write_text(json.dumps(payload,ensure_ascii=False,indent=2),encoding="utf-8"); tmp.replace(self.path)
+        atomic_write_json(self.path,payload)
     @staticmethod
     def normalize(content):
         return re.sub(r"[ \t]+"," ",str(content or "").replace("\r\n","\n").replace("\r","\n")).strip()

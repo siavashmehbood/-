@@ -7,7 +7,7 @@ The same isolated runtime evaluation was run against the baseline snapshot and t
 | --- | ---: | ---: |
 | Behavioral runtime scenarios | 8 / 15 | 15 / 15 |
 | Existing baseline pytest suite | 303 passed | preserved, no removed/relaxed tests |
-| Full revised pytest suite | — | 411 passed |
+| Full revised pytest suite | — | 417 passed |
 | Legacy unittest discovery | 234 passed | 234 passed |
 
 The 15 scenarios cover topic switching, verified action recovery, multi-turn identity recall, correction, reference resolution, unknown handling, restart memory, external then human approval, hidden candidates, feedback without XP, candidate deduplication, untrusted review metadata, source conflict detection, offline/provider fallback and approved knowledge reuse credited once. See `runtime_evaluation.json` for individual outcomes and `evaluation/runtime_suite.py` to reproduce. This is a regression suite, not a percentage measure of general intelligence.
@@ -110,3 +110,13 @@ chat send button after review-queue failure, and an error dialog instead of an
 uncaught review-status exception. No Windows desktop interaction is claimed.
 Full pytest: 411 passed; unittest: 234 passed. The expanded identical runtime
 suite improves from 18/19 at `dafd21e` to 19/19.
+
+
+## Learning control-state recovery
+
+Six new regressions failed on `3d12748` and pass after the change: curriculum,
+ingestion, internet-learning and capability state no longer silently reset on
+corruption; ingestion deduplication recovers from backup; missing-primary goal
+state also recovers from backup. These stores reuse the existing critical loader
+and atomic writer. Full pytest: 417 passed; unittest: 234 passed; behavioral
+runtime evaluation: 19/19. No new provider credentials or network requests.

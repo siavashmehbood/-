@@ -98,3 +98,36 @@ def test_learned_store_recovers_backup_and_preserves_it_on_save(tmp_path, store)
     getattr(obj,save)()
     assert json.loads(path.read_text())==[row]
     assert json.loads(path.with_suffix('.json.bak').read_text())==[row]
+
+
+@pytest.mark.parametrize('store', ['learning_goals','input_fabric','internet_learning','capability_learning'])
+def test_learning_control_state_never_silently_resets(tmp_path, store):
+    import shutil
+    from pathlib import Path
+    from runtime.app import IranRuntime
+    shutil.copy(Path(__file__).parents[1]/'config.json',tmp_path)
+    path=tmp_path/'data'/f'{store}.json';path.parent.mkdir()
+    path.write_text('{broken')
+    with pytest.raises(StateCorruptionError):
+        IranRuntime(tmp_path)
+    assert path.read_text()=='{broken'
+
+
+def test_ingestion_backup_preserves_duplicate_detection(tmp_path):
+    from learning.input_fabric import InputFabric
+    fabric=InputFabric(tmp_path)
+    event={'source':'document','input_type':'document','content':'existing knowledge'}
+    fabric.events=[event];fabric._save();fabric._save()
+    fabric.path.write_text('{broken')
+    restored=InputFabric(tmp_path)
+    assert restored.events==[event]
+    assert restored._key('document','document','existing knowledge') in restored.seen
+
+
+def test_goal_backup_recovers_even_when_primary_missing(tmp_path):
+    from learning.self_directed import SelfDirectedLearning
+    path=tmp_path/'goals.json'
+    goals=SelfDirectedLearning(path)
+    goal=goals.create_goal('ریاضی');goals._save();path.unlink()
+    restored=SelfDirectedLearning(path)
+    assert restored.goals[0].goal_id==goal['goal_id']

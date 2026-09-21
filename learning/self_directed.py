@@ -11,7 +11,7 @@ from collections import Counter
 import hashlib
 import json
 import re
-from persistence import atomic_write_json, load_json_with_backup
+from persistence import atomic_write_json, load_critical_json
 
 
 _STOP = set("the and or for with from this that are was were is of to in a an on as by".split())
@@ -190,15 +190,11 @@ class SelfDirectedLearning:
         atomic_write_json(self.path, payload)
 
     def _load(self):
-        if not self.path or not self.path.exists():
+        if not self.path:
             return
-        try:
-            payload = load_json_with_backup(self.path, {})
-            rows = payload.get("goals", []) if isinstance(payload, dict) else []
-            self.goals = [LearningGoal(**r) for r in rows[-self.max_goals:]]
-            self.history = payload.get("history", [])[-2000:] if isinstance(payload, dict) else []
-        except Exception:
-            self.goals, self.history = [], []
+        payload = load_critical_json(self.path, {})
+        self.goals = [LearningGoal(**r) for r in payload.get("goals", [])[-self.max_goals:]]
+        self.history = payload.get("history", [])[-2000:]
 
     def create_goal(self, topic, gap="دانش مرتبط کامل نیست", objective=None,
                     priority="medium", domain=None):

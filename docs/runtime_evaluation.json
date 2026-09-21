@@ -93,97 +93,97 @@
       {
         "case": "corrupt_reviewer_state",
         "passed": true,
-        "seconds": 0.021
+        "seconds": 0.017
       },
       {
         "case": "recover_then_learn",
         "passed": true,
-        "seconds": 0.018
+        "seconds": 0.014
       },
       {
         "case": "knowledge_correction",
         "passed": true,
-        "seconds": 0.024
+        "seconds": 0.018
       },
       {
         "case": "conflicting_knowledge",
         "passed": true,
-        "seconds": 0.026
+        "seconds": 0.013
       },
       {
         "case": "topic_switch",
         "passed": true,
-        "seconds": 0.018
+        "seconds": 0.008
       },
       {
         "case": "verified_action_recovery",
         "passed": true,
-        "seconds": 0.015
+        "seconds": 0.009
       },
       {
         "case": "multi_turn_memory",
         "passed": true,
-        "seconds": 0.019
+        "seconds": 0.012
       },
       {
         "case": "correction",
         "passed": true,
-        "seconds": 0.027
+        "seconds": 0.017
       },
       {
         "case": "reference_resolution",
         "passed": true,
-        "seconds": 0.018
+        "seconds": 0.012
       },
       {
         "case": "unknown",
         "passed": true,
-        "seconds": 0.012
+        "seconds": 0.007
       },
       {
         "case": "restart_memory",
         "passed": true,
-        "seconds": 0.019
+        "seconds": 0.015
       },
       {
         "case": "review_then_human",
         "passed": true,
-        "seconds": 0.011
+        "seconds": 0.01
       },
       {
         "case": "hidden_candidate",
         "passed": true,
-        "seconds": 0.007
+        "seconds": 0.005
       },
       {
         "case": "feedback_no_xp",
         "passed": true,
-        "seconds": 0.019
+        "seconds": 0.014
       },
       {
         "case": "deduplication",
         "passed": true,
-        "seconds": 0.007
+        "seconds": 0.005
       },
       {
         "case": "forged_review_rejected",
         "passed": true,
-        "seconds": 0.007
+        "seconds": 0.004
       },
       {
         "case": "source_conflict",
         "passed": true,
-        "seconds": 0.008
+        "seconds": 0.005
       },
       {
         "case": "provider_offline_fallback",
         "passed": true,
-        "seconds": 0.01
+        "seconds": 0.005
       },
       {
         "case": "learn_apply_observe_credit_once",
         "passed": true,
-        "seconds": 0.034
+        "seconds": 0.023
       }
     ],
     "passed": 19,

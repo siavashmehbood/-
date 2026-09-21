@@ -16,7 +16,7 @@ import urllib.parse
 import urllib.request
 
 from learning.trusted_knowledge import TrustedKnowledgeBootstrap
-from persistence import atomic_write_json
+from persistence import atomic_write_json, load_critical_json
 from security.internet_access import validate_public_url
 
 
@@ -32,13 +32,9 @@ class InternetLearningEngine:
         self.trusted = TrustedKnowledgeBootstrap()
 
     def _load(self):
-        try:
-            self.state.update(json.loads(self.state_path.read_text(encoding="utf-8")))
-        except Exception:
-            pass
+        self.state.update(load_critical_json(self.state_path, {}))
 
     def _save(self):
-        self.state_path.parent.mkdir(parents=True, exist_ok=True)
         atomic_write_json(self.state_path, self.state)
 
     @staticmethod

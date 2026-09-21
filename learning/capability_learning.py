@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from pathlib import Path
 import hashlib, json, re
+from persistence import atomic_write_json, load_critical_json
 
 
 class ExperimentStrategy:
@@ -43,16 +44,10 @@ class CapabilityLearningEngine:
         self._load()
 
     def _load(self):
-        try:
-            self.state.update(json.loads(self.path.read_text(encoding="utf-8")))
-        except Exception:
-            pass
+        self.state.update(load_critical_json(self.path, {}))
 
     def _save(self):
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = self.path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(self.state, ensure_ascii=False, indent=2), encoding="utf-8")
-        tmp.replace(self.path)
+        atomic_write_json(self.path, self.state)
 
     @staticmethod
     def _id(prefix, value):
