@@ -59,3 +59,29 @@ def test_correction_does_not_approve_original():
 def test_secret_endpoint_redirect_not_allowed():
     p=ReviewerProvider('groq',{'enabled':True,'model':'test','base_url':'https://attacker.invalid'})
     assert p.availability()==('INVALID_CONFIG','untrusted_endpoint')
+
+@pytest.mark.parametrize('config', [None, [], {'enabled': True, 'timeout': 'oops'}, {'enabled': True, 'cooldown': float('nan')}, {'enabled': True, 'retries': None}])
+def test_invalid_provider_configuration_is_health_not_crash(config):
+    assert ReviewerProvider('groq', config).availability()[0] == 'INVALID_CONFIG'
+
+@pytest.mark.parametrize('settings', [None, [], {'providers': []}, {'max_seconds': 'oops'}, {'max_attempts': None}])
+def test_invalid_manager_configuration_preserves_waiting(tmp_path, settings):
+    internet = InternetAccessManager(tmp_path/'internet.json'); internet.enable()
+    m = ProviderManager(tmp_path, {'reviewers': settings}, internet)
+    assert m.review({})['state'] == 'WAITING_FOR_REVIEWER'
+    assert m.health()[0]['state'] == 'INVALID_CONFIG'
+
+
+def test_remaining_budget_limits_provider_timeout(tmp_path):
+    p = FakeProvider('a', {'learn': False})
+    p.timeout = 30
+    original = p.review
+    observed = []
+    def review(row):
+        observed.append(p.timeout)
+        return original(row)
+    p.review = review
+    m = manager(tmp_path, [p]); m.max_seconds = 1
+    assert m.review({})['ok']
+    assert 0 < observed[0] <= 1
+    assert p.timeout == 30

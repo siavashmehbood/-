@@ -23,6 +23,13 @@ ENDPOINTS = {
     'cerebras': ('https://api.cerebras.ai/v1', 'CEREBRAS_API_KEY'),
 }
 
+def bounded_number(value, low, high):
+    number = float(value)
+    if not math.isfinite(number):
+        raise ValueError('non-finite configuration')
+    return max(low, min(high, number))
+
+
 class ReviewFailure(Exception):
     def __init__(self, reason, state='ERROR', retry_after=None):
         super().__init__(reason)
@@ -69,17 +76,26 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
 
 class ReviewerProvider:
     def __init__(self, name, config, clock=time.time):
+        self.invalid_config = not isinstance(config, dict)
+        config = config if isinstance(config, dict) else {}
         self.name, self.config, self.clock = name, dict(config), clock
         default, key = ENDPOINTS.get(name, ('', ''))
         self.base_url = str(config.get('base_url', default)).rstrip('/')
         self.key_env = str(config.get('key_env', key))
         self.model = env_value(str(config.get('model_env', name.upper() + '_MODEL'))) or str(config.get('model', ''))
-        self.timeout = max(1., min(30., float(config.get('timeout', 10))))
-        self.cooldown = max(1., float(config.get('cooldown', 60)))
-        self.retries = max(0, min(2, int(config.get('retries', 0))))
+        self.timeout, self.cooldown, self.retries = 10., 60., 0
+        try:
+            self.timeout = bounded_number(config.get('timeout', 10), 1, 30)
+            self.cooldown = bounded_number(config.get('cooldown', 60), 1, 86400)
+            self.retries = int(bounded_number(config.get('retries', 0), 0, 2))
+            self.config['min_interval'] = bounded_number(config.get('min_interval', 15), 0, 86400)
+            self.config['max_tokens'] = int(bounded_number(config.get('max_tokens', 512), 32, 4096))
+        except (ValueError, TypeError, OverflowError):
+            self.invalid_config = True
 
     def availability(self):
         cfg = self.config
+        if self.invalid_config: return 'INVALID_CONFIG', 'invalid_configuration'
         if not cfg.get('enabled', False): return 'UNAVAILABLE', 'disabled'
         if self.name not in ENDPOINTS: return 'INVALID_CONFIG', 'unknown_provider'
         url = urlsplit(self.base_url)
@@ -89,12 +105,14 @@ class ReviewerProvider:
         # An API key is not proof of a free plan. Require an explicit, expiring
         # attestation of the exact model/account's zero-cost access.
         policy = cfg.get('free_policy', {})
+        if not isinstance(policy, dict) or not isinstance(policy.get('models', []), list):
+            return 'INVALID_CONFIG', 'invalid_free_policy'
         if policy.get('budget') != 0 or not policy.get('confirmed') or self.model not in policy.get('models', []):
             return 'INVALID_CONFIG', 'free_access_unconfirmed'
         try:
             expires = datetime.fromisoformat(policy['expires_at'].replace('Z', '+00:00')).timestamp()
             if expires <= self.clock(): return 'INVALID_CONFIG', 'free_access_expired'
-        except (ValueError, KeyError, TypeError): return 'INVALID_CONFIG', 'free_policy_expiry_missing'
+        except (ValueError, KeyError, TypeError, AttributeError, OverflowError): return 'INVALID_CONFIG', 'free_policy_expiry_missing'
         if not env_value(self.key_env): return 'UNAVAILABLE', 'api_key_missing'
         return 'AVAILABLE', ''
 
@@ -137,13 +155,23 @@ class ProviderManager:
         self.path = Path(root)/'data'/'reviewer_health.json'
         self.internet, self.clock = internet, clock
         settings = config.get('reviewers', {})
-        self.providers = providers if providers is not None else [ReviewerProvider(name, cfg, clock) for name,cfg in settings.get('providers', {}).items()]
-        self.max_attempts = max(1, min(12, int(settings.get('max_attempts', 4))))
-        self.max_seconds = max(1., min(120., float(settings.get('max_seconds', 40))))
+        self.invalid_config = not isinstance(settings, dict)
+        settings = settings if isinstance(settings, dict) else {}
+        configured = settings.get('providers', {})
+        if not isinstance(configured, dict):
+            self.invalid_config = True
+            configured = {}
+        self.providers = providers if providers is not None else [ReviewerProvider(name, cfg, clock) for name,cfg in configured.items()]
+        self.max_attempts, self.max_seconds = 4, 40.
+        try:
+            self.max_attempts = int(bounded_number(settings.get('max_attempts', 4), 1, 12))
+            self.max_seconds = bounded_number(settings.get('max_seconds', 40), 1, 120)
+        except (ValueError, TypeError, OverflowError):
+            self.invalid_config = True
 
     def health(self):
         stored = load_json_with_backup(self.path, {})
-        result = []
+        result = [{'provider':'configuration','state':'INVALID_CONFIG','reason':'invalid_manager_configuration'}] if self.invalid_config else []
         for p in self.providers:
             status, reason = p.availability()
             entry = dict(stored.get(p.name, {}))
@@ -154,6 +182,8 @@ class ProviderManager:
         return result
 
     def review(self, candidate):
+        if self.invalid_config:
+            return {'ok':False, 'reason':'invalid_manager_configuration', 'state':'WAITING_FOR_REVIEWER', 'attempts':[]}
         if not self.internet.status()['enabled']:
             return {'ok':False, 'reason':'internet_off', 'state':'WAITING_FOR_REVIEWER', 'attempts':[]}
         attempts=[]; start=time.monotonic()
@@ -164,7 +194,12 @@ class ProviderManager:
                 if len(attempts)>=self.max_attempts or time.monotonic()-start>=self.max_seconds: break
                 if not self.internet.status()['enabled']: break
                 try:
-                    result=decision(provider.review(candidate))
+                    original_timeout = provider.timeout
+                    try:
+                        provider.timeout = min(original_timeout, max(.01, self.max_seconds - (time.monotonic() - start)))
+                        result=decision(provider.review(candidate))
+                    finally:
+                        provider.timeout = original_timeout
                     result.update(provider=provider.name, model=getattr(provider,'model',''))
                     with json_transaction(self.path,{}) as state:
                         state[provider.name]={'state':'AVAILABLE','reason':'','last_success':self.clock(),
