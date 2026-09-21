@@ -1,6 +1,6 @@
 """Canonical local runtime for the IRAN cognitive architecture."""
 from pathlib import Path
-from persistence import json_transaction, file_lock, load_json_with_backup, acquire_runtime_ownership
+from persistence import json_transaction, file_lock, load_json_with_backup, load_critical_json, acquire_runtime_ownership
 import json
 import hashlib
 import threading
@@ -91,6 +91,7 @@ class IranRuntime:
         self.self_directed_learning = SelfDirectedLearning(self.root / "data/learning_goals.json")
         # Curriculum goals are generated only by the autonomous learning intake.
         self.trusted_knowledge_path = self.root / "data/trusted_knowledge.json"
+        load_critical_json(self.trusted_knowledge_path, [])
         self.memory = Memory(self.root / self.config["memory"]["db"], gate=self.learning_gate)
         self.events = EventLog(self.root / self.config["runtime"]["event_log"])
         self.goals = GoalStore(self.root / self.config["runtime"].get("goals", "data/goals.json"))
@@ -270,13 +271,8 @@ class IranRuntime:
         return gated or proposal
 
     def _apply_trusted_knowledge(self, proposal):
-        rows = []
         path = self.trusted_knowledge_path
-        try:
-            rows = json.loads(path.read_text(encoding="utf-8")) if path.exists() else []
-        except Exception:
-            rows = []
-        if not isinstance(rows, list): rows = []
+        rows = load_critical_json(path, [])
         payload = proposal.get("payload") or proposal
         bundle = {
             "proposal_id": payload.get("proposal_id"),
@@ -393,7 +389,7 @@ class IranRuntime:
     def observe_knowledge_use(self, question, answer):
         """Record actual reuse of an approved claim; feedback alone cannot award XP."""
         if str(answer).startswith("UNKNOWN:"): return []
-        rows=load_json_with_backup(self.trusted_knowledge_path, [])
+        rows=load_critical_json(self.trusted_knowledge_path, [])
         used=[]
         for bundle in rows:
             pid=bundle.get("gate_proposal_id")

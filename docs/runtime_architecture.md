@@ -60,3 +60,10 @@ The canonical pipeline checks evidence before persisting a generated answer.
 Explicit `knowledge.contradict` proposals use the same external-review → human
 approval → transactional application dispatcher as other knowledge proposals.
 Corrections are not applied by queue readers or merely by external approval.
+
+
+Learned graph, procedures, skills, compositions and trusted-source bundles share
+critical JSON loading: valid backup recovery or an explicit corruption error,
+never silent empty-state replacement. Skill/procedure writes use the same atomic
+writer as graph state. Approval checkpoints snapshot recovered store values so
+learning can continue after recoverable corruption.

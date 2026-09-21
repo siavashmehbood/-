@@ -91,93 +91,98 @@
   "current": {
     "cases": [
       {
-        "case": "knowledge_correction",
+        "case": "recover_then_learn",
         "passed": true,
         "seconds": 0.034
       },
       {
+        "case": "knowledge_correction",
+        "passed": true,
+        "seconds": 0.025
+      },
+      {
         "case": "conflicting_knowledge",
-        "passed": true,
-        "seconds": 0.012
-      },
-      {
-        "case": "topic_switch",
-        "passed": true,
-        "seconds": 0.008
-      },
-      {
-        "case": "verified_action_recovery",
-        "passed": true,
-        "seconds": 0.009
-      },
-      {
-        "case": "multi_turn_memory",
-        "passed": true,
-        "seconds": 0.011
-      },
-      {
-        "case": "correction",
         "passed": true,
         "seconds": 0.017
       },
       {
+        "case": "topic_switch",
+        "passed": true,
+        "seconds": 0.014
+      },
+      {
+        "case": "verified_action_recovery",
+        "passed": true,
+        "seconds": 0.016
+      },
+      {
+        "case": "multi_turn_memory",
+        "passed": true,
+        "seconds": 0.02
+      },
+      {
+        "case": "correction",
+        "passed": true,
+        "seconds": 0.025
+      },
+      {
         "case": "reference_resolution",
         "passed": true,
-        "seconds": 0.012
+        "seconds": 0.018
       },
       {
         "case": "unknown",
         "passed": true,
-        "seconds": 0.007
+        "seconds": 0.011
       },
       {
         "case": "restart_memory",
         "passed": true,
-        "seconds": 0.012
+        "seconds": 0.021
       },
       {
         "case": "review_then_human",
         "passed": true,
-        "seconds": 0.009
+        "seconds": 0.015
       },
       {
         "case": "hidden_candidate",
         "passed": true,
-        "seconds": 0.005
+        "seconds": 0.008
       },
       {
         "case": "feedback_no_xp",
         "passed": true,
-        "seconds": 0.013
+        "seconds": 0.018
       },
       {
         "case": "deduplication",
         "passed": true,
-        "seconds": 0.004
+        "seconds": 0.007
       },
       {
         "case": "forged_review_rejected",
         "passed": true,
-        "seconds": 0.004
+        "seconds": 0.007
       },
       {
         "case": "source_conflict",
         "passed": true,
-        "seconds": 0.005
+        "seconds": 0.007
       },
       {
         "case": "provider_offline_fallback",
         "passed": true,
-        "seconds": 0.005
+        "seconds": 0.008
       },
       {
         "case": "learn_apply_observe_credit_once",
         "passed": true,
-        "seconds": 0.018
+        "seconds": 0.026
       }
     ],
-    "passed": 17,
-    "total": 17,
+    "passed": 18,
+    "total": 18,
     "live_external_services": "NOT_TESTED"
   },
   "baseline_commit": "5476939e50852f550d3cd67acc4f1e8319b9612e",
@@ -544,6 +549,204 @@
       ],
       "passed": 17,
       "total": 17,
+      "live_external_services": "NOT_TESTED"
+    }
+  },
+  "persistence_checkpoint": {
+    "baseline_commit": "56aef7e9fc4616e9cd6c83fc05bf6b1c7fd54493",
+    "baseline": {
+      "cases": [
+        {
+          "case": "recover_then_learn",
+          "passed": false,
+          "failure": "JSONDecodeError: Expecting property name enclosed in double quotes: line 1 column 2 (char 1)",
+          "seconds": 0.063
+        },
+        {
+          "case": "knowledge_correction",
+          "passed": true,
+          "seconds": 0.025
+        },
+        {
+          "case": "conflicting_knowledge",
+          "passed": true,
+          "seconds": 0.017
+        },
+        {
+          "case": "topic_switch",
+          "passed": true,
+          "seconds": 0.012
+        },
+        {
+          "case": "verified_action_recovery",
+          "passed": true,
+          "seconds": 0.014
+        },
+        {
+          "case": "multi_turn_memory",
+          "passed": true,
+          "seconds": 0.02
+        },
+        {
+          "case": "correction",
+          "passed": true,
+          "seconds": 0.025
+        },
+        {
+          "case": "reference_resolution",
+          "passed": true,
+          "seconds": 0.023
+        },
+        {
+          "case": "unknown",
+          "passed": true,
+          "seconds": 0.012
+        },
+        {
+          "case": "restart_memory",
+          "passed": true,
+          "seconds": 0.024
+        },
+        {
+          "case": "review_then_human",
+          "passed": true,
+          "seconds": 0.018
+        },
+        {
+          "case": "hidden_candidate",
+          "passed": true,
+          "seconds": 0.009
+        },
+        {
+          "case": "feedback_no_xp",
+          "passed": true,
+          "seconds": 0.023
+        },
+        {
+          "case": "deduplication",
+          "passed": true,
+          "seconds": 0.008
+        },
+        {
+          "case": "forged_review_rejected",
+          "passed": true,
+          "seconds": 0.008
+        },
+        {
+          "case": "source_conflict",
+          "passed": true,
+          "seconds": 0.007
+        },
+        {
+          "case": "provider_offline_fallback",
+          "passed": true,
+          "seconds": 0.009
+        },
+        {
+          "case": "learn_apply_observe_credit_once",
+          "passed": true,
+          "seconds": 0.026
+        }
+      ],
+      "passed": 17,
+      "total": 18,
+      "live_external_services": "NOT_TESTED"
+    },
+    "revised": {
+      "cases": [
+        {
+          "case": "recover_then_learn",
+          "passed": true,
+          "seconds": 0.034
+        },
+        {
+          "case": "knowledge_correction",
+          "passed": true,
+          "seconds": 0.025
+        },
+        {
+          "case": "conflicting_knowledge",
+          "passed": true,
+          "seconds": 0.017
+        },
+        {
+          "case": "topic_switch",
+          "passed": true,
+          "seconds": 0.014
+        },
+        {
+          "case": "verified_action_recovery",
+          "passed": true,
+          "seconds": 0.016
+        },
+        {
+          "case": "multi_turn_memory",
+          "passed": true,
+          "seconds": 0.02
+        },
+        {
+          "case": "correction",
+          "passed": true,
+          "seconds": 0.025
+        },
+        {
+          "case": "reference_resolution",
+          "passed": true,
+          "seconds": 0.018
+        },
+        {
+          "case": "unknown",
+          "passed": true,
+          "seconds": 0.011
+        },
+        {
+          "case": "restart_memory",
+          "passed": true,
+          "seconds": 0.021
+        },
+        {
+          "case": "review_then_human",
+          "passed": true,
+          "seconds": 0.015
+        },
+        {
+          "case": "hidden_candidate",
+          "passed": true,
+          "seconds": 0.008
+        },
+        {
+          "case": "feedback_no_xp",
+          "passed": true,
+          "seconds": 0.018
+        },
+        {
+          "case": "deduplication",
+          "passed": true,
+          "seconds": 0.007
+        },
+        {
+          "case": "forged_review_rejected",
+          "passed": true,
+          "seconds": 0.007
+        },
+        {
+          "case": "source_conflict",
+          "passed": true,
+          "seconds": 0.007
+        },
+        {
+          "case": "provider_offline_fallback",
+          "passed": true,
+          "seconds": 0.008
+        },
+        {
+          "case": "learn_apply_observe_credit_once",
+          "passed": true,
+          "seconds": 0.026
+        }
+      ],
+      "passed": 18,
+      "total": 18,
       "live_external_services": "NOT_TESTED"
     }
   }

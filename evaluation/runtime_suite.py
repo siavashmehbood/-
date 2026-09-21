@@ -129,7 +129,24 @@ def run(repository):
         mark_chatgpt_correct(r,p['proposal_id'],'fixture only')
         require(r.approve_learning(p['proposal_id'])['ok'], 'reviewed correction unsupported')
         require('تهران' in r.handle('پایتخت ایران کجاست؟'), 'corrected knowledge not retrieved')
-    for name, operation in [('knowledge_correction',knowledge_correction), ('conflicting_knowledge',conflicting_knowledge), ('topic_switch',topic_switch), ('verified_action_recovery',verified_action), ('multi_turn_memory',recall), ('correction',correction), ('reference_resolution',reference), ('unknown',unknown), ('restart_memory',restart), ('review_then_human',approval), ('hidden_candidate',hidden), ('feedback_no_xp',feedback), ('deduplication',duplicate), ('forged_review_rejected',forged), ('source_conflict',conflict), ('provider_offline_fallback',provider), ('learn_apply_observe_credit_once',reuse)]:
+    def recover_then_learn(r):
+        from persistence import atomic_write_json
+        p=r.knowledge.add_fact('retained fixture','is','blue',source='evaluation_fixture')
+        mark_chatgpt_correct(r,p['proposal_id'],'fixture only')
+        require(r.approve_learning(p['proposal_id'])['ok'], 'initial approval failed')
+        atomic_write_json(r.knowledge.path,r.knowledge.facts)
+        path=r.knowledge.path
+        r.close()
+        path.write_text('{broken',encoding='utf-8')
+        other=IranRuntime(r.root)
+        try:
+            p=other.knowledge.add_fact('new fixture','is','green',source='evaluation_fixture')
+            mark_chatgpt_correct(other,p['proposal_id'],'fixture only')
+            require(other.approve_learning(p['proposal_id'])['ok'], 'approval after backup recovery failed')
+            require(other.knowledge.best_fact('retained fixture','is')['object']=='blue', 'prior knowledge lost')
+        finally:
+            other.close()
+    for name, operation in [('recover_then_learn',recover_then_learn), ('knowledge_correction',knowledge_correction), ('conflicting_knowledge',conflicting_knowledge), ('topic_switch',topic_switch), ('verified_action_recovery',verified_action), ('multi_turn_memory',recall), ('correction',correction), ('reference_resolution',reference), ('unknown',unknown), ('restart_memory',restart), ('review_then_human',approval), ('hidden_candidate',hidden), ('feedback_no_xp',feedback), ('deduplication',duplicate), ('forged_review_rejected',forged), ('source_conflict',conflict), ('provider_offline_fallback',provider), ('learn_apply_observe_credit_once',reuse)]:
         case(name, operation)
     return {'cases': results, 'passed': sum(x['passed'] for x in results), 'total': len(results), 'live_external_services': 'NOT_TESTED'}
 

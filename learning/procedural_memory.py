@@ -1,3 +1,4 @@
+from persistence import atomic_write_json, load_critical_json
 import json
 from pathlib import Path
 from datetime import datetime
@@ -12,16 +13,10 @@ class ProceduralMemory:
         self._load()
 
     def _load(self):
-        if self.path.exists():
-            try:
-                self.procedures = json.loads(self.path.read_text(encoding='utf-8'))[-5000:]
-            except Exception:
-                self.procedures = []
+        self.procedures = load_critical_json(self.path, [])[-5000:]
 
     def _save(self):
-        tmp = self.path.with_suffix('.tmp')
-        tmp.write_text(json.dumps(self.procedures, ensure_ascii=False, indent=2), encoding='utf-8')
-        tmp.replace(self.path)
+        atomic_write_json(self.path, self.procedures)
 
     def upsert(self, name, goal, steps, preconditions=None, expected_outcome='',
                verification_conditions=None, failure_conditions=None, source_experiences=None,

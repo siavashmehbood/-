@@ -61,3 +61,40 @@ def test_legacy_episode_credit_is_not_awarded_again_after_upgrade(tmp_path):
     restored=EffectLearningLoop(path,LearningEngine(tmp_path/'learning.json'))
     restored.evaluate('same','same','same','same',{'verified':True,'score':.9},episode_id='third')
     assert restored.stats()['xp']==1_000_000
+
+
+@pytest.mark.parametrize('store', ['knowledge','procedures','skills','compositions','trusted_knowledge'])
+def test_runtime_refuses_unrecoverable_learned_store_without_reset(tmp_path, store):
+    import shutil
+    from pathlib import Path
+    from runtime.app import IranRuntime
+    shutil.copy(Path(__file__).parents[1]/'config.json',tmp_path)
+    path=tmp_path/'data'/f'{store}.json'
+    path.parent.mkdir()
+    path.write_text('{broken')
+    path.with_suffix('.json.bak').write_text('{also broken')
+    with pytest.raises(StateCorruptionError):
+        IranRuntime(tmp_path)
+    assert path.read_text()=='{broken'
+    assert path.with_suffix('.json.bak').read_text()=='{also broken'
+
+
+@pytest.mark.parametrize('store', ['knowledge','procedures','skills','compositions'])
+def test_learned_store_recovers_backup_and_preserves_it_on_save(tmp_path, store):
+    from knowledge.knowledge_graph import KnowledgeGraph
+    from learning.procedural_memory import ProceduralMemory
+    from learning.skill_system import SkillSystem
+    factories={'knowledge':(KnowledgeGraph,'facts','_save'),
+               'procedures':(ProceduralMemory,'procedures','_save'),
+               'skills':(SkillSystem,'skills','_save'),
+               'compositions':(lambda p: SkillSystem(p.with_name('skills.json')),'compositions','_save_compositions')}
+    path=tmp_path/f'{store}.json'
+    row={'subject':'fixture','predicate':'is','object':'retained','source':'fixture'}
+    atomic_write_json(path,[row]);atomic_write_json(path,[row])
+    path.write_text('{broken')
+    factory,attribute,save=factories[store]
+    obj=factory(path)
+    assert getattr(obj,attribute)==[row]
+    getattr(obj,save)()
+    assert json.loads(path.read_text())==[row]
+    assert json.loads(path.with_suffix('.json.bak').read_text())==[row]

@@ -114,3 +114,22 @@ def test_interrupted_correction_restores_unresolved_evidence(tmp_path, monkeypat
     assert r.approve_learning(p['proposal_id'])['ok']
     assert 'تهران' in r.handle('پایتخت ایران کجاست؟')
     r.close()
+
+
+def test_approval_after_backup_recovery_retains_prior_knowledge(tmp_path):
+    from persistence import atomic_write_json
+    r=runtime(tmp_path)
+    p=r.knowledge.add_fact('retained fixture','is','blue',source='fixture')
+    mark_chatgpt_correct(r,p['proposal_id'],'fixture only')
+    assert r.approve_learning(p['proposal_id'])['ok']
+    atomic_write_json(r.knowledge.path,r.knowledge.facts)
+    path=r.knowledge.path
+    r.close()
+    path.write_text('{broken')
+    r=IranRuntime(tmp_path)
+    p=r.knowledge.add_fact('new fixture','is','green',source='fixture')
+    mark_chatgpt_correct(r,p['proposal_id'],'fixture only')
+    assert r.approve_learning(p['proposal_id'])['ok']
+    assert r.knowledge.best_fact('retained fixture','is')['object']=='blue'
+    assert r.knowledge.best_fact('new fixture','is')['object']=='green'
+    r.close()

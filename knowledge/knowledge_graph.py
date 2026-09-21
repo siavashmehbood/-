@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 from datetime import datetime
-from persistence import atomic_write_json, load_json_with_backup
+from persistence import atomic_write_json, load_critical_json
 
 class KnowledgeGraph:
     """Local durable knowledge graph with confidence, provenance and contradiction tracking."""
@@ -9,7 +9,7 @@ class KnowledgeGraph:
         self.path=Path(path); self.path.parent.mkdir(parents=True,exist_ok=True); self.gate=gate; self.facts=[]; self._load()
 
     def _load(self):
-        self.facts=load_json_with_backup(self.path, [])
+        self.facts=load_critical_json(self.path, [])
 
     def _save(self):
         atomic_write_json(self.path, self.facts)

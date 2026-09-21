@@ -7,7 +7,7 @@ The same isolated runtime evaluation was run against the baseline snapshot and t
 | --- | ---: | ---: |
 | Behavioral runtime scenarios | 8 / 15 | 15 / 15 |
 | Existing baseline pytest suite | 303 passed | preserved, no removed/relaxed tests |
-| Full revised pytest suite | — | 394 passed |
+| Full revised pytest suite | — | 404 passed |
 | Legacy unittest discovery | 234 passed | 234 passed |
 
 The 15 scenarios cover topic switching, verified action recovery, multi-turn identity recall, correction, reference resolution, unknown handling, restart memory, external then human approval, hidden candidates, feedback without XP, candidate deduplication, untrusted review metadata, source conflict detection, offline/provider fallback and approved knowledge reuse credited once. See `runtime_evaluation.json` for individual outcomes and `evaluation/runtime_suite.py` to reproduce. This is a regression suite, not a percentage measure of general intelligence.
@@ -75,3 +75,22 @@ Full pytest: 394 passed; unittest: 234 passed. Additional integration tests cove
 unapproved/reviewer-only correction remaining unapplied, correction of competing
 facts, repeated approval rejection, zero artificial XP, restart retrieval, and
 interruption after mutation followed by rollback and successful retry.
+
+
+## Learned-store recovery checkpoint
+
+Before this change, 8 new corruption regressions failed: graph/skills/procedures/
+compositions/trusted-source state could be treated as empty, and three stores
+ignored a valid backup. A further regression reproduced approval failing after
+graph backup recovery because the checkpoint reread the damaged primary.
+
+Knowledge, procedures, skills, compositions and trusted-source bundles now use
+critical-state loading. Procedures and skills use the shared atomic writer with
+backups. Unrecoverable JSON fails closed without overwriting either copy.
+Approval snapshots use the same recovered state as runtime stores.
+
+Full pytest: 404 passed; unittest: 234 passed. Identical runtime evaluation:
+17/18 at `56aef7e` → 18/18, including recovery followed by new approved knowledge
+while retaining the old fact. This is not a claim of complete corruption-proof
+storage: arbitrary semantic/schema corruption and physical disk loss remain
+outside these tests.

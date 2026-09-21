@@ -69,9 +69,14 @@ def approval_checkpoint(runtime, proposal_ids):
                  'procedural_memory', 'skills', 'self_directed_learning'):
         paths.append(getattr(runtime, name).path)
     files = {}
+    dictionary_stores = {Path(runtime.effect_learning.path), Path(runtime.self_directed_learning.path)}
     for path in set(paths):
         path = Path(path)
-        files[str(path.relative_to(root))] = json.loads(path.read_text(encoding='utf-8')) if path.exists() else None
+        present = path.exists() or path.with_suffix(path.suffix + '.bak').exists()
+        default = {} if path in dictionary_stores else []
+        # Snapshot the same recovered value used by the live store. Reading
+        # only the damaged primary would prevent any subsequent approval.
+        files[str(path.relative_to(root))] = load_critical_json(path, default) if present else None
     rows = {}
     for path in (runtime.learning_gate.path, runtime._chatgpt_review_path()):
         path = Path(path)

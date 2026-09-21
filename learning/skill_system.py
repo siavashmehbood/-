@@ -1,3 +1,4 @@
+from persistence import atomic_write_json, load_critical_json
 import json
 from pathlib import Path
 from datetime import datetime
@@ -13,26 +14,20 @@ class SkillSystem:
         self.skills = []; self.compositions = []; self._load(); self._load_compositions()
 
     def _load(self):
-        if self.path.exists():
-            try: self.skills = json.loads(self.path.read_text(encoding='utf-8'))[-5000:]
-            except Exception: self.skills = []
+        self.skills = load_critical_json(self.path, [])[-5000:]
 
     def _save(self):
-        tmp=self.path.with_suffix('.tmp'); tmp.write_text(json.dumps(self.skills,ensure_ascii=False,indent=2),encoding='utf-8'); tmp.replace(self.path)
+        atomic_write_json(self.path, self.skills)
 
     @property
     def compositions_path(self):
         return self.path.with_name('compositions.json')
 
     def _load_compositions(self):
-        if self.compositions_path.exists():
-            try: self.compositions=json.loads(self.compositions_path.read_text(encoding='utf-8'))[-2000:]
-            except Exception: self.compositions=[]
+        self.compositions = load_critical_json(self.compositions_path, [])[-2000:]
 
     def _save_compositions(self):
-        tmp=self.compositions_path.with_suffix('.tmp')
-        tmp.write_text(json.dumps(self.compositions,ensure_ascii=False,indent=2),encoding='utf-8')
-        tmp.replace(self.compositions_path)
+        atomic_write_json(self.compositions_path, self.compositions)
 
     def upsert(self, name, description, domain, goal_patterns, procedure, preconditions=None,
                required_capabilities=None, risk='low', confidence=.6, skill_id=None):
