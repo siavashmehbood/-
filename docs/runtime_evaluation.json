@@ -1,0 +1,174 @@
+{
+  "baseline": {
+    "cases": [
+      {
+        "case": "topic_switch",
+        "passed": true,
+        "seconds": 0.016
+      },
+      {
+        "case": "verified_action_recovery",
+        "passed": true,
+        "seconds": 0.008
+      },
+      {
+        "case": "multi_turn_memory",
+        "passed": false,
+        "failure": "AssertionError: name not recalled",
+        "seconds": 0.015
+      },
+      {
+        "case": "correction",
+        "passed": true,
+        "seconds": 0.013
+      },
+      {
+        "case": "reference_resolution",
+        "passed": true,
+        "seconds": 0.011
+      },
+      {
+        "case": "unknown",
+        "passed": true,
+        "seconds": 0.01
+      },
+      {
+        "case": "restart_memory",
+        "passed": false,
+        "failure": "AssertionError: name lost after restart",
+        "seconds": 0.013
+      },
+      {
+        "case": "review_then_human",
+        "passed": true,
+        "seconds": 0.005
+      },
+      {
+        "case": "hidden_candidate",
+        "passed": true,
+        "seconds": 0.004
+      },
+      {
+        "case": "feedback_no_xp",
+        "passed": false,
+        "failure": "AssertionError: unapproved feedback minted XP",
+        "seconds": 0.011
+      },
+      {
+        "case": "deduplication",
+        "passed": false,
+        "failure": "AssertionError: episode changed duplicate identity",
+        "seconds": 0.004
+      },
+      {
+        "case": "forged_review_rejected",
+        "passed": true,
+        "seconds": 0.005
+      },
+      {
+        "case": "source_conflict",
+        "passed": false,
+        "failure": "KeyError: 'conflicts'",
+        "seconds": 0.004
+      },
+      {
+        "case": "provider_offline_fallback",
+        "passed": false,
+        "failure": "ModuleNotFoundError: No module named 'providers.reviewer'",
+        "seconds": 0.004
+      },
+      {
+        "case": "learn_apply_observe_credit_once",
+        "passed": false,
+        "failure": "AssertionError: observed reuse did not earn one credit",
+        "seconds": 0.009
+      }
+    ],
+    "passed": 8,
+    "total": 15,
+    "live_external_services": "NOT_TESTED"
+  },
+  "current": {
+    "cases": [
+      {
+        "case": "topic_switch",
+        "passed": true,
+        "seconds": 0.02
+      },
+      {
+        "case": "verified_action_recovery",
+        "passed": true,
+        "seconds": 0.009
+      },
+      {
+        "case": "multi_turn_memory",
+        "passed": true,
+        "seconds": 0.015
+      },
+      {
+        "case": "correction",
+        "passed": true,
+        "seconds": 0.015
+      },
+      {
+        "case": "reference_resolution",
+        "passed": true,
+        "seconds": 0.011
+      },
+      {
+        "case": "unknown",
+        "passed": true,
+        "seconds": 0.01
+      },
+      {
+        "case": "restart_memory",
+        "passed": true,
+        "seconds": 0.012
+      },
+      {
+        "case": "review_then_human",
+        "passed": true,
+        "seconds": 0.007
+      },
+      {
+        "case": "hidden_candidate",
+        "passed": true,
+        "seconds": 0.004
+      },
+      {
+        "case": "feedback_no_xp",
+        "passed": true,
+        "seconds": 0.011
+      },
+      {
+        "case": "deduplication",
+        "passed": true,
+        "seconds": 0.004
+      },
+      {
+        "case": "forged_review_rejected",
+        "passed": true,
+        "seconds": 0.005
+      },
+      {
+        "case": "source_conflict",
+        "passed": true,
+        "seconds": 0.005
+      },
+      {
+        "case": "provider_offline_fallback",
+        "passed": true,
+        "seconds": 0.005
+      },
+      {
+        "case": "learn_apply_observe_credit_once",
+        "passed": true,
+        "seconds": 0.017
+      }
+    ],
+    "passed": 15,
+    "total": 15,
+    "live_external_services": "NOT_TESTED"
+  },
+  "baseline_commit": "5476939e50852f550d3cd67acc4f1e8319b9612e"
+}

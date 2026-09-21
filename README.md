@@ -1,194 +1,86 @@
-# ایران — Personal General Intelligence Research Platform
+# ایران — IRAN
 
-نسخه فعلی: **0.54.0**
+IRAN یک runtime پژوهشی شناختی با پاسخ‌سازی محلی و نمادین، حافظهٔ SQLite، دانش قابل ردیابی و یادگیری با تأیید ناظر و انسان است. مدل پاسخ‌گو `iran` آفلاین است؛ **بازبینی آنلاین اختیاری** از چند Provider پشتیبانی می‌کند. این پروژه مدل زبانی عمومی یا سامانهٔ هوش عمومی تکمیل‌شده نیست.
 
-ایران یک هسته شخصی برای ساخت یک سیستم هوشمند عمومی‌گراست؛ معماری آن از چت، حافظه، برنامه‌ریزی، ابزار، ارزیابی، امنیت و sandbox تشکیل شده است.
+## اجرا
 
-**ایران کاملاً آفلاین و نمادین است.** این پروژه از OpenAI، ChatGPT، Ollama، Llama، Qwen، Mistral، مدل pretrained، embedding service یا API هوش مصنوعی خارجی استفاده نمی‌کند. درک زبان، حافظه، استدلال، برنامه‌ریزی و تولید پاسخ با قواعد محلی، دانش گرافی، شواهد، حافظه و پاسخ‌سازی ترکیبی خود پروژه انجام می‌شود.
+Python 3.12 استفاده شده است. CLI به کتابخانهٔ استاندارد متکی است؛ برای GUI و تست‌ها:
 
-## وضعیت فعلی
-- Agent + Brain + Provider مستقل
-- Provider محلی `iran-local` بدون وابستگی به Ollama
-- Structured Persian Language Intelligence با حفظ raw_text و normalized_text
-- تشخیص چند intent، constraint، negation، temporal، reference و ambiguity
-- حافظه پایدار SQLite با جستجو و آمار
-- Planning تطبیقی و Goal Store
-- Tool Registry با permissionهای read/write/network
-- ابزارهای زمان، حافظه، فایل پروژه، مشخصات سیستم، خلاصه پروژه و web fetch
-- Event log و health check
-- Self Model و Evaluator
-- Snapshot/Sandbox برای تغییرات آزمایشی
-- Safe Mode و approval gate برای عملیات پرخطر
-- GUI پایدار با worker thread + queue و ثبت خطا
+```sh
+python -m pip install -r requirements-dev.txt
+python main.py
+python gui.py
+```
 
-## معماری
-`GUI/CLI -> Orchestrator -> Agent -> Brain -> Provider`
+روی Windows نیز `python gui.py` همان `gui.ChatWindow` را اجرا می‌کند. هم‌زمان فقط **یک runtime برای هر پوشهٔ داده** اجرا کنید. `data/` شامل حافظه و صف پایدار است؛ آن را برای پاک‌سازی cache حذف نکنید. داده‌ها، logها، تنظیمات محلی و secretها در Git ثبت نمی‌شوند.
 
-`Orchestrator -> Planner + Memory + Goals + Tool Registry + Security + Events`
+دستورهای مهم: `/internet off`، `/internet on`، `/learn pending`، `/learnweb <topic> [url ...]`، `/memory`، `/trace`، `/health` و `/exit`. رابط گرافیکی چت، وضعیت اینترنت و ناظرها، صف تأیید انسانی، آمار یادگیری، XP و trace را نشان می‌دهد.
 
-`Evaluator + Sandbox -> تست و آماده‌سازی نسخه‌های بعدی`
+## معماری واقعی
 
-## اجرای پروژه
-از پوشه پروژه:
+ورودی طبیعی از `IranRuntime.handle` به `CognitiveSystem` و `CognitivePipeline` می‌رود: context و reference resolution → Memory/Knowledge retrieval → Reasoning/Planning → پاسخ‌سازی → verification → تشخیص فرصت یادگیری. دستورهای CLI adapterهای runtime هستند. مسیرهای کوتاه محلی هم بررسی سازگاری پاسخ را اجرا می‌کنند؛ `PASS` این بررسی به معنی اثبات حقیقت بیرونی نیست.
 
-`python main.py`
+- **Memory:** مکالمه، factهای صریح کاربر و درس‌ها در SQLite؛ نام اصلاح‌شده و سابقه حفظ می‌شوند. اطلاعات شخصیِ صریح کاربر فوراً قابل استفاده است و از دانش اینترنتی جداست.
+- **Knowledge:** factهای محلی و bundleهای تأییدشده؛ منبع، زمان دریافت، ادعای مشترک و نتیجهٔ ناظر در bundle ذخیره می‌شود.
+- **Learning:** یک LearningGate و یک صف بازبینی پایدار. ناظر فقط ارزیابی می‌کند؛ تولید پاسخ روزمره به آن وابسته نیست.
+- **Effect Learning:** استفادهٔ واقعی از ادعای تأییدشده و نتایج قابل بررسی ثبت می‌شود؛ approval یا بازخورد مثبت به‌تنهایی XP نمی‌دهد. اعتبار اثرهای یکسان دوباره صادر نمی‌شود.
+- **Curriculum:** هدف‌های مرحله‌ای و شکاف‌های دانش، با novelty/relevance و محدودیت تلاش. افزایش مرحله نیازمند assessment متمایز است؛ این معادل اثبات تسلط عمومی بر یک رشته نیست.
 
-برای رابط گرافیکی، میانبر دسکتاپ **Iran AI** یا `iran_gui.pyw` را اجرا کنید.
+## مسیر یادگیری و بازبینی
 
-## دستورات CLI
-- `/status` وضعیت کامل
-- `/health` سلامت سیستم
-- `/self` مدل و محدودیت‌های ایران
-- `/model` وضعیت Provider
-- `/memory` حافظه اخیر
-- `/goals` هدف‌ها
-- `/goal TITLE` ساخت هدف
-- `/goal-done ID` تکمیل هدف
-- `/plan` ساخت برنامه
-- `/reason TEXT` تحلیل هدف
-- `/run GOAL --tool NAME --expected VALUE [--alternative NAME] [--arg key=value]` اجرای task با مشاهده، verification و replanning واقعی
-- `/tools` ابزارها و permissionها
-- `/tool NAME key=value` اجرای ابزار
-- `/evaluate` بررسی کد
-- `/sandbox` ساخت snapshot و ارزیابی
-- `/events` رویدادهای اخیر
-- `/help` راهنما
-- `/exit` خروج
+Source Discovery → Retrieval → Extraction → Source Validation/Cross-check → Candidate → External Reviewer → Human Review → Learning Gate → Learning Engine → Effect Learning/Knowledge Update.
 
-## پاسخ‌سازی نمادین و آفلاین
-Provider رسمی پروژه `iran` و حالت آن `offline-symbolic` است. پاسخ مستقیم factual، پاسخ ناشناخته با برچسب `UNKNOWN`، توضیح why/how، مقایسه، بازیابی حافظه و ارجاع مکالمه‌ای بدون مدل زبانی آماده تولید می‌شوند. تحلیل داخلی در state و event log باقی می‌ماند و نباید مستقیماً به‌عنوان پاسخ کاربر نمایش داده شود.
+پیش از تأیید ناظر، محتوای candidate در صفحهٔ Human Review نمایش داده نمی‌شود. رد ناظر به رد candidate منتهی می‌شود. نبود ناظر، candidate را در `WAITING_FOR_REVIEWER` حفظ می‌کند. فعال‌شدن اینترنت و رسیدن نوبت پس از cooldown باعث تلاش دوباره می‌شود. تأیید هر مورد فقط همان مورد را اعمال می‌کند.
 
-اگر دانش محلی برای یک پرسش وجود نداشته باشد، ایران حدس را واقعیت اعلام نمی‌کند و `UNKNOWN` برمی‌گرداند.
+ثبت تأیید شامل checkpoint دانش/درس/اثر و backup حافظه است. در قطع اجرا پیش از ثبت نهایی، restart وضعیت قبل از اعمال را بازیابی می‌کند و candidate و بازبینی را نگه می‌دارد. خطای حین اعمال، ادامهٔ mutation را تا restart متوقف می‌کند. خرابی غیرقابل بازیابی در دفتر تأیید، تجربه یا XP با خطا اعلام می‌شود؛ این فایل‌ها بی‌صدا صفر نمی‌شوند.
 
-## ارزیابی و benchmark محلی
-برای مشاهده کیفیت آخرین پاسخ در CLI از `/quality` و برای اجرای benchmark فارسی از `/benchmark` استفاده کنید. benchmark شامل پاسخ factual، `UNKNOWN`، clarification، reference resolution، why، how، comparison و feedback است. دستور `/trace` eventهای چرخه شناختی را به‌شکل خوانا نشان می‌دهد و `/knowledge QUERY` دانش محلی را جست‌وجو می‌کند.
+## Providerها و تنظیمات
 
-یادگیری procedural فقط strategy، confidence و ranking را تغییر می‌دهد و source code، permission یا سیاست امنیتی را به‌صورت خودکار تغییر نمی‌دهد.
+adapterهای `openrouter`، `gemini`، `groq` و `cerebras` از طریق `ProviderManager` استفاده می‌شوند. همه در تنظیمات پیش‌فرض غیرفعال‌اند. کلاس‌های قدیمی OpenRouter/Remote فقط facade سازگار با پاسخ‌گوی محلی و همین manager هستند؛ بخش قدیمی `openrouter` به‌تنهایی درخواست شبکه را فعال نمی‌کند. نام مدل، سقف‌ها و دسترسی رایگان باید با وضعیت جاری **حساب خودتان** بررسی شود؛ هیچ مدل یا سهمیه‌ای دائماً رایگان فرض نشده است.
 
-هر event شناختی اکنون `turn_id`، `stage`، `status` و `duration_ms` دارد تا چرخه هر درخواست از ادراک تا پاسخ، ارزیابی و یادگیری قابل ردیابی باشد. eventهای راه‌اندازی با شناسه `system` جدا می‌شوند و با trace یک turn کاربر مخلوط نمی‌شوند.
+`config.json` بخش `reviewers` دارد. فایل نادیده‌گرفته‌شدهٔ `reviewers.local.json` می‌تواند **محتوای همین بخش** را جایگزین کند؛ API key در آن هم ننویسید. از متغیر محیطی استفاده کنید:
 
-## امنیت
-Safe Mode فعال است. Shell، write و deploy خودکار بسته‌اند. دسترسی شبکه فقط از permission جداگانه `network` عبور می‌کند. هیچ قابلیت خودبهسازی حق ندارد مستقیماً production را تغییر دهد.
+| Provider | API key | انتخاب مدل |
+| --- | --- | --- |
+| OpenRouter | `OPENROUTER_API_KEY` | `OPENROUTER_MODEL` |
+| Gemini | `GEMINI_API_KEY` | `GEMINI_MODEL` |
+| Groq | `GROQ_API_KEY` | `GROQ_MODEL` |
+| Cerebras | `CEREBRAS_API_KEY` | `CEREBRAS_MODEL` |
 
-## Verified Task Execution
-برای اجرای یک هدف به‌عنوان task قابل‌اعتبارسنجی، باید ابزار و اثر مورد انتظار صریحاً اعلام شوند. موفقیت فقط وقتی ثبت می‌شود که خروجی مشاهده‌شده با `expected` تطبیق داشته باشد؛ پاسخ متنی به‌تنهایی مدرک موفقیت نیست. در صورت شکست، با افزودن `--alternative`، runtime مسیر را به ابزار جایگزین replan می‌کند.
+برای فعال‌سازی، `enabled: true`، مدل دقیق و `free_policy` با `budget: 0`، `confirmed: true`، فهرست مدل‌های مجاز و `expires_at` آینده با timezone لازم است. تأیید محلی دسترسی رایگان ضمانت صورتحساب سرویس نیست؛ حساب فاقد دسترسی رایگان را فعال نکنید. تنظیمات پیش‌فرض هیچ سرویس پولی را فعال نمی‌کند.
 
-نمونه:
+هر Provider دارای timeout، retry، cooldown، health و failure reason است. fallback برای خرابی اتصال، rate limit، quota/model unavailable و پاسخ نامعتبر محدود است؛ **رد معتبر یک ادعا** باعث امتحان‌کردن ناظر بعدی برای گرفتن پاسخ دلخواه نمی‌شود. `AVAILABLE` یعنی شرایط محلی درخواست فراهم است، نه اینکه اتصال زنده قبلاً موفق بوده است. وضعیت‌ها و cooldown در restart حفظ می‌شوند.
 
-`/run verify demo --tool primary_tool --expected "correct result" --alternative fallback_tool`
+مستندات رسمی برای بررسی شرایط حساب و مدل: [OpenRouter](https://openrouter.ai/docs/api_reference/limits)، [Gemini](https://ai.google.dev/gemini-api/docs/pricing)، [Groq](https://console.groq.com/docs/rate-limits)، [Cerebras](https://inference-docs.cerebras.ai/support/rate-limits).
 
-پارامترهای ابزار با `--arg key=value` ارسال می‌شوند. ابزار همچنان از permissionهای Safe Mode عبور می‌کند و رویدادهای plan، action، observation، verification و replanning در event log ثبت می‌شوند.
+## منابع دانش
 
-## مسیر بعدی
-1. اتصال مدل زبانی واقعی
-2. Tool-calling استاندارد و schema validation
-3. حافظه معنایی/vector retrieval
-4. Vision
-5. Voice
-6. Browser automation محدود و امن
-7. Self-healing با diagnostics و rollback
-8. Controlled self-improvement با benchmark
-9. Phone interface
-10. Multi-agent orchestration
+فهرست `learning_sources` در `config.json` پیش‌فرض خالی است. فقط منابع منتخب را اضافه کنید. نمونهٔ ساختار (نشانی نمونه را با منبع واقعیِ بررسی‌شده عوض کنید):
 
-## اصل پروژه
-`Understand -> Plan -> Act -> Observe -> Evaluate -> Remember -> Repair -> Improve`
+```json
+{
+  "url": "https://docs.example.org/topic",
+  "type": "documentation",
+  "title": "Reference document",
+  "topics": ["موضوع هدف"],
+  "confidence": 0.7,
+  "enabled": false
+}
+```
 
-هدف، ساخت یک سیستم قابل‌فهم، تست‌پذیر، برگشت‌پذیر و قابل ارتقاست؛ نه ادعای خودآگاهی واقعی.
+انواع `web`، `documentation`، `reference` و `structured_api` پشتیبانی می‌شوند. برای JSON از `text_path` مانند `data.description` استفاده کنید. Reviewer منبع دانش محسوب نمی‌شود. متن خام هرگز مستقیماً وارد Knowledge نمی‌شود. cross-check اختلاف عددی/نفی و استقلال تقریبی دامنه‌ها را بررسی می‌کند؛ fact-checker جامع نیست.
 
-## Intelligence Engine 0.10
-- Fast intent classification before model/tool execution
-- Confidence-aware decisions and explainable action selection
-- Working-memory retrieval combining semantic-like keyword matches with recency
-- Runtime metrics for latency, tool usage, retries and responses
-- Bounded agent loop with lightweight result scoring
-- Integrated scheduler/background runner
-- Evaluator attached to runtime and sandbox remains approval-gated
+## اینترنت خاموش
 
-## Structured Persian Intelligence 0.28
-- Raw input is preserved alongside normalized text.
-- Structured semantic representation enters runtime telemetry.
-- Multi-intent, constraints, negation, temporal expressions and references are benchmarked.
-- Compound repair/test requests are represented as explicit action intents.
-- Boundary-safe reference detection avoids matching «این» inside words such as «اینترنت».
+حالت OFF پایدار است و مانع **شروع درخواست جدید** در مسیر learning/reviewer می‌شود. درخواستِ از قبل شروع‌شده ممکن است تا timeout ادامه یابد. چت محلی بدون key یا اینترنت کار می‌کند. کارهای شبکه، benchmark و ثبت تصمیم انسانی در GUI در worker اجرا می‌شوند. صف در restart باقی می‌ماند.
 
+## تست و ارزیابی
 
-## Task C — Memory Graph, Procedural Memory, Skills & Transfer
+```sh
+python -m pytest -q
+python -m unittest discover -s tests -q
+python evaluation/runtime_suite.py
+python evaluation/runtime_suite.py --repository /path/to/baseline
+```
 
-Version 0.29.0 adds a structured learning-transfer layer while reusing the existing KnowledgeGraph and LearningEngine.
-
-- `knowledge/knowledge_graph.py`: typed nodes, typed edges, provenance-aware graph relations, contradiction retention and multi-hop graph queries.
-- `learning/procedural_memory.py`: persistent structured procedures with preconditions, verification/failure conditions and outcome updates.
-- `learning/skill_system.py`: persistent discover/retrieve/apply/verify/update/disable skill lifecycle over procedural memory.
-- `learning/learning_engine.py`: outcome-backed `transfer_real`; transfer success requires verified positive improvement over baseline.
-- `self/task_c_benchmark.py`: deterministic benchmark with 20 nodes, 30 edges, 10 procedures, 10 skills and 10 transfer pairs.
-- `runtime/app.py`: Task C components are integrated into runtime and cognitive-cycle skill retrieval telemetry.
-
-Task C safety remains local and policy-gated: `safe_mode=true`, `allow_shell=false`, `auto_deploy=false`.
-
-
-## Autonomous Cognitive Runtime 0.36
-- `core/autonomy.py` now persists autonomous cognitive state and restores it after restart.
-- Autonomous cycles perform perception, attention ranking, goal selection, cognition, safe read-only action, outcome observation and event emission.
-- Autonomous execution is restricted to explicitly safe/read-only tools; write/shell actions remain outside autonomous mode.
-- `core/virtual_world.py` provides a deterministic long-horizon sandbox for observe/act/verify evaluation.
-- `IranRuntime.virtual_world_benchmark()` exposes the sandbox benchmark and records its result in the event stream.
-- Autonomy state is stored locally in `data/autonomy_state.json` and does not depend on external AI services.
-
-
-## Autonomous Runtime 0.43
-
-نسخه فعلی علاوه بر مکالمه، یک supervisor خودمختار محلی دارد:
-`PERCEIVE -> ATTENTION -> ANOMALY -> INITIATIVE -> REASON -> PREDICT -> DECIDE -> SAFE ACTION -> OBSERVE -> VERIFY -> REFLECT -> LEARN`.
-
-تغییرات مهم محیط پروژه به‌صورت metadata محلی پایش می‌شوند. initiativeها بر اساس priority، urgency، confidence، expected value و risk رتبه‌بندی می‌شوند. تصمیم، نتیجه و درس کوتاه در `data/autonomy_journal.json` ذخیره می‌شود؛ chain-of-thought خصوصی ذخیره یا نمایش داده نمی‌شود.
-
-اجرای دستی:
-`python run_autonomy.py --cycles 10`
-
-اجرای daemon کنترل‌شده:
-`python run_autonomy.py --daemon --interval 10`
-
-اجرای benchmarkهای خودمختاری از طریق runtime نیز در دسترس است. عملیات خودکار پیش‌فرض فقط read-only و permission-aware هستند.
-
-
-## Autonomous Runtime 0.44
-- scored initiatives are re-evaluated after reasoning/prediction
-- decision summaries are persisted without private chain-of-thought
-- stalled goals trigger bounded evidence reassessment instead of blind repetition
-- every autonomous cycle remains permission-aware, read-only and auditable
-
-
-## Symbolic Reasoning 0.52
-- `core/chain_reasoner.py` adds a first-class retrieve -> infer -> verify -> realize path.
-- Queries are decomposed into independent units before reasoning, so compound questions are not collapsed into one intent.
-- Knowledge-graph facts can be traversed for multi-hop inference with confidence propagation.
-- Contradicted facts are down-weighted instead of silently treated as truth.
-- Reasoning episodes are persisted in `data/reasoning_episodes.json` and feed future reasoning-depth selection.
-- A retrieved fact is never exposed as proof until the confidence threshold is met.
-- The conversational state machine remains canonical; symbolic reasoning only replaces the final prose when it has an independently grounded result.
-
-### مسیر توسعه بعدی
-1. چندمرحله‌ای‌کردن استدلال علّی با evidence مثبت/منفی و assumptions صریح.
-2. تبدیل تجربه‌های تأییدشده به procedure و سپس skill، با benchmark قبل/بعد.
-3. یادگیری از شکست در سطح strategy و re-planning، بدون تغییر خودکار policy یا source code.
-4. گسترش Knowledge Graph و world model برای inference طولانی‌تر.
-5. benchmark سخت‌تر برای چندنوبتی، contradiction، transfer و long-horizon reasoning.
-
-
-## Grounded Answer Synthesis 0.53
-- `core/grounded_synthesizer.py` is the final evidence-first realization layer.
-- It ranks local KnowledgeGraph evidence before memory and never promotes missing evidence to fact.
-- Conversation memory can ground recall, while internal cognitive telemetry is excluded from visible answers.
-- Learned strategy preferences from `LearningEngine` are retrieved as a decision signal, not as fabricated knowledge.
-- The canonical dialogue path remains unchanged; synthesis is allowed to replace only weak/UNKNOWN prose when grounded evidence exists.
-- New regression coverage checks local factual grounding, memory retrieval, UNKNOWN behavior and learned strategy retrieval.
-
-
-## Cognitive Pipeline 0.54
-- `core/cognitive_pipeline.py` is now the single ordinary-turn orchestration path.
-- The turn flow is explicit: perception -> reference resolution -> memory/knowledge retrieval -> symbolic reasoning -> grounded synthesis -> verification/repair -> state commit -> learning.
-- Legacy dialogue adapters remain for historical compatibility, but the runtime restores the canonical pipeline after compatibility installation.
-- Safe local tools, explicit User Model facts, feedback learning and deterministic project facts are resolved inside the same pipeline rather than through parallel natural-language handlers.
-- Every canonical turn emits the existing event contract (`language_analysis`, `cognitive_cycle`, `plan_created`, `reflection`, `learning_update`, `response_generated`) with one turn context.
-- Dedicated regression tests cover pipeline activation, reasoning/verification trace and explicit UNKNOWN behavior.
+تست GUI با Qt offscreen واقعاً event loop را اجرا می‌کند. fixtureهای Provider پاسخ سرویس را شبیه‌سازی می‌کنند و آزمون سرویس زنده نیستند. نتایج و محدودیت‌های ممیزی در [گزارش ارزیابی](docs/runtime_validation.md) و [معماری](docs/runtime_architecture.md) آمده است. اجرای زندهٔ سرویس‌های بیرونی بدون key، quota و دسترسی حساب **BLOCKED** است.

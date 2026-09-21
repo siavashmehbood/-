@@ -1,0 +1,2 @@
+# Optional for CLI; required by the single desktop GUI.
+PySide6>=6.8,<7
