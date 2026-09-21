@@ -95,3 +95,22 @@ def test_human_approval_does_not_approve_sibling_outcome(tmp_path):
     assert r.learning_gate.get(ids[1])['status'] == 'pending'
     assert all(x['action'] != 'second' for x in r.outcome_learning.records)
     r.close()
+
+
+def test_interrupted_correction_restores_unresolved_evidence(tmp_path, monkeypatch):
+    r=runtime(tmp_path)
+    p=r.knowledge.add_fact('ایران','پایتخت','شیراز',source='fixture')
+    mark_chatgpt_correct(r,p['proposal_id'],'fixture only')
+    assert r.approve_learning(p['proposal_id'])['ok']
+    p=r.knowledge.contradict('ایران','پایتخت','تهران',source='correction_fixture')
+    mark_chatgpt_correct(r,p['proposal_id'],'fixture only')
+    monkeypatch.setattr(r.learning_gate,'decide',lambda *a: (_ for _ in ()).throw(RuntimeError('interrupted')))
+    with pytest.raises(RuntimeError,match='interrupted'):
+        r.approve_learning(p['proposal_id'])
+    r.close()
+    r=IranRuntime(tmp_path)
+    assert r.learning_gate.get(p['proposal_id'])['status']=='pending'
+    assert r.handle('پایتخت ایران کجاست؟').startswith('UNKNOWN:')
+    assert r.approve_learning(p['proposal_id'])['ok']
+    assert 'تهران' in r.handle('پایتخت ایران کجاست؟')
+    r.close()

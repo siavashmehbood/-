@@ -574,6 +574,7 @@ class IranRuntime:
         kind=proposal.get("kind"); p=proposal.get("payload") or {}
         with self.learning_gate.bypass():
             if kind == "knowledge.add_fact": result=self.knowledge.add_fact(p["subject"],p["predicate"],p["object"],p.get("confidence",1.0),p.get("source","approved"))
+            elif kind == "knowledge.contradict": result=self.knowledge.contradict(p["subject"],p["predicate"],p["object"],p.get("confidence",.7),p.get("source","approved"))
             elif kind == "trusted_knowledge.bootstrap": result=self._apply_trusted_knowledge(proposal)
             elif kind == "learning.goal_request":
                 p = dict(p)

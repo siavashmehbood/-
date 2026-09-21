@@ -94,3 +94,28 @@ def test_unknown_is_not_logged_as_verified_answer(tmp_path):
     assert events[-1]['data']['verified'] is False
     assert r.dialogue.last_trace.verification_status=='UNKNOWN'
     r.close()
+
+
+def test_explicit_knowledge_correction_requires_both_reviews_and_survives_restart(tmp_path):
+    from tests.chatgpt_test_helper import mark_chatgpt_correct
+    shutil.copy(Path(__file__).parents[1]/'config.json',tmp_path)
+    r=IranRuntime(tmp_path)
+    competing=r.knowledge.add_fact('ایران','پایتخت','شیراز',source='fixture')
+    mark_chatgpt_correct(r,competing['proposal_id'],'fixture only')
+    assert r.approve_learning(competing['proposal_id'])['ok']
+    correction=r.knowledge.contradict('ایران','پایتخت','تهران',source='correction_fixture')
+    assert correction['kind']=='knowledge.contradict'
+    assert not r.approve_learning(correction['proposal_id'])['ok']
+    assert r.handle('پایتخت ایران کجاست؟').startswith('UNKNOWN:')
+    mark_chatgpt_correct(r,correction['proposal_id'],'fixture only')
+    assert r.handle('پایتخت ایران کجاست؟').startswith('UNKNOWN:')
+    assert r.approve_learning(correction['proposal_id'])['ok']
+    assert 'تهران' in r.handle('پایتخت ایران کجاست؟')
+    assert not r.approve_learning(correction['proposal_id'])['ok']
+    assert r.effect_learning.stats()['xp']==0
+    r.close()
+    r=IranRuntime(tmp_path)
+    assert 'تهران' in r.handle('پایتخت ایران کجاست؟')
+    assert r.cognitive_system.last_trace.evidence_status=='SUPPORTED'
+    assert len([f for f in r.knowledge.facts if f['subject']=='ایران' and f['predicate']=='پایتخت'])==2
+    r.close()

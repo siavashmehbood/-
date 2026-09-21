@@ -7,7 +7,7 @@ The same isolated runtime evaluation was run against the baseline snapshot and t
 | --- | ---: | ---: |
 | Behavioral runtime scenarios | 8 / 15 | 15 / 15 |
 | Existing baseline pytest suite | 303 passed | preserved, no removed/relaxed tests |
-| Full revised pytest suite | — | 392 passed |
+| Full revised pytest suite | — | 394 passed |
 | Legacy unittest discovery | 234 passed | 234 passed |
 
 The 15 scenarios cover topic switching, verified action recovery, multi-turn identity recall, correction, reference resolution, unknown handling, restart memory, external then human approval, hidden candidates, feedback without XP, candidate deduplication, untrusted review metadata, source conflict detection, offline/provider fallback and approved knowledge reuse credited once. See `runtime_evaluation.json` for individual outcomes and `evaluation/runtime_suite.py` to reproduce. This is a regression suite, not a percentage measure of general intelligence.
@@ -61,3 +61,17 @@ conflict state; it does not implement or claim FEVER benchmark performance.
 These checks cover narrow structured relations, not unrestricted natural-language
 entailment or arbitrary factual truth. Automated reviewer fixtures are not live
 external-service validation.
+
+
+## Gated correction checkpoint
+
+`knowledge.contradict` proposals previously reached human review but failed with
+`unsupported_proposal_kind`. The existing approval dispatcher now applies them
+inside its existing rollback checkpoint and gate bypass, after reviewer and
+human approval. No alternate learning pipeline was added.
+
+The identical expanded runtime suite improves from 16/17 at `c4181cc` to 17/17.
+Full pytest: 394 passed; unittest: 234 passed. Additional integration tests cover
+unapproved/reviewer-only correction remaining unapplied, correction of competing
+facts, repeated approval rejection, zero artificial XP, restart retrieval, and
+interruption after mutation followed by rollback and successful retry.

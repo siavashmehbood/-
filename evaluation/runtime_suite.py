@@ -123,7 +123,13 @@ def run(repository):
         require(r.approve_learning(p['proposal_id'])['ok'], 'approved fact not stored')
         require(r.handle('پایتخت ایران کجاست؟').startswith('UNKNOWN:'), 'unresolved conflict answered as certain')
         require(r.effect_learning.stats()['xp']==0, 'conflicting answer earned credit')
-    for name, operation in [('conflicting_knowledge',conflicting_knowledge), ('topic_switch',topic_switch), ('verified_action_recovery',verified_action), ('multi_turn_memory',recall), ('correction',correction), ('reference_resolution',reference), ('unknown',unknown), ('restart_memory',restart), ('review_then_human',approval), ('hidden_candidate',hidden), ('feedback_no_xp',feedback), ('deduplication',duplicate), ('forged_review_rejected',forged), ('source_conflict',conflict), ('provider_offline_fallback',provider), ('learn_apply_observe_credit_once',reuse)]:
+    def knowledge_correction(r):
+        p=r.knowledge.contradict('ایران','پایتخت','تهران',source='evaluation_correction')
+        require(not r.approve_learning(p['proposal_id'])['ok'], 'correction bypassed reviewer')
+        mark_chatgpt_correct(r,p['proposal_id'],'fixture only')
+        require(r.approve_learning(p['proposal_id'])['ok'], 'reviewed correction unsupported')
+        require('تهران' in r.handle('پایتخت ایران کجاست؟'), 'corrected knowledge not retrieved')
+    for name, operation in [('knowledge_correction',knowledge_correction), ('conflicting_knowledge',conflicting_knowledge), ('topic_switch',topic_switch), ('verified_action_recovery',verified_action), ('multi_turn_memory',recall), ('correction',correction), ('reference_resolution',reference), ('unknown',unknown), ('restart_memory',restart), ('review_then_human',approval), ('hidden_candidate',hidden), ('feedback_no_xp',feedback), ('deduplication',duplicate), ('forged_review_rejected',forged), ('source_conflict',conflict), ('provider_offline_fallback',provider), ('learn_apply_observe_credit_once',reuse)]:
         case(name, operation)
     return {'cases': results, 'passed': sum(x['passed'] for x in results), 'total': len(results), 'live_external_services': 'NOT_TESTED'}
 

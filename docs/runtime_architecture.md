@@ -56,3 +56,7 @@ require resolution; arrival order is not proof. `KnowledgeGraph.contradict`
 marks explicitly replaced values `superseded`, while `add_fact` preserves
 unresolved competition. Legacy `contradicted_by` metadata is not a resolution.
 The canonical pipeline checks evidence before persisting a generated answer.
+
+Explicit `knowledge.contradict` proposals use the same external-review → human
+approval → transactional application dispatcher as other knowledge proposals.
+Corrections are not applied by queue readers or merely by external approval.
