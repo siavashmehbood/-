@@ -117,7 +117,13 @@ def run(repository):
         r.handle('موضوع اصلی ما پایگاه داده است.')
         answer = r.handle('موضوع قبلی رو ادامه بده')
         require('معماری شناختی ایران' in answer, 'previous topic lost after switch')
-    for name, operation in [('topic_switch',topic_switch), ('verified_action_recovery',verified_action), ('multi_turn_memory',recall), ('correction',correction), ('reference_resolution',reference), ('unknown',unknown), ('restart_memory',restart), ('review_then_human',approval), ('hidden_candidate',hidden), ('feedback_no_xp',feedback), ('deduplication',duplicate), ('forged_review_rejected',forged), ('source_conflict',conflict), ('provider_offline_fallback',provider), ('learn_apply_observe_credit_once',reuse)]:
+    def conflicting_knowledge(r):
+        p=r.learning_gate.request('knowledge.add_fact', {'subject':'ایران', 'predicate':'پایتخت', 'object':'شیراز', 'source':'evaluation_fixture'})
+        mark_chatgpt_correct(r,p['proposal_id'],'fixture only')
+        require(r.approve_learning(p['proposal_id'])['ok'], 'approved fact not stored')
+        require(r.handle('پایتخت ایران کجاست؟').startswith('UNKNOWN:'), 'unresolved conflict answered as certain')
+        require(r.effect_learning.stats()['xp']==0, 'conflicting answer earned credit')
+    for name, operation in [('conflicting_knowledge',conflicting_knowledge), ('topic_switch',topic_switch), ('verified_action_recovery',verified_action), ('multi_turn_memory',recall), ('correction',correction), ('reference_resolution',reference), ('unknown',unknown), ('restart_memory',restart), ('review_then_human',approval), ('hidden_candidate',hidden), ('feedback_no_xp',feedback), ('deduplication',duplicate), ('forged_review_rejected',forged), ('source_conflict',conflict), ('provider_offline_fallback',provider), ('learn_apply_observe_credit_once',reuse)]:
         case(name, operation)
     return {'cases': results, 'passed': sum(x['passed'] for x in results), 'total': len(results), 'live_external_services': 'NOT_TESTED'}
 

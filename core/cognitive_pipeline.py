@@ -25,6 +25,8 @@ class TurnTrace:
     confidence: float = 0.0
     sources: list = field(default_factory=list)
     elapsed_ms: float = 0.0
+    evidence_status: str = "NOT_ENOUGH_INFO"
+    evidence_sources: list = field(default_factory=list)
 
 
 class CognitivePipeline:
@@ -66,7 +68,7 @@ class CognitivePipeline:
             self.runtime.memory.add("assistant", answer, .68, confidence=score)
         except Exception:
             pass
-        self._emit("response_generated", {"goal": text, "route": "canonical", "mode": answer_type, "confidence": score, "verified": checked.accepted})
+        self._emit("response_generated", {"goal": text, "route": "canonical", "mode": answer_type, "confidence": score, "verified": checked.accepted and checked.status == "PASS", "evidence_status": checked.evidence_status})
         try:
             self.runtime.orchestrator.metrics.record("response", .0)
         except Exception:
@@ -81,12 +83,14 @@ class CognitivePipeline:
             knowledge_count=0,
             reasoning_status="NOT_RUN",
             answer_status=answer_type,
-            verification_status="PASS" if checked.accepted else "UNKNOWN",
+            verification_status=checked.status if checked.accepted else "UNKNOWN",
             verification_reasons=list(checked.reasons) + list(checked.contradictions),
             missing_units=[],
             confidence=float(score),
             sources=["local_deterministic"] ,
             elapsed_ms=0.0,
+            evidence_status=checked.evidence_status,
+            evidence_sources=checked.evidence_sources,
         )
         e.last_trace = trace
         e.turn_traces.append(trace.__dict__)
@@ -373,7 +377,7 @@ class CognitivePipeline:
             getattr(e.state, "rejected_answers", []),
         )
         if not semantic_check.accepted and semantic_check.contradictions:
-            answer = "UNKNOWN: ???? ????? ?? ?? ??????? ?? ????? ????? ???????? ???? ?? ????? ?? ???????? ???? ????? ??????? ????."
+            answer = "UNKNOWN: پاسخ با محدودیت‌ها یا شواهد معتبر سازگار نیست."
             self._emit("semantic_contradiction", {
                 "contradictions": semantic_check.contradictions,
                 "reasons": semantic_check.reasons,
@@ -388,6 +392,18 @@ class CognitivePipeline:
             answer = "UNKNOWN: " + answer
         if verification.status == "UNKNOWN":
             answer = "UNKNOWN: برای این سؤال در دانش و شواهد محلی اطلاعات کافی ندارم؛ نمی‌خواهم حدس را به‌عنوان واقعیت بگویم."
+
+        # Validate the repaired answer before accepting or storing it. The
+        # final outer checker must not be the first to see a contradiction.
+        final_check = self.semantic_verifier.verify(text, answer, evidence=self.verification_evidence())
+        if not final_check.accepted:
+            answer = "UNKNOWN: پاسخ با شواهد معتبر سازگار نیست یا شواهد کافی وجود ندارد."
+            verification.status = "UNKNOWN"
+        elif final_check.status == "UNKNOWN":
+            verification.status = "UNKNOWN"
+        verification.score = min(verification.score, final_check.score)
+        verification.reasons = list(dict.fromkeys(list(verification.reasons) +
+            list(final_check.reasons) + list(final_check.contradictions)))
 
         # Commit state, memory and learning once.
         if is_correction(text):
@@ -412,6 +428,8 @@ class CognitivePipeline:
             confidence=float(verification.score),
             sources=list(getattr(synthesis, "sources", []) or []),
             elapsed_ms=round((datetime.now() - started).total_seconds() * 1000, 2),
+            evidence_status=final_check.evidence_status,
+            evidence_sources=final_check.evidence_sources,
         )
         e.last_trace = trace
         e.memory_context = memory_context

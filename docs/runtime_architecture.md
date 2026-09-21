@@ -46,3 +46,13 @@ Explicit identity/preference statements from the user are local conversation fac
 - Earlier architecture/audit documents describe historical versions. This document and the current runtime evaluation are the current tested contract.
 
 Next engineering work should target wrapper consolidation with held-out language regressions, stronger provenance/conflict models and confidence calibration. It should not reintroduce a parallel learning pipeline or automatic approval.
+
+
+### Evidence and unresolved conflicts
+
+`SemanticVerifier` exposes evidence status and source identifiers in `TurnTrace`.
+Functional properties (such as capital or name) with competing active values
+require resolution; arrival order is not proof. `KnowledgeGraph.contradict`
+marks explicitly replaced values `superseded`, while `add_fact` preserves
+unresolved competition. Legacy `contradicted_by` metadata is not a resolution.
+The canonical pipeline checks evidence before persisting a generated answer.

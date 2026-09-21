@@ -109,6 +109,11 @@ class CognitiveSystem:
         trace = getattr(self.dialogue, "last_trace", None)
         if trace is not None:
             previous_status = trace.verification_status
+            # An UNKNOWN fallback has no new evidence; retain the reason the
+            # candidate was rejected before it was persisted.
+            if not str(answer).startswith('UNKNOWN:'):
+                trace.evidence_status = checked.evidence_status
+                trace.evidence_sources = checked.evidence_sources
             if not checked.accepted:
                 trace.verification_status = "REPAIR"
             elif previous_status not in {"REPAIR", "CLARIFY", "UNKNOWN"}:

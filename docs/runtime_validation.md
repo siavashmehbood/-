@@ -7,7 +7,7 @@ The same isolated runtime evaluation was run against the baseline snapshot and t
 | --- | ---: | ---: |
 | Behavioral runtime scenarios | 8 / 15 | 15 / 15 |
 | Existing baseline pytest suite | 303 passed | preserved, no removed/relaxed tests |
-| Full revised pytest suite | — | 383 passed |
+| Full revised pytest suite | — | 392 passed |
 | Legacy unittest discovery | 234 passed | 234 passed |
 
 The 15 scenarios cover topic switching, verified action recovery, multi-turn identity recall, correction, reference resolution, unknown handling, restart memory, external then human approval, hidden candidates, feedback without XP, candidate deduplication, untrusted review metadata, source conflict detection, offline/provider fallback and approved knowledge reuse credited once. See `runtime_evaluation.json` for individual outcomes and `evaluation/runtime_suite.py` to reproduce. This is a regression suite, not a percentage measure of general intelligence.
@@ -36,3 +36,28 @@ Verification follow-up: unrelated informational answers are rejected, relevant s
 Runtime ownership is tested with two objects, two subprocesses, separate roots, failed initialization, abrupt exit and attempted use after close. Only one runtime may own a data directory.
 
 Curriculum follow-up: repeated or distinct claim retrievals are recorded as retrieval evidence without advancing a stage. Only explicit evaluation assessments advance curriculum. This separation is tested both on persisted goals and through approved-knowledge reuse in the runtime.
+
+
+## Evidence conflict checkpoint
+
+Against checkpoint `59bdadb`, the expanded identical runtime suite improves from
+15/16 to 16/16: approved competing capital facts now cause abstention, not a
+confident answer. Existing 15 scenarios remain passing. Full pytest: 392 passed;
+legacy unittest: 234 passed. Conflict abstention survives restart.
+
+Verification now reports SUPPORTED, REFUTED, NOT_ENOUGH_INFO or CONFLICTING plus
+source identifiers. A mention in an unrelated clause cannot support a fact, and
+negating a known fact is rejected. UNKNOWN is not logged as a verified answer.
+Both short and repaired long answers are checked before memory commit.
+
+An ordinary competing observation retains unresolved evidence; only an explicit
+correction marks prior values superseded. Old contradiction markers alone are
+not assumed to prove resolution. Correction back to an earlier value survives
+restart without deleting historical facts.
+
+Design inspiration: [FEVER (Thorne et al., 2018)](https://arxiv.org/abs/1803.05355)
+separates supported/refuted/insufficient-evidence judgments. IRAN adds a local
+conflict state; it does not implement or claim FEVER benchmark performance.
+These checks cover narrow structured relations, not unrestricted natural-language
+entailment or arbitrary factual truth. Automated reviewer fixtures are not live
+external-service validation.

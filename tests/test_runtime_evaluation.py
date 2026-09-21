@@ -65,3 +65,32 @@ def test_unrelated_short_route_rejected_before_memory_commit(tmp_path):
     assert answer.startswith('UNKNOWN:')
     assert not any(row[0]=='assistant' and row[1]=='موز یک میوه است.' for row in r.memory.recent(10))
     r.close()
+
+
+def test_runtime_abstains_on_conflicting_approved_facts(tmp_path):
+    from tests.chatgpt_test_helper import mark_chatgpt_correct
+    shutil.copy(Path(__file__).parents[1]/'config.json',tmp_path)
+    r=IranRuntime(tmp_path)
+    p=r.learning_gate.request('knowledge.add_fact',{'subject':'ایران','predicate':'پایتخت','object':'شیراز','source':'conflicting_fixture'})
+    mark_chatgpt_correct(r,p['proposal_id'],'fixture only')
+    assert r.approve_learning(p['proposal_id'])['ok']
+    answer=r.handle('پایتخت ایران کجاست؟')
+    assert answer.startswith('UNKNOWN:')
+    assert r.cognitive_system.last_trace.evidence_status=='CONFLICTING'
+    assert 'conflicting_evidence' in r.cognitive_system.last_trace.verification_reasons
+    assert r.effect_learning.stats()['xp']==0
+    r.close()
+    r=IranRuntime(tmp_path)
+    assert r.handle('پایتخت ایران کجاست؟').startswith('UNKNOWN:')
+    assert r.cognitive_system.last_trace.evidence_status=='CONFLICTING'
+    r.close()
+
+
+def test_unknown_is_not_logged_as_verified_answer(tmp_path):
+    shutil.copy(Path(__file__).parents[1]/'config.json',tmp_path)
+    r=IranRuntime(tmp_path)
+    r.cognitive_system.pipeline._persist_answer('پایتخت کشور ناشناخته کجاست؟','UNKNOWN: شواهد کافی ندارم.')
+    events=[e for e in r.events.recent(30) if e['event']=='response_generated']
+    assert events[-1]['data']['verified'] is False
+    assert r.dialogue.last_trace.verification_status=='UNKNOWN'
+    r.close()

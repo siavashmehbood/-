@@ -170,5 +170,270 @@
     "total": 15,
     "live_external_services": "NOT_TESTED"
   },
-  "baseline_commit": "5476939e50852f550d3cd67acc4f1e8319b9612e"
+  "baseline_commit": "5476939e50852f550d3cd67acc4f1e8319b9612e",
+  "revised": {
+    "cases": [
+      {
+        "case": "conflicting_knowledge",
+        "passed": true,
+        "seconds": 0.03
+      },
+      {
+        "case": "topic_switch",
+        "passed": true,
+        "seconds": 0.011
+      },
+      {
+        "case": "verified_action_recovery",
+        "passed": true,
+        "seconds": 0.012
+      },
+      {
+        "case": "multi_turn_memory",
+        "passed": true,
+        "seconds": 0.018
+      },
+      {
+        "case": "correction",
+        "passed": true,
+        "seconds": 0.024
+      },
+      {
+        "case": "reference_resolution",
+        "passed": true,
+        "seconds": 0.014
+      },
+      {
+        "case": "unknown",
+        "passed": true,
+        "seconds": 0.007
+      },
+      {
+        "case": "restart_memory",
+        "passed": true,
+        "seconds": 0.014
+      },
+      {
+        "case": "review_then_human",
+        "passed": true,
+        "seconds": 0.008
+      },
+      {
+        "case": "hidden_candidate",
+        "passed": true,
+        "seconds": 0.004
+      },
+      {
+        "case": "feedback_no_xp",
+        "passed": true,
+        "seconds": 0.015
+      },
+      {
+        "case": "deduplication",
+        "passed": true,
+        "seconds": 0.004
+      },
+      {
+        "case": "forged_review_rejected",
+        "passed": true,
+        "seconds": 0.007
+      },
+      {
+        "case": "source_conflict",
+        "passed": true,
+        "seconds": 0.005
+      },
+      {
+        "case": "provider_offline_fallback",
+        "passed": true,
+        "seconds": 0.006
+      },
+      {
+        "case": "learn_apply_observe_credit_once",
+        "passed": true,
+        "seconds": 0.019
+      }
+    ],
+    "passed": 16,
+    "total": 16,
+    "live_external_services": "NOT_TESTED"
+  },
+  "evidence_checkpoint": {
+    "baseline_commit": "59bdadb3b6d6e832818728649abff861a9964db8",
+    "baseline": {
+      "cases": [
+        {
+          "case": "conflicting_knowledge",
+          "passed": false,
+          "failure": "AssertionError: unresolved conflict answered as certain",
+          "seconds": 0.059
+        },
+        {
+          "case": "topic_switch",
+          "passed": true,
+          "seconds": 0.011
+        },
+        {
+          "case": "verified_action_recovery",
+          "passed": true,
+          "seconds": 0.011
+        },
+        {
+          "case": "multi_turn_memory",
+          "passed": true,
+          "seconds": 0.012
+        },
+        {
+          "case": "correction",
+          "passed": true,
+          "seconds": 0.016
+        },
+        {
+          "case": "reference_resolution",
+          "passed": true,
+          "seconds": 0.015
+        },
+        {
+          "case": "unknown",
+          "passed": true,
+          "seconds": 0.014
+        },
+        {
+          "case": "restart_memory",
+          "passed": true,
+          "seconds": 0.017
+        },
+        {
+          "case": "review_then_human",
+          "passed": true,
+          "seconds": 0.008
+        },
+        {
+          "case": "hidden_candidate",
+          "passed": true,
+          "seconds": 0.005
+        },
+        {
+          "case": "feedback_no_xp",
+          "passed": true,
+          "seconds": 0.015
+        },
+        {
+          "case": "deduplication",
+          "passed": true,
+          "seconds": 0.007
+        },
+        {
+          "case": "forged_review_rejected",
+          "passed": true,
+          "seconds": 0.005
+        },
+        {
+          "case": "source_conflict",
+          "passed": true,
+          "seconds": 0.006
+        },
+        {
+          "case": "provider_offline_fallback",
+          "passed": true,
+          "seconds": 0.005
+        },
+        {
+          "case": "learn_apply_observe_credit_once",
+          "passed": true,
+          "seconds": 0.019
+        }
+      ],
+      "passed": 15,
+      "total": 16,
+      "live_external_services": "NOT_TESTED"
+    },
+    "revised": {
+      "cases": [
+        {
+          "case": "conflicting_knowledge",
+          "passed": true,
+          "seconds": 0.03
+        },
+        {
+          "case": "topic_switch",
+          "passed": true,
+          "seconds": 0.011
+        },
+        {
+          "case": "verified_action_recovery",
+          "passed": true,
+          "seconds": 0.012
+        },
+        {
+          "case": "multi_turn_memory",
+          "passed": true,
+          "seconds": 0.018
+        },
+        {
+          "case": "correction",
+          "passed": true,
+          "seconds": 0.024
+        },
+        {
+          "case": "reference_resolution",
+          "passed": true,
+          "seconds": 0.014
+        },
+        {
+          "case": "unknown",
+          "passed": true,
+          "seconds": 0.007
+        },
+        {
+          "case": "restart_memory",
+          "passed": true,
+          "seconds": 0.014
+        },
+        {
+          "case": "review_then_human",
+          "passed": true,
+          "seconds": 0.008
+        },
+        {
+          "case": "hidden_candidate",
+          "passed": true,
+          "seconds": 0.004
+        },
+        {
+          "case": "feedback_no_xp",
+          "passed": true,
+          "seconds": 0.015
+        },
+        {
+          "case": "deduplication",
+          "passed": true,
+          "seconds": 0.004
+        },
+        {
+          "case": "forged_review_rejected",
+          "passed": true,
+          "seconds": 0.007
+        },
+        {
+          "case": "source_conflict",
+          "passed": true,
+          "seconds": 0.005
+        },
+        {
+          "case": "provider_offline_fallback",
+          "passed": true,
+          "seconds": 0.006
+        },
+        {
+          "case": "learn_apply_observe_credit_once",
+          "passed": true,
+          "seconds": 0.019
+        }
+      ],
+      "passed": 16,
+      "total": 16,
+      "live_external_services": "NOT_TESTED"
+    }
+  }
 }

@@ -32,7 +32,14 @@ class KnowledgeGraph:
         for fact in self.facts:
             if fact['subject']==str(subject) and fact['predicate']==str(predicate) and fact['object']!=str(object_):
                 fact['contradicted_by']={'object':str(object_),'confidence':float(confidence),'source':str(source)}
-        return self.add_fact(subject,predicate,object_,confidence,source)
+                fact['superseded']=True
+        # Only this explicit, gated correction resolves competing values.
+        # Adding a newer observation alone is not a resolution.
+        row=self.add_fact(subject,predicate,object_,confidence,source)
+        row.pop('superseded',None)
+        row.pop('contradicted_by',None)
+        self._save()
+        return row
 
     def query(self,term,limit=20):
         t=str(term).lower(); return [f for f in self.facts if t in ' '.join(str(v).lower() for v in f.values())][:int(limit)]
