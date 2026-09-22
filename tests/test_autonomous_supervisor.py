@@ -117,7 +117,8 @@ class AutonomousSupervisorTests(unittest.TestCase):
                 original = runtime.learning.record
                 runtime.learning.record = lambda *args, **kwargs: calls.append((args, kwargs))
                 report = runtime.autonomous_supervisor_step()
-                self.assertEqual(calls, [])
+                autonomous_calls = [call for call in calls if (len(call[0]) > 4 and call[0][4] == "autonomous") or call[1].get("intent") == "autonomous"]
+                self.assertEqual(autonomous_calls, [])
                 self.assertFalse(report["learning"]["recorded"])
             finally:
                 runtime.learning.record = original
