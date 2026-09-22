@@ -179,6 +179,55 @@ class AutonomousSupervisorTests(unittest.TestCase):
                 supervisor._choose_action, supervisor.self_awareness.control_next_action = original_choose, original_control
                 runtime.close()
 
+    def test_low_novelty_never_records_autonomous_learning(self):
+        with tempfile.TemporaryDirectory() as directory:
+            runtime = self.make_runtime(directory)
+            supervisor = runtime.autonomous_supervisor
+            original_record, original_lessons = runtime.learning.record, runtime.learning.lessons
+            original_run, original_observe = runtime.registry.run, supervisor.monitor.observe_changes
+            original_control = supervisor.self_awareness.control_next_action
+            try:
+                from core.autonomous_supervisor import EnvironmentSignal
+                calls = []
+                supervisor.monitor.observe_changes = lambda: [EnvironmentSignal("baseline", {"files": 1}, novelty=.2)]
+                runtime.registry.run = lambda action: {"ok": True}
+                runtime.learning.lessons = lambda objective, limit: []
+                runtime.learning.record = lambda *args, **kwargs: calls.append((args, kwargs))
+                supervisor.self_awareness.control_next_action = lambda candidates: {"preferred_action": "project_summary", "reason": "stable", "expected_effect": "maintain awareness"}
+                report = runtime.autonomous_supervisor_step()
+                self.assertEqual([x for x in calls if x[1].get("intent") == "autonomous"], [])
+                self.assertFalse(report["learning"]["purposeful"])
+            finally:
+                runtime.learning.record, runtime.learning.lessons = original_record, original_lessons
+                runtime.registry.run, supervisor.monitor.observe_changes = original_run, original_observe
+                supervisor.self_awareness.control_next_action = original_control
+                runtime.close()
+
+    def test_unverified_observation_never_records_autonomous_learning(self):
+        with tempfile.TemporaryDirectory() as directory:
+            runtime = self.make_runtime(directory)
+            supervisor = runtime.autonomous_supervisor
+            original_record, original_lessons = runtime.learning.record, runtime.learning.lessons
+            original_run, original_observe = runtime.registry.run, supervisor.monitor.observe_changes
+            original_control = supervisor.self_awareness.control_next_action
+            try:
+                from core.autonomous_supervisor import EnvironmentSignal
+                calls = []
+                supervisor.monitor.observe_changes = lambda: [EnvironmentSignal("files_changed", ["x"], novelty=1.0)]
+                runtime.registry.run = lambda action: None
+                runtime.learning.lessons = lambda objective, limit: []
+                runtime.learning.record = lambda *args, **kwargs: calls.append((args, kwargs))
+                supervisor.self_awareness.control_next_action = lambda candidates: {"preferred_action": "project_files", "reason": "novel", "expected_effect": "understand change"}
+                report = runtime.autonomous_supervisor_step()
+                self.assertFalse(report["verified"])
+                self.assertEqual([x for x in calls if x[1].get("intent") == "autonomous"], [])
+                self.assertFalse(report["learning"]["purposeful"])
+            finally:
+                runtime.learning.record, runtime.learning.lessons = original_record, original_lessons
+                runtime.registry.run, supervisor.monitor.observe_changes = original_run, original_observe
+                supervisor.self_awareness.control_next_action = original_control
+                runtime.close()
+
     def test_curriculum_generation_runs_once_per_supervisor_cycle(self):
         with tempfile.TemporaryDirectory() as directory:
             runtime = self.make_runtime(directory)
