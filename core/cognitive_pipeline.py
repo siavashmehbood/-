@@ -45,14 +45,23 @@ class CognitivePipeline:
         except Exception:
             pass
 
-    def verification_evidence(self):
-        # Only stored knowledge and explicit user statements; a previous
-        # generated assistant answer cannot prove its own correctness.
+    def verification_evidence(self, turn_knowledge=None):
+        # Only stored knowledge, retrieved turn knowledge and explicit user
+        # statements. Generated assistant text can never prove itself.
         facts = list(getattr(self.runtime.knowledge, 'facts', []))
+        facts.extend(list(turn_knowledge or []))
         facts.extend(self.runtime.user_model.current_profile(30))
-        facts.extend({'subject':'user', 'predicate':'statement', 'object':row[1]}
+        facts.extend({'subject':'user', 'predicate':'statement', 'object':row[1], 'source':'user_statement'}
                      for row in self.runtime.memory.recent(16) if row[0] == 'user')
-        return facts
+        # Preserve provenance while avoiding duplicate evidence inflation.
+        unique, seen = [], set()
+        for fact in facts:
+            if not isinstance(fact, dict):
+                continue
+            key = (str(fact.get('subject','')), str(fact.get('predicate','')), str(fact.get('object', fact.get('value',''))), str(fact.get('source','')))
+            if key not in seen:
+                seen.add(key); unique.append(fact)
+        return unique
 
     def _persist_answer(self, text, answer, answer_type="DIRECT_FACT", score=.95):
         checked = self.semantic_verifier.verify(
@@ -380,7 +389,7 @@ class CognitivePipeline:
         semantic_check = self.semantic_verifier.verify(
             text, answer, getattr(e.state, "remembered_constraints", []),
             getattr(e.state, "rejected_answers", []),
-            evidence=self.verification_evidence(),
+            evidence=self.verification_evidence(knowledge),
         )
         if not semantic_check.accepted and semantic_check.contradictions:
             answer = "UNKNOWN: پاسخ با محدودیت‌ها یا شواهد معتبر سازگار نیست."
@@ -405,7 +414,7 @@ class CognitivePipeline:
             text, answer,
             constraints=getattr(self.engine.state, "remembered_constraints", []),
             rejected_answers=getattr(self.engine.state, "rejected_answers", []),
-            evidence=self.verification_evidence(),
+            evidence=self.verification_evidence(knowledge),
         )
         if not final_check.accepted:
             answer = "UNKNOWN: پاسخ با شواهد معتبر سازگار نیست یا شواهد کافی وجود ندارد."
