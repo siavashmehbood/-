@@ -360,6 +360,13 @@ class AutonomousSupervisorTests(unittest.TestCase):
         self.assertEqual(actions["files_removed"], "project_files")
         self.assertTrue(all(row["safe"] and row["verified"] for row in report["results"]))
 
+    def test_autonomous_benchmark_is_not_shadowed_by_long_horizon_benchmark(self):
+        from core.autonomous_supervisor import AutonomousBenchmark, LongHorizonWorldBenchmarkV2
+        self.assertIsNot(AutonomousBenchmark, LongHorizonWorldBenchmarkV2)
+        report = AutonomousBenchmark().run()
+        self.assertIn("results", report)
+        self.assertEqual(report["total"], 100)
+
     def test_benchmark_has_100_scenarios(self):
         result = AutonomousBenchmark().run()
         self.assertEqual(result["total"], 100)
