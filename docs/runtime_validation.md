@@ -218,3 +218,17 @@ Full pytest: 452 passed; unittest: 234 passed. Identical runtime suite: 23/24
 before, 24/24 after. New runtime tests check assistant self-confirmation across
 restart and 50 conversation turns with repeated identity corrections and topic
 changes exceeding the working-memory window, followed by successful restart recall.
+
+
+## Structured evidence subject binding
+
+A matching predicate and object previously authorized a statement about a different
+subject. Verification now requires the evidence subject in the same clause as
+its predicate and object, while retaining short-answer and profile handling.
+Regression tests cover a wrong subject, a subject mentioned in an unrelated clause,
+and runtime rejection before the unsupported answer enters memory.
+This is bounded structured consistency checking, not general factual entailment.
+
+Full pytest: 455 passed; unittest: 234 passed. The identical runtime evaluation
+suite passes 24/25 on baseline 2e21f12 and 25/25 after the correction.
+Live external services remain untested.

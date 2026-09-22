@@ -116,3 +116,17 @@ def test_repeated_source_does_not_inflate_observation_count_or_confidence(tmp_pa
     assert observation['first_recorded_at'] and observation['last_recorded_at']
     result=SemanticVerifier().verify('پایتخت ایران کجاست؟','تهران',evidence=graph.facts)
     assert result.evidence_sources==['same source']
+
+
+def test_fact_value_cannot_validate_another_subject():
+    evidence=[{'subject':'ایران','predicate':'پایتخت','object':'تهران'}]
+    result=SemanticVerifier().verify('پایتخت ایران کجاست؟','تهران پایتخت ترکیه است.',evidence=evidence)
+    assert not result.accepted
+    assert result.evidence_status!='SUPPORTED'
+
+
+def test_subject_in_unrelated_clause_cannot_authorize_wrong_relation():
+    evidence=[{'subject':'ایران','predicate':'پایتخت','object':'تهران'}]
+    result=SemanticVerifier().verify('پایتخت ایران کجاست؟',
+        'ایران کشوری آسیایی است؛ تهران پایتخت ترکیه است.',evidence=evidence)
+    assert not result.accepted

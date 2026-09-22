@@ -67,6 +67,7 @@ class SemanticVerifier:
         for fact in facts:
             value = self.tokens(fact.get('object', fact.get('value', '')))
             predicate = self.tokens(fact.get('predicate', ''))
+            subject = self.tokens(fact.get('subject', ''))
             if not value:
                 continue
             for clause in clauses:
@@ -74,7 +75,8 @@ class SemanticVerifier:
                 if not value <= words:
                     continue
                 short_answer = not (words - value - filler)
-                anchored = profile_query or (bool(predicate) and predicate <= words) or short_answer
+                anchored = profile_query or short_answer or (bool(predicate) and bool(subject)
+                                                            and predicate <= words and subject <= words)
                 if not anchored:
                     continue
                 if words & negatives or re.search(r'نمی[‌\s]+باشد', clause):

@@ -174,3 +174,15 @@ def test_fifty_turn_identity_corrections_survive_context_window_and_restart(tmp_
     assert names[-1] in r.handle('اسم من چیست؟')
     assert {'علی','رضا','مریم'} <= {f['object'] for f in r.user_model.facts('name')}
     r.close()
+
+
+def test_wrong_subject_rejected_before_memory_commit(tmp_path):
+    shutil.copy(Path(__file__).parents[1]/'config.json', tmp_path)
+    r = IranRuntime(tmp_path)
+    try:
+        candidate = 'تهران پایتخت ترکیه است.'
+        answer = r.cognitive_system.pipeline._persist_answer('پایتخت ایران کجاست؟', candidate)
+        assert answer.startswith('UNKNOWN:')
+        assert not any(row[0] == 'assistant' and row[1] == candidate for row in r.memory.recent(10))
+    finally:
+        r.close()
