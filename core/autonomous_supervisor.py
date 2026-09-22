@@ -724,4 +724,6 @@ def _canonical_step(self):
     self.last_report = report
     return report
 
-_canonical_step.__name__ = "step"\n_canonical_step.__qualname__ = "AutonomousSupervisor.step"\nAutonomousSupervisor.step = _canonical_step
+_canonical_step.__name__ = "step"
+_canonical_step.__qualname__ = "AutonomousSupervisor.step"
+AutonomousSupervisor.step = _canonical_step
