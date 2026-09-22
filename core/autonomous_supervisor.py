@@ -157,24 +157,78 @@ class AutonomousSupervisor:
             return base
 
     def step(self) -> dict[str, Any]:
+        """Run one canonical, bounded autonomous cycle."""
         self.cycle_count += 1
         signals = self.monitor.observe_changes()
-        proposed = self.initiatives.propose(signals)
-        selected = proposed[0] if proposed else Initiative("maintain situational awareness", "no active initiative", .2, "monitor")
-        action = self._safe_action(selected.goal)
+        signal_text = " ".join(f"{s.kind}:{s.value}" for s in signals)
+        anomaly = self.runtime.anomaly.observe(signal_text or "stable")
+        preliminary = {"anomaly": asdict(anomaly)}
+        candidates = self.scored_initiatives.generate(signals, preliminary)
+        selected = self.scored_initiatives.choose(candidates)
+        if selected is None:
+            selected = Initiative("maintain situational awareness", "no active initiative", .2, "monitor")
+        reasoning = self._reasoning_step(selected, signals)
+        action = self._choose_action(selected)
         result = self.runtime.registry.run(action)
+        verified = result is not None
+        selected_data = selected.snapshot() if hasattr(selected, "snapshot") else asdict(selected)
         report = {
-            "cycle": self.cycle_count,
-            "signals": [asdict(x) for x in signals],
-            "initiatives": [asdict(x) for x in proposed],
-            "selected": asdict(selected),
+            "cycle": self.cycle_count, "signals": [asdict(x) for x in signals],
+            "initiatives": self.scored_initiatives.snapshot(candidates),
+            "selected": selected_data, "reasoning": reasoning,
             "decision": {"action": action, "permission": "read", "safe": True},
-            "observation": result,
-            "verified": result is not None,
+            "observation": result, "verified": verified,
+            "reflection": reasoning.get("reflection"),
             "time": datetime.now().isoformat(timespec="seconds"),
         }
+        signature = selected_data.get("goal")
+        if signature == self._goal_signature:
+            self._goal_stagnation += 1
+        else:
+            self._goal_signature, self._goal_stagnation = signature, 0
+        report["stagnation"] = {"detected": self._goal_stagnation >= 3, "cycles": self._goal_stagnation}
+        try:
+            plan = self.runtime.orchestrator.planner.build(signature)
+            report["plan"] = {"goal": plan.goal, "status": plan.status, "version": plan.version,
+                              "strategy": plan.strategy, "assumptions": list(plan.assumptions),
+                              "steps": [asdict(s) for s in plan.steps]}
+        except Exception as exc:
+            report["plan"] = {"goal": signature, "status": "unavailable", "reason": type(exc).__name__}
+        active = self.runtime.goals.list(status="active")
+        if active:
+            goal = active[0]
+            plan = self.runtime.orchestrator.planner.build(goal.get("title", ""))
+            state, _ = self.goal_runner.advance(goal, plan)
+            report["long_horizon"] = {"goal_id": goal.get("id"), "goal": goal.get("title"),
+                                      "status": state.get("status"), "step": state.get("step", 0),
+                                      "total_steps": len(plan.steps), "last": state.get("last")}
+            if state.get("status") == "completed":
+                self.runtime.goals.complete(goal.get("id"))
+        else:
+            report["long_horizon"] = {"status": "no_active_goal"}
+        self.self_awareness.observe(signature or "observe", action, .9 if verified else .1, verified)
+        report["self_awareness"] = self.self_awareness.introspect()
+        try:
+            control = self.self_awareness.control_next_action(["project_summary", "project_files", "memory_search"])
+            report["self_awareness_control"] = control
+            report["decision"]["next_action"] = control["preferred_action"]
+        except Exception as exc:
+            report["self_awareness_control"] = {"error": type(exc).__name__}
+        entry = self.journal.append(report)
+        report["autonomy_status"] = self.journal.summary()
+        report["decision_explanation"] = {"trigger": entry.get("signals", []), "selected_goal": entry.get("goal"),
+                                          "why": entry.get("reason"), "chosen_action": entry.get("action"),
+                                          "verified": entry.get("verified")}
+        try:
+            report["curriculum_learning"] = self.runtime.generate_curriculum_learning_inputs(24)
+        except Exception as exc:
+            report["curriculum_learning"] = {"ok": False, "error": type(exc).__name__}
+        report["learning"] = {"recorded": False, "verified": verified, "purposeful": False,
+                              "novelty": max((float(getattr(s, "novelty", 0)) for s in signals), default=0),
+                              "reason": "routine_or_repeated_observation"}
         self.last_report = report
-        self.runtime.events.emit("initiative_detected", {"selected": asdict(selected), "count": len(proposed)})
+        self.runtime.events.emit("self_awareness_updated", report["self_awareness"])
+        self.runtime.events.emit("self_awareness_control", report["self_awareness_control"])
         self.runtime.events.emit("supervisor_cycle", report)
         return report
 
