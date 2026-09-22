@@ -91,19 +91,24 @@
   "current": {
     "cases": [
       {
+        "case": "structured_queue_recovery",
+        "passed": true,
+        "seconds": 0.022
+      },
+      {
         "case": "numeric_evidence",
         "passed": true,
-        "seconds": 0.023
+        "seconds": 0.011
       },
       {
         "case": "remembered_constraints",
         "passed": true,
-        "seconds": 0.007
+        "seconds": 0.005
       },
       {
         "case": "subject_binding",
         "passed": true,
-        "seconds": 0.006
+        "seconds": 0.005
       },
       {
         "case": "assistant_not_evidence",
@@ -113,22 +118,22 @@
       {
         "case": "offline_permission_recovery",
         "passed": true,
-        "seconds": 0.01
+        "seconds": 0.006
       },
       {
         "case": "diagnostic_not_learning",
         "passed": true,
-        "seconds": 0.044
+        "seconds": 0.025
       },
       {
         "case": "sandbox_boundary",
         "passed": true,
-        "seconds": 0.007
+        "seconds": 0.005
       },
       {
         "case": "corroborating_sources",
         "passed": true,
-        "seconds": 0.021
+        "seconds": 0.018
       },
       {
         "case": "corrupt_reviewer_state",
@@ -138,22 +143,22 @@
       {
         "case": "recover_then_learn",
         "passed": true,
-        "seconds": 0.015
+        "seconds": 0.017
       },
       {
         "case": "knowledge_correction",
         "passed": true,
-        "seconds": 0.013
+        "seconds": 0.027
       },
       {
         "case": "conflicting_knowledge",
         "passed": true,
-        "seconds": 0.013
+        "seconds": 0.014
       },
       {
         "case": "topic_switch",
         "passed": true,
-        "seconds": 0.009
+        "seconds": 0.01
       },
       {
         "case": "verified_action_recovery",
@@ -163,22 +168,22 @@
       {
         "case": "multi_turn_memory",
         "passed": true,
-        "seconds": 0.014
+        "seconds": 0.013
       },
       {
         "case": "correction",
         "passed": true,
-        "seconds": 0.018
+        "seconds": 0.019
       },
       {
         "case": "reference_resolution",
         "passed": true,
-        "seconds": 0.015
+        "seconds": 0.016
       },
       {
         "case": "unknown",
         "passed": true,
-        "seconds": 0.009
+        "seconds": 0.011
       },
       {
         "case": "restart_memory",
@@ -193,7 +198,7 @@
       {
         "case": "hidden_candidate",
         "passed": true,
-        "seconds": 0.006
+        "seconds": 0.005
       },
       {
         "case": "feedback_no_xp",
@@ -208,12 +213,12 @@
       {
         "case": "forged_review_rejected",
         "passed": true,
-        "seconds": 0.005
+        "seconds": 0.006
       },
       {
         "case": "source_conflict",
         "passed": true,
-        "seconds": 0.006
+        "seconds": 0.008
       },
       {
         "case": "provider_offline_fallback",
@@ -223,11 +228,11 @@
       {
         "case": "learn_apply_observe_credit_once",
         "passed": true,
-        "seconds": 0.023
+        "seconds": 0.02
       }
     ],
-    "passed": 27,
-    "total": 27,
+    "passed": 28,
+    "total": 28,
     "live_external_services": "NOT_TESTED"
   },
   "baseline_commit": "5476939e50852f550d3cd67acc4f1e8319b9612e",
@@ -1070,6 +1075,19 @@
       "total": 27
     },
     "pytest_passed": 461,
+    "unittest_passed": 234
+  },
+  "queue_structure_checkpoint": {
+    "baseline_commit": "9b0bfa39b0965886d0cc1cf99259b6b5e4f94385",
+    "before": {
+      "passed": 27,
+      "total": 28
+    },
+    "after": {
+      "passed": 28,
+      "total": 28
+    },
+    "pytest_passed": 467,
     "unittest_passed": 234
   }
 }

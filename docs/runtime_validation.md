@@ -261,3 +261,20 @@ unit conversion, scientific notation or general arithmetic equivalence.
 
 Full pytest: 461 passed; unittest: 234 passed. Identical runtime evaluation:
 26/27 on 4509b88, 27/27 after. Qt tests run offscreen.
+
+
+## Structural learning-queue recovery
+
+The approval store previously checked only JSON syntax and the top-level list.
+Malformed rows could hide decisions or crash later queue reads even when a valid
+backup existed. The gate now validates row identity, kind, payload, decision state
+and unique proposal IDs on initial load and every locked reload. Unrecoverable
+state raises StateCorruptionError without replacing the file. A validated backup
+is restored before later saves can overwrite it with a structurally invalid
+primary. Other stores retain their existing loader behavior unless they supply
+a validator; this is not a claim of comprehensive schema validation everywhere.
+
+Six regressions cover recovery, preservation of approved history, malformed
+states, unrecoverable state and reloads. Full pytest: 467 passed; unittest: 234
+passed. Identical runtime evaluation: 27/28 on 9b0bfa3, 28/28 after, including
+restart recovery, duplicate prevention and no XP creation during recovery.

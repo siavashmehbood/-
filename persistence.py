@@ -90,7 +90,7 @@ def json_transaction(path, default):
 class StateCorruptionError(RuntimeError):
     """Existing durable state cannot be read; never silently reset it."""
 
-def load_critical_json(path, default):
+def load_critical_json(path, default, validator=None):
     path = Path(path)
     present = False
     for candidate in (path, path.with_suffix(path.suffix + '.bak')):
@@ -99,8 +99,12 @@ def load_critical_json(path, default):
         present = True
         try:
             value = json.loads(candidate.read_text(encoding='utf-8'))
-            if not isinstance(value, type(default)):
+            if not isinstance(value, type(default)) or (validator is not None and not validator(value)):
                 continue
+            if validator is not None and candidate != path:
+                # A syntactically valid but structurally corrupt primary must
+                # not overwrite the known-good backup on the next save.
+                atomic_write_json(path, value, backup=False)
             return value
         except (OSError, ValueError, UnicodeError):
             continue

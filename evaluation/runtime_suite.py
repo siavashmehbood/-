@@ -223,7 +223,25 @@ def run(repository):
             require(pipeline._persist_answer('مقدار نمونه چیست؟','مقدار نمونه 12.5 است.').startswith('UNKNOWN:'), 'numeric sign lost')
         finally:
             restored.close()
-    for name, operation in [('numeric_evidence',numeric_evidence), ('remembered_constraints',remembered_constraints), ('subject_binding',subject_binding), ('assistant_not_evidence',assistant_not_evidence), ('offline_permission_recovery',offline_permission_recovery), ('diagnostic_not_learning',diagnostic_not_learning), ('sandbox_boundary',sandbox_boundary), ('corroborating_sources',corroborating_sources), ('corrupt_reviewer_state',corrupt_reviewer_state), ('recover_then_learn',recover_then_learn), ('knowledge_correction',knowledge_correction), ('conflicting_knowledge',conflicting_knowledge), ('topic_switch',topic_switch), ('verified_action_recovery',verified_action), ('multi_turn_memory',recall), ('correction',correction), ('reference_resolution',reference), ('unknown',unknown), ('restart_memory',restart), ('review_then_human',approval), ('hidden_candidate',hidden), ('feedback_no_xp',feedback), ('deduplication',duplicate), ('forged_review_rejected',forged), ('source_conflict',conflict), ('provider_offline_fallback',provider), ('learn_apply_observe_credit_once',reuse)]:
+    def structured_queue_recovery(r):
+        from persistence import atomic_write_json
+        proposal=r.learning_gate.request('knowledge.add_fact', {'subject':'صف','predicate':'وضعیت','object':'سالم','source':'queue_fixture'})
+        mark_chatgpt_correct(r,proposal['proposal_id'],'test fixture only')
+        require(r.approve_learning(proposal['proposal_id'])['ok'], 'fixture approval failed')
+        path=r.learning_gate.path
+        atomic_write_json(path,json.loads(path.read_text(encoding='utf-8')))
+        root=r.root
+        r.close()
+        path.write_text('[{}]',encoding='utf-8')
+        restored=IranRuntime(root)
+        try:
+            require(restored.learning_gate.get(proposal['proposal_id'])['status']=='approved', 'approval lost in structural recovery')
+            repeated=restored.learning_gate.request(proposal['kind'],proposal['payload'])
+            require(repeated['proposal_id']==proposal['proposal_id'] and repeated['status']=='approved', 'recovery duplicated learning')
+            require(restored.effect_learning.stats()['xp']==0, 'queue recovery minted XP')
+        finally:
+            restored.close()
+    for name, operation in [('structured_queue_recovery',structured_queue_recovery), ('numeric_evidence',numeric_evidence), ('remembered_constraints',remembered_constraints), ('subject_binding',subject_binding), ('assistant_not_evidence',assistant_not_evidence), ('offline_permission_recovery',offline_permission_recovery), ('diagnostic_not_learning',diagnostic_not_learning), ('sandbox_boundary',sandbox_boundary), ('corroborating_sources',corroborating_sources), ('corrupt_reviewer_state',corrupt_reviewer_state), ('recover_then_learn',recover_then_learn), ('knowledge_correction',knowledge_correction), ('conflicting_knowledge',conflicting_knowledge), ('topic_switch',topic_switch), ('verified_action_recovery',verified_action), ('multi_turn_memory',recall), ('correction',correction), ('reference_resolution',reference), ('unknown',unknown), ('restart_memory',restart), ('review_then_human',approval), ('hidden_candidate',hidden), ('feedback_no_xp',feedback), ('deduplication',duplicate), ('forged_review_rejected',forged), ('source_conflict',conflict), ('provider_offline_fallback',provider), ('learn_apply_observe_credit_once',reuse)]:
         case(name, operation)
     return {'cases': results, 'passed': sum(x['passed'] for x in results), 'total': len(results), 'live_external_services': 'NOT_TESTED'}
 

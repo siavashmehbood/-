@@ -20,8 +20,24 @@ class LearningGate:
     def __init__(self, path):
         self.path=Path(path); self.path.parent.mkdir(parents=True,exist_ok=True)
         self._local=threading.local(); self._lock=threading.RLock()
-        self._rows=load_critical_json(self.path,[])
+        self._rows=load_critical_json(self.path,[],validator=self._valid_rows)
         if not isinstance(self._rows,list): self._rows=[]
+
+    @staticmethod
+    def _valid_rows(rows):
+        seen = set()
+        for row in rows:
+            if not isinstance(row, dict):
+                return False
+            proposal_id = row.get('proposal_id')
+            if (not isinstance(proposal_id, str) or not proposal_id or proposal_id in seen
+                    or not isinstance(row.get('kind'), str) or not row['kind']
+                    or not isinstance(row.get('payload'), dict)
+                    or not isinstance(row.get('status'), str)
+                    or row['status'] not in {'pending', 'approved', 'rejected'}):
+                return False
+            seen.add(proposal_id)
+        return True
 
     @contextmanager
     def _process_lock(self):
@@ -41,7 +57,7 @@ class LearningGate:
                 elif fcntl is not None:
                     fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
                     locked = True
-                self._rows = load_critical_json(self.path, [])
+                self._rows = load_critical_json(self.path, [], validator=self._valid_rows)
                 if not isinstance(self._rows, list):
                     self._rows = []
                 yield

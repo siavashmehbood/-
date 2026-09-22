@@ -131,3 +131,36 @@ def test_goal_backup_recovers_even_when_primary_missing(tmp_path):
     goal=goals.create_goal('ریاضی');goals._save();path.unlink()
     restored=SelfDirectedLearning(path)
     assert restored.goals[0].goal_id==goal['goal_id']
+
+
+@pytest.mark.parametrize('broken', [[None], [{}], [{'proposal_id': 'x', 'kind': 'test', 'payload': {}, 'status': 'unknown'}], [{'proposal_id': 'x', 'kind': 'test', 'payload': {}, 'status': []}]])
+def test_gate_structural_corruption_recovers_and_preserves_valid_backup(tmp_path, broken):
+    path = tmp_path / 'gate.json'
+    gate = LearningGate(path)
+    row = gate.request('test', {'claim': 'retained'})
+    gate.decide(row['proposal_id'], 'approved')
+    atomic_write_json(path, json.loads(path.read_text()))
+    path.write_text(json.dumps(broken))
+    restored = LearningGate(path)
+    assert restored.get(row['proposal_id'])['status'] == 'approved'
+    restored.request('test', {'claim': 'new'})
+    backup = json.loads(path.with_suffix('.json.bak').read_text())
+    assert backup[0]['proposal_id'] == row['proposal_id']
+    assert backup[0]['status'] == 'approved'
+
+
+def test_gate_structural_corruption_without_backup_fails_closed(tmp_path):
+    path = tmp_path / 'gate.json'
+    path.write_text('[{}]')
+    with pytest.raises(StateCorruptionError):
+        LearningGate(path)
+    assert path.read_text() == '[{}]'
+
+
+def test_gate_checks_structure_on_every_reload(tmp_path):
+    path = tmp_path / 'gate.json'
+    gate = LearningGate(path)
+    path.write_text('[{}]')
+    with pytest.raises(StateCorruptionError):
+        gate.request('test', {'claim': 'must not overwrite'})
+    assert path.read_text() == '[{}]'
