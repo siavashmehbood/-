@@ -448,8 +448,8 @@ class CognitivePipeline:
             confidence=float(verification.score),
             sources=list(getattr(synthesis, "sources", []) or []),
             elapsed_ms=round((datetime.now() - started).total_seconds() * 1000, 2),
-            evidence_status=final_check.evidence_status,
-            evidence_sources=final_check.evidence_sources,
+            evidence_status=("CONFLICTING" if "conflicting_evidence" in verification.reasons else final_check.evidence_status),
+            evidence_sources=list(dict.fromkeys(list(semantic_check.evidence_sources) + list(final_check.evidence_sources))),
         )
         e.last_trace = trace
         e.memory_context = memory_context
