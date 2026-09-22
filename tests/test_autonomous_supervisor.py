@@ -319,6 +319,36 @@ class AutonomousSupervisorTests(unittest.TestCase):
                 runtime.learning.record = original
                 runtime.close()
 
+    def test_reasoning_retains_prediction_reflection_without_dialogue_kernel(self):
+        with tempfile.TemporaryDirectory() as directory:
+            runtime = self.make_runtime(directory)
+            try:
+                report = runtime.autonomous_supervisor_step()
+                reasoning = report["reasoning"]
+                self.assertIn("predictions", reasoning)
+                self.assertIn("reflection", reasoning)
+                self.assertIn("confidence", reasoning)
+                self.assertIn("hypotheses", reasoning)
+                self.assertIsInstance(reasoning["hypotheses"], list)
+                self.assertGreaterEqual(reasoning["confidence"], 0.0)
+                self.assertLessEqual(reasoning["confidence"], 1.0)
+            finally:
+                runtime.close()
+
+    def test_novel_signal_produces_traceable_non_dialogue_hypothesis(self):
+        with tempfile.TemporaryDirectory() as directory:
+            runtime = self.make_runtime(directory)
+            supervisor = runtime.autonomous_supervisor
+            original = supervisor.monitor.observe_changes
+            try:
+                from core.autonomous_supervisor import EnvironmentSignal
+                supervisor.monitor.observe_changes = lambda: [EnvironmentSignal("files_changed", ["a.py"], novelty=.9)]
+                report = runtime.autonomous_supervisor_step()
+                self.assertIn("signal:files_changed", report["reasoning"]["hypotheses"])
+            finally:
+                supervisor.monitor.observe_changes = original
+                runtime.close()
+
     def test_benchmark_has_100_scenarios(self):
         result = AutonomousBenchmark().run()
         self.assertEqual(result["total"], 100)
