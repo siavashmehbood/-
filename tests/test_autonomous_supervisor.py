@@ -124,6 +124,48 @@ class AutonomousSupervisorTests(unittest.TestCase):
                 runtime.learning.record = original
                 runtime.close()
 
+    def test_purposeful_learning_gate_requires_effect_and_records_once(self):
+        with tempfile.TemporaryDirectory() as directory:
+            runtime = self.make_runtime(directory)
+            try:
+                supervisor = runtime.autonomous_supervisor
+                supervisor.monitor._last_manifest = supervisor.monitor.manifest()
+                target = Path(directory) / "novel.txt"
+                target.write_text("novel", encoding="utf-8")
+                calls = []
+                original_record = runtime.learning.record
+                original_choose = supervisor._choose_action
+                supervisor._choose_action = lambda selected: "project_files"
+                runtime.learning.record = lambda *args, **kwargs: calls.append((args, kwargs)) or {"pending_approval": True}
+                original_run = runtime.registry.run
+                runtime.registry.run = lambda action: {"novel": True}
+                original_lessons = runtime.learning.lessons
+                runtime.learning.lessons = lambda objective, limit: []
+                # Expected effect is deliberately absent: novel observation alone must not learn.
+                report = runtime.autonomous_supervisor_step()
+                autonomous = [x for x in calls if x[1].get("intent") == "autonomous"]
+                self.assertEqual(autonomous, [])
+                self.assertFalse(report["learning"]["purposeful"])
+            finally:
+                runtime.learning.record = original_record
+                runtime.learning.lessons = original_lessons
+                runtime.registry.run = original_run
+                supervisor._choose_action = original_choose
+                runtime.close()
+
+    def test_curriculum_generation_runs_once_per_supervisor_cycle(self):
+        with tempfile.TemporaryDirectory() as directory:
+            runtime = self.make_runtime(directory)
+            try:
+                calls = []
+                original = runtime.generate_curriculum_learning_inputs
+                runtime.generate_curriculum_learning_inputs = lambda count: calls.append(count) or {"ok": True, "created": 0, "review_queue": {"pending": 0}}
+                runtime.autonomous_supervisor_step()
+                self.assertEqual(calls, [24])
+            finally:
+                runtime.generate_curriculum_learning_inputs = original
+                runtime.close()
+
     def test_benchmark_has_100_scenarios(self):
         result = AutonomousBenchmark().run()
         self.assertEqual(result["total"], 100)
