@@ -662,7 +662,7 @@ def _choose_action_v3(self, initiative):
 # v0.49: verified autonomous observations close the learning loop for low-risk read-only work.
 _previous_autonomous_step = AutonomousSupervisor.step
 
-def _step_v10(self):
+def _canonical_step(self):
     report = _previous_autonomous_step(self)
     # Canonical autonomous learning intake: every supervisor cycle emits a fresh,
     # diverse batch from the curriculum. It creates reviewable goals only; no
@@ -724,4 +724,4 @@ def _step_v10(self):
     self.last_report = report
     return report
 
-AutonomousSupervisor.step = _step_v10
+_canonical_step.__name__ = "step"\n_canonical_step.__qualname__ = "AutonomousSupervisor.step"\nAutonomousSupervisor.step = _canonical_step
