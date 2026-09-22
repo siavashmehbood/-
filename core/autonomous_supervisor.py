@@ -313,9 +313,19 @@ class AutonomousBenchmark:
 
     @staticmethod
     def _decision(signal):
-        if signal in {"files_changed", "files_added", "files_removed"}:
-            return "project_files"
-        return "project_summary"
+        goal = {
+            "files_changed": "inspect project changes",
+            "files_added": "inspect project changes",
+            "files_removed": "inspect removed project files",
+            "baseline": "maintain situational awareness",
+        }.get(signal, "maintain situational awareness")
+        mapping = {
+            "inspect project changes": "project_files",
+            "inspect removed project files": "project_files",
+            "investigate unusual project state": "project_files",
+            "maintain situational awareness": "project_summary",
+        }
+        return mapping.get(goal, "project_summary")
 
     def run(self, supervisor: AutonomousSupervisor | None = None) -> dict[str, Any]:
         passed = 0
