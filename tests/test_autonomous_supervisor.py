@@ -100,6 +100,15 @@ class AutonomousSupervisorTests(unittest.TestCase):
         self.assertEqual(AutonomousSupervisor.__init__.__qualname__, "AutonomousSupervisor.__init__")
         self.assertEqual(AutonomousSupervisor._choose_action.__qualname__, "AutonomousSupervisor._choose_action")
 
+    def test_supervisor_source_has_no_runtime_method_rebinding(self):
+        from pathlib import Path
+        import core.autonomous_supervisor as supervisor_module
+
+        source = Path(supervisor_module.__file__).read_text(encoding="utf-8")
+        self.assertNotIn("AutonomousSupervisor.step =", source)
+        self.assertNotIn("AutonomousSupervisor.__init__ =", source)
+        self.assertNotIn("AutonomousSupervisor._choose_action =", source)
+
     def test_benchmark_has_100_scenarios(self):
         result = AutonomousBenchmark().run()
         self.assertEqual(result["total"], 100)
