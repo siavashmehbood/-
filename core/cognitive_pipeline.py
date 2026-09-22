@@ -55,7 +55,12 @@ class CognitivePipeline:
         return facts
 
     def _persist_answer(self, text, answer, answer_type="DIRECT_FACT", score=.95):
-        checked = self.semantic_verifier.verify(text, answer, evidence=self.verification_evidence())
+        checked = self.semantic_verifier.verify(
+            text, answer,
+            constraints=getattr(self.engine.state, "remembered_constraints", []),
+            rejected_answers=getattr(self.engine.state, "rejected_answers", []),
+            evidence=self.verification_evidence(),
+        )
         score = min(score, checked.score)
         if not checked.accepted:
             answer = "UNKNOWN: پاسخ تولیدشده بررسی سازگاری را نگذرانده است."
@@ -395,7 +400,12 @@ class CognitivePipeline:
 
         # Validate the repaired answer before accepting or storing it. The
         # final outer checker must not be the first to see a contradiction.
-        final_check = self.semantic_verifier.verify(text, answer, evidence=self.verification_evidence())
+        final_check = self.semantic_verifier.verify(
+            text, answer,
+            constraints=getattr(self.engine.state, "remembered_constraints", []),
+            rejected_answers=getattr(self.engine.state, "rejected_answers", []),
+            evidence=self.verification_evidence(),
+        )
         if not final_check.accepted:
             answer = "UNKNOWN: پاسخ با شواهد معتبر سازگار نیست یا شواهد کافی وجود ندارد."
             verification.status = "UNKNOWN"

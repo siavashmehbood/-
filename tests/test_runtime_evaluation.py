@@ -186,3 +186,19 @@ def test_wrong_subject_rejected_before_memory_commit(tmp_path):
         assert not any(row[0] == 'assistant' and row[1] == candidate for row in r.memory.recent(10))
     finally:
         r.close()
+
+
+@pytest.mark.parametrize('constraint,candidate', [
+    ('آفلاین', 'برای سیستم از API استفاده کن.'),
+    ('بدون api', 'برای سیستم از API استفاده کن.'),
+])
+def test_short_route_enforces_remembered_constraints_before_commit(tmp_path, constraint, candidate):
+    shutil.copy(Path(__file__).parents[1]/'config.json', tmp_path)
+    r = IranRuntime(tmp_path)
+    try:
+        r.dialogue.state.remembered_constraints = [constraint]
+        result = r.cognitive_system.pipeline._persist_answer('سیستم چیست؟', candidate)
+        assert result.startswith('UNKNOWN:')
+        assert not any(row[0] == 'assistant' and row[1] == candidate for row in r.memory.recent(10))
+    finally:
+        r.close()

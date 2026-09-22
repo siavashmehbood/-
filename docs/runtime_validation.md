@@ -232,3 +232,16 @@ This is bounded structured consistency checking, not general factual entailment.
 Full pytest: 455 passed; unittest: 234 passed. The identical runtime evaluation
 suite passes 24/25 on baseline 2e21f12 and 25/25 after the correction.
 Live external services remain untested.
+
+
+## Final answer constraints
+
+Short-route persistence and the final post-repair check now receive remembered
+constraints and rejected answers, matching the earlier semantic check. Two
+runtime regressions reproduced short-route acceptance of an API recommendation
+under stored offline/no-API constraints. Both now reject before memory commit.
+The existing keyword-based constraint checker remains limited; this change closes
+a routing omission, not general semantic instruction following.
+
+Full pytest: 457 passed; unittest: 234 passed. Identical runtime evaluation:
+25/26 on 7985d57, 26/26 after. Qt tests run with the offscreen platform.

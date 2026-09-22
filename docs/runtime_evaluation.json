@@ -91,64 +91,69 @@
   "current": {
     "cases": [
       {
+        "case": "remembered_constraints",
+        "passed": true,
+        "seconds": 0.018
+      },
+      {
         "case": "subject_binding",
-        "passed": true,
-        "seconds": 0.015
-      },
-      {
-        "case": "assistant_not_evidence",
-        "passed": true,
-        "seconds": 0.01
-      },
-      {
-        "case": "offline_permission_recovery",
-        "passed": true,
-        "seconds": 0.006
-      },
-      {
-        "case": "diagnostic_not_learning",
-        "passed": true,
-        "seconds": 0.04
-      },
-      {
-        "case": "sandbox_boundary",
         "passed": true,
         "seconds": 0.007
       },
       {
+        "case": "assistant_not_evidence",
+        "passed": true,
+        "seconds": 0.011
+      },
+      {
+        "case": "offline_permission_recovery",
+        "passed": true,
+        "seconds": 0.009
+      },
+      {
+        "case": "diagnostic_not_learning",
+        "passed": true,
+        "seconds": 0.043
+      },
+      {
+        "case": "sandbox_boundary",
+        "passed": true,
+        "seconds": 0.008
+      },
+      {
         "case": "corroborating_sources",
         "passed": true,
-        "seconds": 0.021
+        "seconds": 0.022
       },
       {
         "case": "corrupt_reviewer_state",
         "passed": true,
-        "seconds": 0.006
+        "seconds": 0.008
       },
       {
         "case": "recover_then_learn",
         "passed": true,
-        "seconds": 0.017
+        "seconds": 0.016
       },
       {
         "case": "knowledge_correction",
         "passed": true,
-        "seconds": 0.015
+        "seconds": 0.016
       },
       {
         "case": "conflicting_knowledge",
         "passed": true,
-        "seconds": 0.013
+        "seconds": 0.018
       },
       {
         "case": "topic_switch",
         "passed": true,
-        "seconds": 0.01
+        "seconds": 0.014
       },
       {
         "case": "verified_action_recovery",
         "passed": true,
-        "seconds": 0.011
+        "seconds": 0.012
       },
       {
         "case": "multi_turn_memory",
@@ -163,22 +168,22 @@
       {
         "case": "reference_resolution",
         "passed": true,
-        "seconds": 0.014
+        "seconds": 0.016
       },
       {
         "case": "unknown",
         "passed": true,
-        "seconds": 0.009
+        "seconds": 0.01
       },
       {
         "case": "restart_memory",
         "passed": true,
-        "seconds": 0.014
+        "seconds": 0.016
       },
       {
         "case": "review_then_human",
         "passed": true,
-        "seconds": 0.01
+        "seconds": 0.009
       },
       {
         "case": "hidden_candidate",
@@ -198,12 +203,12 @@
       {
         "case": "forged_review_rejected",
         "passed": true,
-        "seconds": 0.005
+        "seconds": 0.006
       },
       {
         "case": "source_conflict",
         "passed": true,
-        "seconds": 0.005
+        "seconds": 0.007
       },
       {
         "case": "provider_offline_fallback",
@@ -213,11 +218,11 @@
       {
         "case": "learn_apply_observe_credit_once",
         "passed": true,
-        "seconds": 0.018
+        "seconds": 0.021
       }
     ],
-    "passed": 25,
-    "total": 25,
+    "passed": 26,
+    "total": 26,
     "live_external_services": "NOT_TESTED"
   },
   "baseline_commit": "5476939e50852f550d3cd67acc4f1e8319b9612e",
@@ -1034,6 +1039,19 @@
       "total": 25
     },
     "pytest_passed": 455,
+    "unittest_passed": 234
+  },
+  "constraint_checkpoint": {
+    "baseline_commit": "7985d575e28cbe3301e932bd2bf0e006ee8b210d",
+    "before": {
+      "passed": 25,
+      "total": 26
+    },
+    "after": {
+      "passed": 26,
+      "total": 26
+    },
+    "pytest_passed": 457,
     "unittest_passed": 234
   }
 }
