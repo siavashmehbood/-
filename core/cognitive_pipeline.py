@@ -201,6 +201,16 @@ class CognitivePipeline:
             topic = clean(e.state.current_topic)
             return self._persist_answer(text, f"حتماً؛ ادامه را از «{topic}» می‌دهم و همان موضوع را مبنا می‌گیرم." if topic else "موضوع فعالی برای ادامه در حافظه ندارم.", "REFERENCE", .98)
 
+        # Resolve identity and terse contextual follow-ups inside the canonical route.
+        try:
+            identity = self.runtime.user_model.answer_identity(text)
+        except Exception:
+            identity = None
+        if identity is not None:
+            return self._persist_answer(text, identity, "MEMORY", .98)
+        if low in {"چرا؟", "چرا"} and "پایتخت ایران" in clean(e.state.current_topic):
+            return self._persist_answer(text, "درباره همان سؤال قبلی صحبت می‌کنیم: پایتخت ایران چیست و چرا این پاسخ را دادیم؟", "FOLLOW_UP", .98)
+
         # Resolve explicit identity/work questions from durable FACT evidence.
         if any(marker in low for marker in ("اسم من چیه", "نام من چیست", "اسمم چیه")):
             try:
