@@ -349,6 +349,17 @@ class AutonomousSupervisorTests(unittest.TestCase):
                 supervisor.monitor.observe_changes = original
                 runtime.close()
 
+    def test_autonomy_benchmark_exercises_distinct_signal_decisions(self):
+        benchmark = AutonomousBenchmark()
+        report = benchmark.run()
+        self.assertTrue(report["success"])
+        actions = {row["signal"]: row["action"] for row in report["results"]}
+        self.assertEqual(actions["baseline"], "project_summary")
+        self.assertEqual(actions["files_changed"], "project_files")
+        self.assertEqual(actions["files_added"], "project_files")
+        self.assertEqual(actions["files_removed"], "project_files")
+        self.assertTrue(all(row["safe"] and row["verified"] for row in report["results"]))
+
     def test_benchmark_has_100_scenarios(self):
         result = AutonomousBenchmark().run()
         self.assertEqual(result["total"], 100)
