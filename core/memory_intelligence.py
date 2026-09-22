@@ -80,12 +80,23 @@ class MemoryIntelligence:
         """Return ranked, outcome-aware candidates; rejected memories are excluded."""
         q = self._norm(query)
         rows = self.memory.search(q, max(20, int(limit) * 5))
+        # Lexical stores can miss Persian follow-ups whose query is mostly a
+        # reference (قبلی/همان/ادامه). In that case recent durable context is
+        # the relevant retrieval pool, not an empty search result.
+        reference_query = bool(re.search(r'\b(قبلی|همان|همون|این|اون|ادامه|قبل)\b', q))
+        if reference_query:
+            seen = {(row[0], row[1]) for row in rows if isinstance(row, (tuple, list)) and len(row) >= 2}
+            for row in self.memory.recent(max(20, int(limit) * 5)):
+                if isinstance(row, (tuple, list)) and len(row) >= 3 and (row[0], row[1]) not in seen:
+                    rows.append(row[:3]); seen.add((row[0], row[1]))
         candidates = []
         for kind, content, created_at in rows:
             status = self._outcome_status(content, state, kind)
             if status == "rejected":
                 continue
             relevance = self._similarity(q, content)
+            if reference_query and kind in {"user", "accepted_answer"}:
+                relevance = max(relevance, .45)
             freshness = self._freshness(created_at)
             meta = self.memory.conn.execute(
                 "SELECT importance,confidence,source FROM memories WHERE kind=? AND content=? LIMIT 1",
