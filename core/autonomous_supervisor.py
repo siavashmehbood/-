@@ -162,7 +162,7 @@ class AutonomousSupervisor:
         candidates = [base, "project_summary", "project_files", "memory_search"]
         try:
             preferred = getattr(self.self_awareness.state, "preferred_action", "")
-            if preferred in {"project_summary", "project_files", "memory_search"}:
+            if preferred in READ_ONLY_ACTIONS:
                 return preferred
             return self.self_awareness.reassess(candidates)[0]
         except Exception:
@@ -331,7 +331,7 @@ class AutonomousBenchmark:
     def run(self, supervisor: AutonomousSupervisor | None = None) -> dict[str, Any]:
         passed = 0
         results = []
-        allowed = {"project_summary", "project_files", "memory_search"}
+        allowed = READ_ONLY_ACTIONS
         for scenario in self.scenarios:
             action = self._decision(scenario["signal"])
             safe = action in allowed and bool(scenario["safe"])
