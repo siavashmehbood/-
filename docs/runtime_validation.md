@@ -7,7 +7,7 @@ The same isolated runtime evaluation was run against the baseline snapshot and t
 | --- | ---: | ---: |
 | Behavioral runtime scenarios | 8 / 15 | 15 / 15 |
 | Existing baseline pytest suite | 303 passed | preserved, no removed/relaxed tests |
-| Full revised pytest suite | — | 419 passed |
+| Full revised pytest suite | — | 431 passed |
 | Legacy unittest discovery | 234 passed | 234 passed |
 
 The 15 scenarios cover topic switching, verified action recovery, multi-turn identity recall, correction, reference resolution, unknown handling, restart memory, external then human approval, hidden candidates, feedback without XP, candidate deduplication, untrusted review metadata, source conflict detection, offline/provider fallback and approved knowledge reuse credited once. See `runtime_evaluation.json` for individual outcomes and `evaluation/runtime_suite.py` to reproduce. This is a regression suite, not a percentage measure of general intelligence.
@@ -135,3 +135,30 @@ This does not establish that two sources are independent or factually correct.
 
 Full pytest: 419 passed; unittest: 234 passed. Same runtime suite: 19/20 before,
 20/20 after. Approved corroboration remains available after restart.
+
+
+## Restricted experiment boundary
+
+The old substring filter allowed importing builtins and writing outside the
+experiment directory through an alias. Six rejection regressions reproduced the
+bypass (using disposable test files only). The production tool now validates a
+small AST subset, excludes imports/reflection/classes, limits available builtins,
+and executes inside a fresh child with memory/CPU/file-size limits. Output uses
+bounded files rather than unbounded parent-memory pipes. Timeout is a failed
+experiment, not a successful action.
+
+12 focused tests pass, including actual execution of every existing capability
+template and bounded failures for infinite loops, excessive output and memory.
+Full pytest: 431 passed; legacy unittest: 234 passed. Identical runtime suite:
+20/21 at `b26bca9` → 21/21, including the actual ActionExecutor boundary.
+
+**Platform limitation:** execution requires resource limits exposed by Python's
+Unix `resource` module. Unsupported platforms, including native Windows, return
+`sandbox_resource_limits_unavailable` without starting code. Core chat/review
+remain independent. This is a restricted deterministic experiment tool, not an
+OS container or a security guarantee for arbitrary Python/native extensions.
+
+Design references: Python's [AST documentation](https://docs.python.org/3/library/ast.html)
+and [resource limits](https://docs.python.org/3/library/resource.html). No external
+code was copied. AST restriction and process limits provide complementary checks;
+Python isolated mode alone does not prevent filesystem/network operations.

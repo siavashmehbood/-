@@ -167,7 +167,17 @@ def run(repository):
         require('تهران' in r.handle('پایتخت ایران کجاست؟'), 'known fact not retrieved')
         require({'reference_a','reference_b'} <= set(r.cognitive_system.last_trace.evidence_sources), 'corroborating source lost')
         require(r.effect_learning.stats()['xp']==0, 'corroboration minted XP')
-    for name, operation in [('corroborating_sources',corroborating_sources), ('corrupt_reviewer_state',corrupt_reviewer_state), ('recover_then_learn',recover_then_learn), ('knowledge_correction',knowledge_correction), ('conflicting_knowledge',conflicting_knowledge), ('topic_switch',topic_switch), ('verified_action_recovery',verified_action), ('multi_turn_memory',recall), ('correction',correction), ('reference_resolution',reference), ('unknown',unknown), ('restart_memory',restart), ('review_then_human',approval), ('hidden_candidate',hidden), ('feedback_no_xp',feedback), ('deduplication',duplicate), ('forged_review_rejected',forged), ('source_conflict',conflict), ('provider_offline_fallback',provider), ('learn_apply_observe_credit_once',reuse)]:
+    def sandbox_boundary(r):
+        marker=r.root/'outside-experiment.txt'
+        code=f"import builtins\nwriter = builtins.open\nwriter({str(marker)!r}, 'w').write('unexpected')"
+        task=r.create_task('sandbox boundary evaluation')
+        blocked=False
+        try:
+            r.actions.execute(task['task_id'],'sandbox_python','must reject',code=code)
+        except PermissionError:
+            blocked=True
+        require(blocked and not marker.exists(), 'sandbox wrote outside experiment directory')
+    for name, operation in [('sandbox_boundary',sandbox_boundary), ('corroborating_sources',corroborating_sources), ('corrupt_reviewer_state',corrupt_reviewer_state), ('recover_then_learn',recover_then_learn), ('knowledge_correction',knowledge_correction), ('conflicting_knowledge',conflicting_knowledge), ('topic_switch',topic_switch), ('verified_action_recovery',verified_action), ('multi_turn_memory',recall), ('correction',correction), ('reference_resolution',reference), ('unknown',unknown), ('restart_memory',restart), ('review_then_human',approval), ('hidden_candidate',hidden), ('feedback_no_xp',feedback), ('deduplication',duplicate), ('forged_review_rejected',forged), ('source_conflict',conflict), ('provider_offline_fallback',provider), ('learn_apply_observe_credit_once',reuse)]:
         case(name, operation)
     return {'cases': results, 'passed': sum(x['passed'] for x in results), 'total': len(results), 'live_external_services': 'NOT_TESTED'}
 
