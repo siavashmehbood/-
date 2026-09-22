@@ -180,6 +180,16 @@ class CognitivePipeline:
         if "پس چه محدودیت" in low:
             constraints = list(dict.fromkeys(e.state.remembered_constraints))
             return self._persist_answer(text, "محدودیت‌های ثبت‌شده: " + "، ".join(constraints) + "." if constraints else "محدودیت صریحی در حافظه پیدا نکردم.", "CONSTRAINT", .99)
+        if "موضوع قبلی رو ادامه بده" in low or "بحث قبلی رو ادامه بده" in low:
+            current = clean(e.state.current_topic)
+            previous = next((clean(x) for x in reversed(e.state.topic_stack)
+                             if clean(x) and clean(x) != current
+                             and not any(m in clean(x) for m in ("موضوع قبلی", "همون قبلی", "ادامه بده"))), "")
+            if previous:
+                e.state.current_topic = previous
+                e.state.references["latest"] = previous
+                e.state.save(e.state_path)
+                return self._persist_answer(text, f"حتماً؛ موضوع قبلی «{previous}» را ادامه می‌دهم.", "REFERENCE", .99)
         if "موضوع قبلی" in low:
             current = clean(e.state.current_topic)
             previous = next((clean(x) for x in reversed(e.state.topic_stack)
@@ -187,6 +197,9 @@ class CognitivePipeline:
                              and not any(m in clean(x) for m in ("موضوع قبلی", "همون قبلی", "ادامه بده"))), "")
             if previous:
                 return self._persist_answer(text, f"موضوع قبلی: «{previous}».", "REFERENCE", .99)
+        if any(x in low for x in ("همون موضوع", "همین موضوع")) or low in {"ادامه بده", "همون قبلی", "همونو"}:
+            topic = clean(e.state.current_topic)
+            return self._persist_answer(text, f"حتماً؛ ادامه را از «{topic}» می‌دهم و همان موضوع را مبنا می‌گیرم." if topic else "موضوع فعالی برای ادامه در حافظه ندارم.", "REFERENCE", .98)
 
         # Resolve explicit identity/work questions from durable FACT evidence.
         if any(marker in low for marker in ("اسم من چیه", "نام من چیست", "اسمم چیه")):
