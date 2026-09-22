@@ -12,8 +12,6 @@ from core.autonomous_goal_runner import AutonomousGoalRunner
 from core.self_awareness import SelfAwarenessEngine
 
 
-@dataclass
-
 READ_ONLY_ACTIONS = {"project_summary", "project_files", "memory_search"}
 SUPERVISOR_GOAL_ACTION_POLICY = {
     "inspect project changes": "project_files",
@@ -26,6 +24,7 @@ SUPERVISOR_GOAL_ACTION_POLICY = {
 def supervisor_policy_action(goal: str) -> str:
     return SUPERVISOR_GOAL_ACTION_POLICY.get(str(goal or ""), "project_summary")
 
+@dataclass
 class EnvironmentSignal:
     kind: str
     value: Any
