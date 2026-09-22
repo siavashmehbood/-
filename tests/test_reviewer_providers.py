@@ -120,3 +120,40 @@ def test_provider_recovers_rate_limit_from_backup(tmp_path):
     assert m.health()[0]['state']=='RATE_LIMITED'
     assert m.review({})['state']=='WAITING_FOR_REVIEWER'
     assert p.calls==0
+
+
+def test_credential_free_policy_blocks_keyed_provider_before_availability(tmp_path):
+    provider = FakeProvider('keyed', {'learn': True})
+    provider.requires_credentials = True
+    provider.availability = lambda: (_ for _ in ()).throw(AssertionError('must not inspect credentials'))
+    internet = InternetAccessManager(tmp_path/'internet.json'); internet.enable()
+    manager = ProviderManager(tmp_path, {'external_access': {'credential_free_only': True}}, internet, [provider])
+    assert manager.health()[0]['reason'] == 'credentials_disallowed'
+    assert manager.review({})['state'] == 'WAITING_FOR_REVIEWER'
+    assert provider.calls == 0
+
+
+def test_credential_free_policy_allows_explicit_anonymous_fixture(tmp_path):
+    provider = FakeProvider('anonymous_fixture', {'learn': False})
+    provider.requires_credentials = False
+    internet = InternetAccessManager(tmp_path/'internet.json'); internet.enable()
+    manager = ProviderManager(tmp_path, {'external_access': {'credential_free_only': True}}, internet, [provider])
+    assert manager.review({})['ok']
+    assert provider.calls == 1
+
+
+def test_runtime_local_provider_config_cannot_override_credential_free_policy(tmp_path):
+    import shutil
+    from runtime.app import IranRuntime
+    shutil.copy(Path(__file__).parents[1]/'config.json', tmp_path)
+    (tmp_path/'reviewers.local.json').write_text(json.dumps({'providers': {'groq': {'enabled': True}}, 'external_access': {'credential_free_only': False}}))
+    runtime = IranRuntime(tmp_path)
+    try:
+        runtime.internet_access.enable()
+        proposal = runtime.learning_gate.request('knowledge.add_fact', {'subject': 'test', 'predicate': 'is', 'object': 'pending'})
+        assert runtime.reviewer_manager.health()[0]['reason'] == 'credentials_disallowed'
+        assert runtime.reviewer_manager.review(proposal)['state'] == 'WAITING_FOR_REVIEWER'
+        assert runtime.learning_gate.get(proposal['proposal_id'])['status'] == 'pending'
+        assert runtime.human_learning_pending() == []
+    finally:
+        runtime.close()

@@ -97,7 +97,7 @@ class IranRuntime:
         self.goals = GoalStore(self.root / self.config["runtime"].get("goals", "data/goals.json"))
         self.internet_access = InternetAccessManager(self.root / "data/internet_access.json")
         reviewer_config = load_json_with_backup(self.root / "reviewers.local.json", self.config.get("reviewers", {}))
-        self.reviewer_manager = ProviderManager(self.root, {"reviewers": reviewer_config}, self.internet_access)
+        self.reviewer_manager = ProviderManager(self.root, {"reviewers": reviewer_config, "external_access": self.config.get("external_access", {})}, self.internet_access)
         self.chatgpt_review_worker.manager = self.reviewer_manager
         if hasattr(self.provider, "reviewer_manager"):
             self.provider.reviewer_manager = self.reviewer_manager

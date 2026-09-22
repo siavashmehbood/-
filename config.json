@@ -117,5 +117,8 @@
       }
     }
   },
-  "learning_sources": []
+  "learning_sources": [],
+  "external_access": {
+    "credential_free_only": true
+  }
 }

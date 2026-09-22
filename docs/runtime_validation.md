@@ -278,3 +278,29 @@ Six regressions cover recovery, preservation of approved history, malformed
 states, unrecoverable state and reloads. Full pytest: 467 passed; unittest: 234
 passed. Identical runtime evaluation: 27/28 on 9b0bfa3, 28/28 after, including
 restart recovery, duplicate prevention and no XP creation during recovery.
+
+
+## Credential-free external access policy
+
+The project now defaults to external_access.credential_free_only=true. The
+runtime passes this policy independently of reviewers.local.json; enabling a
+legacy adapter locally cannot override it. Keyed or undeclared adapters are
+unavailable with credentials_disallowed, visible in Persian in the GUI. No new
+anonymous reviewer is claimed. A fixture explicitly declaring anonymous access
+tests extensibility only, not a live service. Existing free-tier adapters remain
+available to explicit configurations outside the credential-free policy.
+
+Full pytest: 470 passed; unittest: 234 passed. Identical runtime evaluation:
+28/29 on c3d34ad, 29/29 after. Candidates remain pending and hidden from human
+review when no eligible external reviewer exists.
+
+Live anonymous retrieval of https://docs.python.org/3/tutorial/ through the
+production fetch method was attempted and BLOCKED by DNS resolution in this
+execution environment. No credentials were supplied, and no live connection
+success is claimed. Public-source retrieval is not external AI approval.
+
+Research: official Pollinations API docs currently require a key for generation:
+https://github.com/pollinations/pollinations/blob/main/APIDOCS.md
+MediaWiki documents public content retrieval separately from authentication:
+https://www.mediawiki.org/wiki/API:REST_API
+Neither source establishes an unlimited, anonymous AI reviewer for IRAN.

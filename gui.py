@@ -423,7 +423,8 @@ class ChatWindow(QMainWindow):
         except Exception as exc:
             self._dialog("وضعیت ناظر آنلاین", f"خطا در خواندن وضعیت ناظر: {exc}")
             return
-        health = "\n".join(f"{p['provider']}: {p['state']} — {p['reason']}" for p in status.get("providers", []))
+        reasons = {'credentials_disallowed': 'این ناظر به کلید یا حساب نیاز دارد؛ طبق تنظیمات مجاز نیست'}
+        health = "\n".join(f"{p['provider']}: {p['state']} — {reasons.get(p['reason'], p['reason'])}" for p in status.get("providers", []))
         self._dialog("وضعیت ناظر آنلاین", f"صف: {status.get('pending',0)}\nدر انتظار ناظر: {status.get('waiting',0)}\nآماده بازبینی شما: {status.get('human_pending',0)}\nآخرین خطا: {status.get('last_error') or '—'}\n\n{health}")
 
     def paste_clipboard(self):

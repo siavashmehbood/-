@@ -75,6 +75,8 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
         raise ReviewFailure('redirect_blocked')
 
 class ReviewerProvider:
+    requires_credentials = True
+
     def __init__(self, name, config, clock=time.time):
         self.invalid_config = not isinstance(config, dict)
         config = config if isinstance(config, dict) else {}
@@ -155,7 +157,10 @@ class ProviderManager:
         self.path = Path(root)/'data'/'reviewer_health.json'
         self.internet, self.clock = internet, clock
         settings = config.get('reviewers', {})
-        self.invalid_config = not isinstance(settings, dict)
+        access = config.get('external_access', {})
+        valid_access = isinstance(access, dict) and isinstance(access.get('credential_free_only', False), bool)
+        self.credential_free_only = access.get('credential_free_only', False) if valid_access else True
+        self.invalid_config = not isinstance(settings, dict) or not valid_access
         settings = settings if isinstance(settings, dict) else {}
         configured = settings.get('providers', {})
         if not isinstance(configured, dict):
@@ -178,7 +183,10 @@ class ProviderManager:
                      'next_allowed':None, 'last_success':None} for p in self.providers]
         result = [{'provider':'configuration','state':'INVALID_CONFIG','reason':'invalid_manager_configuration'}] if self.invalid_config else []
         for p in self.providers:
-            status, reason = p.availability()
+            if self.credential_free_only and getattr(p, 'requires_credentials', True):
+                status, reason = 'UNAVAILABLE', 'credentials_disallowed'
+            else:
+                status, reason = p.availability()
             entry = dict(stored.get(p.name, {}))
             if status == 'AVAILABLE' and entry.get('next_allowed', 0) > self.clock():
                 status, reason = ('RATE_LIMITED' if entry.get('state') == 'RATE_LIMITED' else 'COOLDOWN'), entry.get('reason', '')
