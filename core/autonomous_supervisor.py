@@ -121,6 +121,24 @@ class AutonomousSupervisor:
             return "project_summary"
         return "project_summary"
 
+    def _choose_action(self, initiative):
+        """Choose a bounded read-only action using the persistent self model."""
+        mapping = {
+            "inspect project changes": "project_files",
+            "inspect removed project files": "project_files",
+            "investigate unusual project state": "project_files",
+            "maintain situational awareness": "project_summary",
+        }
+        base = mapping.get(getattr(initiative, "goal", ""), "project_summary")
+        candidates = [base, "project_summary", "project_files", "memory_search"]
+        try:
+            preferred = getattr(self.self_awareness.state, "preferred_action", "")
+            if preferred in {"project_summary", "project_files", "memory_search"}:
+                return preferred
+            return self.self_awareness.reassess(candidates)[0]
+        except Exception:
+            return base
+
     def step(self) -> dict[str, Any]:
         self.cycle_count += 1
         signals = self.monitor.observe_changes()
@@ -515,7 +533,6 @@ AutonomousSupervisor.step = _step_v6
 
 
 # v0.45b: bind the scored action selector into the supervisor class.
-AutonomousSupervisor._choose_action = _choose_action
 
 
 # v0.46: persistent multi-cycle goal progression.
@@ -602,7 +619,6 @@ def _choose_action_v2(self, initiative):
         return self.self_awareness.reassess(candidates)[0]
     except Exception:
         return base
-AutonomousSupervisor._choose_action = _choose_action_v2
 
 
 # v0.48: self-awareness controls the next cycle, not only introspection.
@@ -629,7 +645,6 @@ def _choose_action_v3(self, initiative):
     if preferred in {'project_summary', 'project_files', 'memory_search'}:
         return preferred
     return _old_choose_action_v2(self, initiative)
-AutonomousSupervisor._choose_action = _choose_action_v3
 
 
 # v0.49: verified autonomous observations close the learning loop for low-risk read-only work.
