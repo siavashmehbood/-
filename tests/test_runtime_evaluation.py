@@ -141,3 +141,36 @@ def test_approved_corroboration_retains_both_sources_without_duplicate_fact(tmp_
     assert {'reference_a','reference_b'} <= set(r.cognitive_system.last_trace.evidence_sources)
     assert r.effect_learning.stats()['xp']==0
     r.close()
+
+
+def test_assistant_memory_cannot_become_self_confirming_fact_after_restart(tmp_path):
+    shutil.copy(Path(__file__).parents[1]/'config.json',tmp_path)
+    r=IranRuntime(tmp_path)
+    r.memory.add('assistant','ماه از پنیر ساخته شده است',.95)
+    r.close()
+    r=IranRuntime(tmp_path)
+    answer=r.handle('جنس ماه چیست؟')
+    assert answer.startswith('UNKNOWN:') and 'پنیر' not in answer
+    assert r.cognitive_system.last_trace.verification_status=='UNKNOWN'
+    assert r.effect_learning.stats()['xp']==0
+    r.close()
+
+
+def test_fifty_turn_identity_corrections_survive_context_window_and_restart(tmp_path):
+    shutil.copy(Path(__file__).parents[1]/'config.json',tmp_path)
+    r=IranRuntime(tmp_path)
+    names=['علی','رضا','علی','مریم','رضا']*2
+    turns=0
+    for index,name in enumerate(names):
+        r.handle(f'من {name} هستم.');turns+=1
+        assert name in r.handle('اسم من چیست؟');turns+=1
+        topic='معماری شناختی ایران' if index%2 else 'فروشگاه کتاب دانا'
+        r.handle(f'موضوع اصلی ما {topic} است.');turns+=1
+        assert 'تهران' in r.handle('پایتخت ایران کجاست؟');turns+=1
+        assert name in r.handle('نام من چیست؟');turns+=1
+    assert turns==50 and r.effect_learning.stats()['xp']==0
+    r.close()
+    r=IranRuntime(tmp_path)
+    assert names[-1] in r.handle('اسم من چیست؟')
+    assert {'علی','رضا','مریم'} <= {f['object'] for f in r.user_model.facts('name')}
+    r.close()

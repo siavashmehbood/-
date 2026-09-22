@@ -7,7 +7,7 @@ The same isolated runtime evaluation was run against the baseline snapshot and t
 | --- | ---: | ---: |
 | Behavioral runtime scenarios | 8 / 15 | 15 / 15 |
 | Existing baseline pytest suite | 303 passed | preserved, no removed/relaxed tests |
-| Full revised pytest suite | — | 446 passed |
+| Full revised pytest suite | — | 452 passed |
 | Legacy unittest discovery | 234 passed | 234 passed |
 
 The 15 scenarios cover topic switching, verified action recovery, multi-turn identity recall, correction, reference resolution, unknown handling, restart memory, external then human approval, hidden candidates, feedback without XP, candidate deduplication, untrusted review metadata, source conflict detection, offline/provider fallback and approved knowledge reuse credited once. See `runtime_evaluation.json` for individual outcomes and `evaluation/runtime_suite.py` to reproduce. This is a regression suite, not a percentage measure of general intelligence.
@@ -200,3 +200,21 @@ The GUI catches write errors, displays OFF and starts no reviewer job.
 Full pytest: 446 passed, including the Qt error path; unittest: 234 passed.
 Identical runtime suite: 22/23 before, 23/23 after. These tests do not call a live
 provider or assume credentials/quota availability.
+
+
+## Grounded memory consolidation
+
+Four new failures exposed legacy wrapper defects: the role filter inspected
+numeric similarity scores rather than roles, discarded relevant memories, then
+an unconditional fallback accepted unrelated recent text and assistant output.
+The synthesizer now has one implementation for fact/memory selection. Roles are
+filtered before scoring; user questions, telemetry and generated assistant answers
+cannot ground factual responses. Unrelated recent text no longer bypasses ranking.
+Relevant explicit user statements remain attributed to memory, not external truth.
+125 lines of wrapper/parallel implementation were removed while preserving all
+prior tests. Superseded facts are excluded from candidate generation.
+
+Full pytest: 452 passed; unittest: 234 passed. Identical runtime suite: 23/24
+before, 24/24 after. New runtime tests check assistant self-confirmation across
+restart and 50 conversation turns with repeated identity corrections and topic
+changes exceeding the working-memory window, followed by successful restart recall.

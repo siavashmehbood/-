@@ -57,3 +57,29 @@ def test_strategy_is_retrieved_from_learning(tmp_path):
     result = synth.synthesize('موضوع پروژه چیست')
 
     assert result.strategy == 'reuse-verified'
+
+
+def test_relevant_memory_survives_role_filter_without_question_fallback():
+    synth=GroundedSynthesizer(memory=MemoryStub([('user','پروژه دانا فروشگاه کتاب است')]))
+    rows=synth._memory('درباره پروژه دانا توضیح بده')
+    assert rows and 'فروشگاه کتاب' in rows[0][1]
+
+
+def test_unrelated_recent_memory_cannot_ground_unknown_question():
+    synth=GroundedSynthesizer(memory=MemoryStub([('user','من امروز به بازار رفتم')]))
+    assert synth.synthesize('جرم سیاره نپتون چیست؟').status=='UNKNOWN'
+
+
+def test_assistant_output_is_not_its_own_factual_evidence():
+    synth=GroundedSynthesizer(memory=MemoryStub([('assistant','ماه از پنیر ساخته شده است')]))
+    assert synth.synthesize('جنس ماه چیست؟').status=='UNKNOWN'
+
+
+def test_telemetry_and_user_questions_are_not_knowledge():
+    synth=GroundedSynthesizer(memory=MemoryStub([
+        ('cognitive_state','پروژه دانا فعال است'),
+        ('user','پروژه دانا چیست؟'),
+        ('user','پروژه دانا فروشگاه کتاب است'),
+    ]))
+    rows=synth._memory('درباره پروژه دانا توضیح بده')
+    assert len(rows)==1 and 'فروشگاه کتاب' in rows[0][1]

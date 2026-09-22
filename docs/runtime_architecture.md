@@ -81,3 +81,9 @@ only a valid boolean in the current permission file. Missing/corrupt state is OF
 a stale backup never restores a previous ON permission after revocation. Explicit
 user enable can repair it. Persistence errors are surfaced and keep this process
 offline; unsuccessful disk writes cannot promise restart durability.
+
+
+`GroundedSynthesizer` uses a single in-class fact/memory implementation. It filters
+raw memory roles before scoring relevance and excludes generated assistant text,
+questions and telemetry from evidence. Conversation history remains available to
+the dialogue/context system; it is not automatically promoted to factual knowledge.
