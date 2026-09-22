@@ -295,7 +295,7 @@ class AutonomousSupervisorTests(unittest.TestCase):
             runtime = self.make_runtime(directory)
             try:
                 report = runtime.autonomous_supervisor_step()
-                entries = runtime.autonomous_supervisor.journal.entries
+                entries = runtime.autonomous_supervisor.journal.read()
                 self.assertTrue(entries)
                 last = entries[-1]
                 self.assertIn("learning", last)
