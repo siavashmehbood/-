@@ -169,35 +169,37 @@ class AutonomousSupervisorTests(unittest.TestCase):
     def test_purposeful_gate_records_exactly_one_autonomous_proposal(self):
         with tempfile.TemporaryDirectory() as directory:
             runtime = self.make_runtime(directory)
+            supervisor = runtime.autonomous_supervisor
+            original_record = runtime.learning.record
+            original_lessons = runtime.learning.lessons
+            original_run = runtime.registry.run
+            original_observe = supervisor.monitor.observe_changes
+            original_choose = supervisor._choose_action
+            original_control = supervisor.self_awareness.control_next_action
             try:
-                supervisor = runtime.autonomous_supervisor
-                calls = []
-                original_record = runtime.learning.record
-                original_lessons = runtime.learning.lessons
-                original_run = runtime.registry.run
-                original_observe = supervisor.monitor.observe_changes
-                original_choose = supervisor._choose_action
                 from core.autonomous_supervisor import EnvironmentSignal
+                calls = []
                 supervisor.monitor.observe_changes = lambda: [EnvironmentSignal("files_changed", ["novel.txt"], novelty=1.0)]
                 supervisor._choose_action = lambda selected: "project_files"
                 runtime.registry.run = lambda action: {"changed": ["novel.txt"]}
                 runtime.learning.lessons = lambda objective, limit: []
                 runtime.learning.record = lambda *args, **kwargs: calls.append((args, kwargs)) or {"pending_approval": True}
-                # Supply the reusable effect through the decision boundary.
-                original_awareness = supervisor.self_awareness.control_next_action
                 supervisor.self_awareness.control_next_action = lambda candidates: {"preferred_action": "project_files", "reason": "novel evidence", "expected_effect": "understand project change"}
-                # Canonical step owns expected-effect extraction; make it explicit via selector result contract.
                 report = runtime.autonomous_supervisor_step()
-                self.assertFalse(report["learning"]["purposeful"] if not report["decision"].get("expected_effect") else False)
-                self.assertLessEqual(len([x for x in calls if x[1].get("intent") == "autonomous"]), 1)
+                autonomous = [x for x in calls if x[1].get("intent") == "autonomous"]
+                self.assertEqual(len(autonomous), 1)
+                self.assertTrue(report["learning"]["purposeful"])
+                self.assertTrue(report["learning"]["pending_approval"])
+                self.assertEqual(report["decision"]["expected_effect"], "understand project change")
             finally:
                 runtime.learning.record = original_record
                 runtime.learning.lessons = original_lessons
                 runtime.registry.run = original_run
                 supervisor.monitor.observe_changes = original_observe
                 supervisor._choose_action = original_choose
-                supervisor.self_awareness.control_next_action = original_awareness
+                supervisor.self_awareness.control_next_action = original_control
                 runtime.close()
+
 
     def test_benchmark_has_100_scenarios(self):
         result = AutonomousBenchmark().run()
