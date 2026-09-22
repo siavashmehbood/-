@@ -172,6 +172,7 @@ class CognitivePipeline:
             if strong:
                 corrected = clean(str(strong.get("correction", "")).strip(" ."))
                 if corrected:
+                    self._emit("self_correction_applied", {"question": text, "source_question": strong.get("question", ""), "correction": corrected, "confidence": strong.get("match_score", 0)})
                     return self._persist_answer(text, f"طبق اصلاح ثبت‌شده از مکالمه قبلی: «{corrected}».", "SELF_CORRECTED", .98)
 
         # Canonical correction/memory routes for multi-turn conversation.
