@@ -91,6 +91,15 @@ class AutonomousSupervisorTests(unittest.TestCase):
             finally:
                 runtime.close()
 
+    def test_supervisor_uses_canonical_class_methods(self):
+        # Regression guard for the legacy monkey-patch cleanup: core supervisor
+        # behavior must live on the class instead of being replaced after class
+        # creation by module-level versioned functions.
+        from core.autonomous_supervisor import AutonomousSupervisor
+        self.assertEqual(AutonomousSupervisor.step.__qualname__, "AutonomousSupervisor.step")
+        self.assertEqual(AutonomousSupervisor.__init__.__qualname__, "AutonomousSupervisor.__init__")
+        self.assertEqual(AutonomousSupervisor._choose_action.__qualname__, "AutonomousSupervisor._choose_action")
+
     def test_benchmark_has_100_scenarios(self):
         result = AutonomousBenchmark().run()
         self.assertEqual(result["total"], 100)
