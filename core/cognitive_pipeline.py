@@ -166,7 +166,7 @@ class CognitivePipeline:
         if explicit_correction and previous_question and previous_answer:
             result = self.self_correction.record_correction(previous_question, previous_answer, text)
             self._emit("self_correction_recorded", {"question": previous_question, "correction": result.get("correction", ""), "lesson": result.get("lesson", "")})
-        if not feedback_kind and not explicit_correction:
+        if feedback_kind == "neutral" and not explicit_correction:
             learned = self.self_correction.retrieve(text, limit=5, threshold=.20)
             strong = next((row for row in learned if row.get("kind") == "correction" and float(row.get("question_match", 0)) >= .88 and row.get("correction")), None)
             if strong:
