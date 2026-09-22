@@ -367,6 +367,20 @@ class AutonomousSupervisorTests(unittest.TestCase):
         self.assertIn("results", report)
         self.assertEqual(report["total"], 100)
 
+    def test_supervisor_module_has_no_class_shadowing_assignments(self):
+        import ast
+        source = (Path(__file__).resolve().parents[1] / "core" / "autonomous_supervisor.py").read_text(encoding="utf-8")
+        tree = ast.parse(source)
+        class_names = {node.name for node in tree.body if isinstance(node, ast.ClassDef)}
+        shadowed = []
+        for node in tree.body:
+            if isinstance(node, (ast.Assign, ast.AnnAssign)):
+                targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+                for target in targets:
+                    if isinstance(target, ast.Name) and target.id in class_names:
+                        shadowed.append(target.id)
+        self.assertEqual(shadowed, [])
+
     def test_benchmark_has_100_scenarios(self):
         result = AutonomousBenchmark().run()
         self.assertEqual(result["total"], 100)
