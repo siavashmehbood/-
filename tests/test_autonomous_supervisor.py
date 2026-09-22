@@ -109,6 +109,20 @@ class AutonomousSupervisorTests(unittest.TestCase):
         self.assertNotIn("AutonomousSupervisor.__init__ =", source)
         self.assertNotIn("AutonomousSupervisor._choose_action =", source)
 
+    def test_routine_cycle_does_not_record_learning(self):
+        with tempfile.TemporaryDirectory() as directory:
+            runtime = self.make_runtime(directory)
+            try:
+                calls = []
+                original = runtime.learning.record
+                runtime.learning.record = lambda *args, **kwargs: calls.append((args, kwargs))
+                report = runtime.autonomous_supervisor_step()
+                self.assertEqual(calls, [])
+                self.assertFalse(report["learning"]["recorded"])
+            finally:
+                runtime.learning.record = original
+                runtime.close()
+
     def test_benchmark_has_100_scenarios(self):
         result = AutonomousBenchmark().run()
         self.assertEqual(result["total"], 100)
