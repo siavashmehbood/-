@@ -276,6 +276,20 @@ class AutonomousSupervisorTests(unittest.TestCase):
                 runtime.close()
 
 
+    def test_curriculum_creation_metrics_distinguish_reuse(self):
+        with tempfile.TemporaryDirectory() as directory:
+            runtime = self.make_runtime(directory)
+            try:
+                first = runtime.generate_curriculum_learning_inputs(4)
+                second = runtime.generate_curriculum_learning_inputs(4)
+                self.assertEqual(first["created"], 4)
+                self.assertEqual(first["reused"], 0)
+                self.assertEqual(second["created"], 0)
+                self.assertEqual(second["reused"], 4)
+                self.assertEqual([g["goal_id"] for g in first["goals"]], [g["goal_id"] for g in second["goals"]])
+            finally:
+                runtime.close()
+
     def test_benchmark_has_100_scenarios(self):
         result = AutonomousBenchmark().run()
         self.assertEqual(result["total"], 100)
