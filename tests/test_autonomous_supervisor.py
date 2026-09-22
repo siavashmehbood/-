@@ -290,6 +290,35 @@ class AutonomousSupervisorTests(unittest.TestCase):
             finally:
                 runtime.close()
 
+    def test_journal_persists_complete_cycle_learning_and_curriculum(self):
+        with tempfile.TemporaryDirectory() as directory:
+            runtime = self.make_runtime(directory)
+            try:
+                report = runtime.autonomous_supervisor_step()
+                entries = runtime.autonomous_supervisor.journal.entries
+                self.assertTrue(entries)
+                last = entries[-1]
+                self.assertIn("learning", last)
+                self.assertIn("curriculum_learning", last)
+                self.assertEqual(last["learning"], report["learning"])
+                self.assertEqual(last["curriculum_learning"], report["curriculum_learning"])
+            finally:
+                runtime.close()
+
+    def test_supervisor_reasoning_does_not_emit_conversation_learning(self):
+        with tempfile.TemporaryDirectory() as directory:
+            runtime = self.make_runtime(directory)
+            original = runtime.learning.record
+            calls = []
+            try:
+                runtime.learning.record = lambda *args, **kwargs: calls.append((args, kwargs))
+                runtime.autonomous_supervisor_step()
+                conversation = [x for x in calls if (len(x[0]) > 5 and x[0][5] == "conversation") or x[1].get("strategy") == "conversation"]
+                self.assertEqual(conversation, [])
+            finally:
+                runtime.learning.record = original
+                runtime.close()
+
     def test_benchmark_has_100_scenarios(self):
         result = AutonomousBenchmark().run()
         self.assertEqual(result["total"], 100)
