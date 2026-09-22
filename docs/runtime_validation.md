@@ -245,3 +245,19 @@ a routing omission, not general semantic instruction following.
 
 Full pytest: 457 passed; unittest: 234 passed. Identical runtime evaluation:
 25/26 on 7985d57, 26/26 after. Qt tests run with the offscreen platform.
+
+
+## Numeric evidence fidelity
+
+Verifier tokenization discarded single digits and signs and split decimals into
+unordered fragments. Three new tests reproduced valid numeric answers being
+rejected and wrong decimal/sign values being accepted. Numeric tokens now retain
+single digits, decimal order and signs; Persian/Arabic digits, decimal separator
+and Unicode minus normalize to the same representation as ASCII.
+A gated-learning runtime test restarts the runtime, recalls signed numeric evidence,
+and rejects a changed sign before memory commit. Reviewer approval in this test
+is an explicit fixture, not a live external service. This does not implement
+unit conversion, scientific notation or general arithmetic equivalence.
+
+Full pytest: 461 passed; unittest: 234 passed. Identical runtime evaluation:
+26/27 on 4509b88, 27/27 after. Qt tests run offscreen.

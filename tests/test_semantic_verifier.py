@@ -130,3 +130,23 @@ def test_subject_in_unrelated_clause_cannot_authorize_wrong_relation():
     result=SemanticVerifier().verify('پایتخت ایران کجاست؟',
         'ایران کشوری آسیایی است؛ تهران پایتخت ترکیه است.',evidence=evidence)
     assert not result.accepted
+
+
+def test_single_digit_fact_is_usable_evidence():
+    evidence = [{'subject': 'نمونه', 'predicate': 'تعداد', 'object': '2'}]
+    for answer in ('2', '۲', '٢', 'تعداد نمونه ۲ است.'):
+        result = SemanticVerifier().verify('تعداد نمونه چیست؟', answer, evidence=evidence)
+        assert result.accepted and result.evidence_status == 'SUPPORTED'
+
+
+def test_numeric_evidence_preserves_decimal_order_and_sign():
+    for expected, wrong in [('12.5', '5.12'), ('-12', '12'), ('2', '3')]:
+        evidence = [{'subject': 'نمونه', 'predicate': 'مقدار', 'object': expected}]
+        result = SemanticVerifier().verify('مقدار نمونه چیست؟', f'مقدار نمونه {wrong} است.', evidence=evidence)
+        assert not result.accepted
+
+
+def test_persian_decimal_matches_ascii_evidence():
+    evidence = [{'subject': 'نمونه', 'predicate': 'مقدار', 'object': '12.5'}]
+    result = SemanticVerifier().verify('مقدار نمونه چیست؟', '۱۲٫۵', evidence=evidence)
+    assert result.accepted and result.evidence_status == 'SUPPORTED'

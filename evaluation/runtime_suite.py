@@ -210,7 +210,20 @@ def run(repository):
         answer=r.cognitive_system.pipeline._persist_answer('سیستم چیست؟',candidate)
         require(answer.startswith('UNKNOWN:'), 'short route bypassed remembered constraint')
         require(not any(row[0]=='assistant' and row[1]==candidate for row in r.memory.recent(10)), 'constraint violation committed')
-    for name, operation in [('remembered_constraints',remembered_constraints), ('subject_binding',subject_binding), ('assistant_not_evidence',assistant_not_evidence), ('offline_permission_recovery',offline_permission_recovery), ('diagnostic_not_learning',diagnostic_not_learning), ('sandbox_boundary',sandbox_boundary), ('corroborating_sources',corroborating_sources), ('corrupt_reviewer_state',corrupt_reviewer_state), ('recover_then_learn',recover_then_learn), ('knowledge_correction',knowledge_correction), ('conflicting_knowledge',conflicting_knowledge), ('topic_switch',topic_switch), ('verified_action_recovery',verified_action), ('multi_turn_memory',recall), ('correction',correction), ('reference_resolution',reference), ('unknown',unknown), ('restart_memory',restart), ('review_then_human',approval), ('hidden_candidate',hidden), ('feedback_no_xp',feedback), ('deduplication',duplicate), ('forged_review_rejected',forged), ('source_conflict',conflict), ('provider_offline_fallback',provider), ('learn_apply_observe_credit_once',reuse)]:
+    def numeric_evidence(r):
+        proposal=r.learning_gate.request('knowledge.add_fact', {'subject':'نمونه','predicate':'مقدار','object':'-12.5','source':'numeric_fixture'})
+        mark_chatgpt_correct(r,proposal['proposal_id'],'test fixture only')
+        require(r.approve_learning(proposal['proposal_id'])['ok'], 'numeric fact not approved')
+        root=r.root
+        r.close()
+        restored=IranRuntime(root)
+        try:
+            pipeline=restored.cognitive_system.pipeline
+            require(pipeline._persist_answer('مقدار نمونه چیست؟','−۱۲٫۵')=='−۱۲٫۵', 'equivalent Persian decimal rejected')
+            require(pipeline._persist_answer('مقدار نمونه چیست؟','مقدار نمونه 12.5 است.').startswith('UNKNOWN:'), 'numeric sign lost')
+        finally:
+            restored.close()
+    for name, operation in [('numeric_evidence',numeric_evidence), ('remembered_constraints',remembered_constraints), ('subject_binding',subject_binding), ('assistant_not_evidence',assistant_not_evidence), ('offline_permission_recovery',offline_permission_recovery), ('diagnostic_not_learning',diagnostic_not_learning), ('sandbox_boundary',sandbox_boundary), ('corroborating_sources',corroborating_sources), ('corrupt_reviewer_state',corrupt_reviewer_state), ('recover_then_learn',recover_then_learn), ('knowledge_correction',knowledge_correction), ('conflicting_knowledge',conflicting_knowledge), ('topic_switch',topic_switch), ('verified_action_recovery',verified_action), ('multi_turn_memory',recall), ('correction',correction), ('reference_resolution',reference), ('unknown',unknown), ('restart_memory',restart), ('review_then_human',approval), ('hidden_candidate',hidden), ('feedback_no_xp',feedback), ('deduplication',duplicate), ('forged_review_rejected',forged), ('source_conflict',conflict), ('provider_offline_fallback',provider), ('learn_apply_observe_credit_once',reuse)]:
         case(name, operation)
     return {'cases': results, 'passed': sum(x['passed'] for x in results), 'total': len(results), 'live_external_services': 'NOT_TESTED'}
 

@@ -202,3 +202,25 @@ def test_short_route_enforces_remembered_constraints_before_commit(tmp_path, con
         assert not any(row[0] == 'assistant' and row[1] == candidate for row in r.memory.recent(10))
     finally:
         r.close()
+
+
+def test_reviewed_numeric_evidence_survives_restart_and_rejects_wrong_value(tmp_path):
+    from tests.chatgpt_test_helper import mark_chatgpt_correct
+    shutil.copy(Path(__file__).parents[1]/'config.json', tmp_path)
+    r = IranRuntime(tmp_path)
+    try:
+        proposal = r.learning_gate.request('knowledge.add_fact', {
+            'subject': 'نمونه', 'predicate': 'مقدار', 'object': '-12.5', 'source': 'numeric_fixture'})
+        mark_chatgpt_correct(r, proposal['proposal_id'], 'test fixture only')
+        assert r.approve_learning(proposal['proposal_id'])['ok']
+    finally:
+        r.close()
+    r = IranRuntime(tmp_path)
+    try:
+        pipeline = r.cognitive_system.pipeline
+        assert pipeline._persist_answer('مقدار نمونه چیست؟', '−۱۲٫۵') == '−۱۲٫۵'
+        candidate = 'مقدار نمونه 12.5 است.'
+        assert pipeline._persist_answer('مقدار نمونه چیست؟', candidate).startswith('UNKNOWN:')
+        assert not any(row[0] == 'assistant' and row[1] == candidate for row in r.memory.recent(10))
+    finally:
+        r.close()

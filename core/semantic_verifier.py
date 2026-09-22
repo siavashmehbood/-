@@ -30,8 +30,12 @@ class SemanticVerifier:
     def tokens(cls, text):
         normalized = str(text or "").lower().replace('ي', 'ی').replace('ك', 'ک')
         normalized = re.sub(r'مرکز\s+سیاسی(?:\s+کشور)?', 'پایتخت', normalized)
-        words = re.findall(r"[\wآ-ی]+", normalized)
-        return {cls.ALIASES.get(w, w) for w in words if len(w) > 1 and w not in cls.STOP}
+        normalized = normalized.translate(str.maketrans('۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩٫−', '01234567890123456789.-'))
+        # Keep signed decimals atomic: a bag of digit fragments loses value
+        # order and sign, and discarding one-character tokens loses 0..9.
+        words = re.findall(r"-?\d+(?:\.\d+)?|[\wآ-ی]+", normalized)
+        return {cls.ALIASES.get(w, w) for w in words
+                if (len(w) > 1 or w.isdigit()) and w not in cls.STOP}
 
     @classmethod
     def overlap(cls, a, b):
