@@ -321,7 +321,6 @@ def _step_v2(self):
     return report
 
 AutonomousSupervisor._reasoning_step = _reasoning_step
-AutonomousSupervisor.step = _step_v2
 
 # v0.40: goal-sensitive safe action selection instead of a single fixed action.
 def _safe_action_v2(self, goal: str) -> str:
@@ -450,7 +449,6 @@ def _step_v3(self):
     self.runtime.events.emit('supervisor_cycle', report)
     return report
 
-AutonomousSupervisor.step = _step_v3
 
 
 # v0.43: persistent user-visible autonomy journal and concise decision explanation.
@@ -475,7 +473,6 @@ def _step_v4(self):
     }
     self.last_report = report
     return report
-AutonomousSupervisor.step = _step_v4
 AutonomousSupervisor.journal_summary = lambda self: self.journal.summary()
 
 
@@ -505,7 +502,6 @@ def _step_v5(self):
         report['stagnation'] = {'detected': False, 'cycles': self._goal_stagnation}
     self.last_report = report
     return report
-AutonomousSupervisor.step = _step_v5
 
 
 # v0.45: attach an explicit dependency-aware plan and next-ready step to every autonomous decision.
@@ -543,7 +539,6 @@ def _step_v6(self):
         report['plan'] = {'goal': None, 'status': 'idle', 'steps': []}
     self.last_report = report
     return report
-AutonomousSupervisor.step = _step_v6
 
 
 # v0.45b: bind the scored action selector into the supervisor class.
@@ -584,7 +579,6 @@ def _step_v7(self):
         report['long_horizon'] = {'status': 'no_active_goal'}
     self.last_report = report
     return report
-AutonomousSupervisor.step = _step_v7
 AutonomousSupervisor.goal_progress_snapshot = lambda self: self.goal_runner.snapshot()
 
 
@@ -618,7 +612,6 @@ def _step_v8(self):
     self.runtime.events.emit('self_awareness_updated', report['self_awareness'])
     self.last_report = report
     return report
-AutonomousSupervisor.step = _step_v8
 AutonomousSupervisor.self_awareness_snapshot = lambda self: self.self_awareness.introspect()
 
 
@@ -649,7 +642,6 @@ def _step_v9(self):
         report['self_awareness_control'] = {'error': type(exc).__name__}
     self.last_report = report
     return report
-AutonomousSupervisor.step = _step_v9
 
 _old_choose_action_v2 = AutonomousSupervisor._choose_action
 def _choose_action_v3(self, initiative):
@@ -726,4 +718,3 @@ def _canonical_step(self):
 
 _canonical_step.__name__ = "step"
 _canonical_step.__qualname__ = "AutonomousSupervisor.step"
-AutonomousSupervisor.step = _canonical_step
