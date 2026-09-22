@@ -391,6 +391,13 @@ class AutonomousSupervisorTests(unittest.TestCase):
         }
         self.assertEqual({signal: benchmark._decision(signal) for signal in expected}, expected)
 
+    def test_benchmark_and_supervisor_share_canonical_policy_function(self):
+        from core.autonomous_supervisor import supervisor_policy_action, READ_ONLY_ACTIONS
+        self.assertEqual(supervisor_policy_action("inspect project changes"), "project_files")
+        self.assertEqual(supervisor_policy_action("maintain situational awareness"), "project_summary")
+        self.assertEqual(supervisor_policy_action("unknown"), "project_summary")
+        self.assertTrue(set(AutonomousBenchmark._decision(s) for s in ("baseline", "files_changed", "files_added", "files_removed")).issubset(READ_ONLY_ACTIONS))
+
     def test_benchmark_has_100_scenarios(self):
         result = AutonomousBenchmark().run()
         self.assertEqual(result["total"], 100)
