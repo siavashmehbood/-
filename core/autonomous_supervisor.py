@@ -228,9 +228,24 @@ class AutonomousSupervisor:
             report["curriculum_learning"] = self.runtime.generate_curriculum_learning_inputs(24)
         except Exception as exc:
             report["curriculum_learning"] = {"ok": False, "error": type(exc).__name__}
-        report["learning"] = {"recorded": False, "verified": verified, "purposeful": False,
-                              "novelty": max((float(getattr(s, "novelty", 0)) for s in signals), default=0),
-                              "reason": "routine_or_repeated_observation"}
+        novelty = max((float(getattr(s, "novelty", 0)) for s in signals), default=0)
+        expected_effect = str(report["decision"].get("expected_effect") or "").strip()
+        objective = str(selected_data.get("goal") or "").strip()
+        observation_text = json.dumps(result, ensure_ascii=False, sort_keys=True, default=str)[:1200] if result is not None else ""
+        try:
+            prior = self.runtime.learning.lessons(objective, 20)
+            repeated = any(str(row.get("action")) == str(action) and str(row.get("result"))[:250] == observation_text[:250] for row in prior)
+        except Exception:
+            repeated = False
+        if verified and novelty >= .35 and expected_effect and not repeated:
+            self.runtime.learning.record(goal=objective, action=str(action), result=observation_text, score=.9,
+                                         intent="autonomous", strategy=f"verified-read-only:{action}", domain="local-learning",
+                                         objective=objective, expected_effect=expected_effect)
+            report["learning"] = {"recorded": False, "pending_approval": True, "verified": True,
+                                  "purposeful": True, "novelty": novelty}
+        else:
+            report["learning"] = {"recorded": False, "verified": verified, "purposeful": False,
+                                  "novelty": novelty, "reason": "routine_or_repeated_observation"}
         self.last_report = report
         self.runtime.events.emit("self_awareness_updated", report["self_awareness"])
         self.runtime.events.emit("self_awareness_control", report["self_awareness_control"])
