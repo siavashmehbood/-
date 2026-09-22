@@ -111,6 +111,25 @@ class CognitivePipeline:
         e.turn_traces = e.turn_traces[-50:]
         return answer
 
+    def _preflight_conversation_route(self, text):
+        """Canonical state transitions that must happen before reasoning/verification."""
+        import re
+        state = self.engine.state
+        low = clean(text).lower()
+        # Explicit constraints are durable state, not post-answer patches.
+        changed = False
+        if "آفلاین" in low and "آفلاین" not in state.remembered_constraints:
+            state.remembered_constraints.append("آفلاین"); changed = True
+        if "بدون api" in low and "بدون API" not in state.remembered_constraints:
+            state.remembered_constraints.append("بدون API"); changed = True
+        m = re.match(r"^موضوع\\s+اصلی\\s+ما\\s+(.+?)\\s+است[.!؟?]*$", clean(text))
+        if m:
+            topic = clean(m.group(1)).strip(" ،,:؛")
+            if topic:
+                state._push_topic(topic); state.references["latest"] = topic; changed = True
+        if changed:
+            state.save(self.engine.state_path)
+
     def run(self, text):
         started = datetime.now()
         e = self.engine
@@ -121,6 +140,7 @@ class CognitivePipeline:
         text = clean(text)
         if not text:
             return "چیزی برای پردازش دریافت نکردم."
+        self._preflight_conversation_route(text)
 
         # Explicit user facts are learned before interpretation; questions do not create facts.
         extracted = []
