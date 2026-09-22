@@ -251,7 +251,22 @@ def run(repository):
         require(manager.review(proposal)['state']=='WAITING_FOR_REVIEWER','missing anonymous reviewer bypassed gate')
         require(r.learning_gate.get(proposal['proposal_id'])['status']=='pending','candidate lost')
         require(not r.human_learning_pending(),'unreviewed candidate shown to human')
-    for name, operation in [('credential_free_only',credential_free_only), ('structured_queue_recovery',structured_queue_recovery), ('numeric_evidence',numeric_evidence), ('remembered_constraints',remembered_constraints), ('subject_binding',subject_binding), ('assistant_not_evidence',assistant_not_evidence), ('offline_permission_recovery',offline_permission_recovery), ('diagnostic_not_learning',diagnostic_not_learning), ('sandbox_boundary',sandbox_boundary), ('corroborating_sources',corroborating_sources), ('corrupt_reviewer_state',corrupt_reviewer_state), ('recover_then_learn',recover_then_learn), ('knowledge_correction',knowledge_correction), ('conflicting_knowledge',conflicting_knowledge), ('topic_switch',topic_switch), ('verified_action_recovery',verified_action), ('multi_turn_memory',recall), ('correction',correction), ('reference_resolution',reference), ('unknown',unknown), ('restart_memory',restart), ('review_then_human',approval), ('hidden_candidate',hidden), ('feedback_no_xp',feedback), ('deduplication',duplicate), ('forged_review_rejected',forged), ('source_conflict',conflict), ('provider_offline_fallback',provider), ('learn_apply_observe_credit_once',reuse)]:
+    def structured_health(r):
+        from providers.reviewer import ProviderManager
+        class Fixture:
+            name='fixture';config={};timeout=1;retries=0;cooldown=60;model='fixture';calls=0
+            def availability(self): return 'AVAILABLE',''
+            def review(self,candidate):
+                self.calls+=1
+                return {'learn':True}
+        fixture=Fixture()
+        r.internet_access.enable()
+        manager=ProviderManager(r.root,{},r.internet_access,[fixture])
+        manager.path.write_text(json.dumps({'fixture':{'next_allowed':float('nan')}}),encoding='utf-8')
+        result=manager.review({})
+        require(result['state']=='WAITING_FOR_REVIEWER' and fixture.calls==0,'invalid cooldown authorized request')
+        require(manager.health()[0]['reason']=='provider_state_corrupt','corruption hidden from health')
+    for name, operation in [('structured_health',structured_health), ('credential_free_only',credential_free_only), ('structured_queue_recovery',structured_queue_recovery), ('numeric_evidence',numeric_evidence), ('remembered_constraints',remembered_constraints), ('subject_binding',subject_binding), ('assistant_not_evidence',assistant_not_evidence), ('offline_permission_recovery',offline_permission_recovery), ('diagnostic_not_learning',diagnostic_not_learning), ('sandbox_boundary',sandbox_boundary), ('corroborating_sources',corroborating_sources), ('corrupt_reviewer_state',corrupt_reviewer_state), ('recover_then_learn',recover_then_learn), ('knowledge_correction',knowledge_correction), ('conflicting_knowledge',conflicting_knowledge), ('topic_switch',topic_switch), ('verified_action_recovery',verified_action), ('multi_turn_memory',recall), ('correction',correction), ('reference_resolution',reference), ('unknown',unknown), ('restart_memory',restart), ('review_then_human',approval), ('hidden_candidate',hidden), ('feedback_no_xp',feedback), ('deduplication',duplicate), ('forged_review_rejected',forged), ('source_conflict',conflict), ('provider_offline_fallback',provider), ('learn_apply_observe_credit_once',reuse)]:
         case(name, operation)
     return {'cases': results, 'passed': sum(x['passed'] for x in results), 'total': len(results), 'live_external_services': 'NOT_TESTED'}
 

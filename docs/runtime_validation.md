@@ -304,3 +304,16 @@ https://github.com/pollinations/pollinations/blob/main/APIDOCS.md
 MediaWiki documents public content retrieval separately from authentication:
 https://www.mediawiki.org/wiki/API:REST_API
 Neither source establishes an unlimited, anonymous AI reviewer for IRAN.
+
+
+## Provider health structure
+
+Provider health now rejects non-object rows and nonnumeric, boolean, negative or
+non-finite cooldown/success timestamps. Previously these values could crash health
+readers or authorize a request by making the cooldown comparison false. Structural
+corruption is visible as provider_state_corrupt and keeps review waiting without
+sending a request. This check deliberately does not reset the corrupt health file.
+
+Full pytest: 475 passed; unittest: 234 passed. Identical runtime evaluation:
+29/30 on 24fe6a5, 30/30 after. These are local failure-injection tests; no live
+external reviewer success is claimed.

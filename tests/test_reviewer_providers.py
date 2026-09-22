@@ -157,3 +157,14 @@ def test_runtime_local_provider_config_cannot_override_credential_free_policy(tm
         assert runtime.human_learning_pending() == []
     finally:
         runtime.close()
+
+
+@pytest.mark.parametrize('entry', [None, [], {'next_allowed': 'bad'}, {'next_allowed': float('nan')}, {'next_allowed': True}])
+def test_structurally_corrupt_health_never_sends_request(tmp_path, entry):
+    provider = FakeProvider('a', {'learn': True})
+    m = manager(tmp_path, [provider])
+    m.path.parent.mkdir(parents=True, exist_ok=True)
+    m.path.write_text(json.dumps({'a': entry}))
+    assert m.health()[0]['reason'] == 'provider_state_corrupt'
+    assert m.review({})['state'] == 'WAITING_FOR_REVIEWER'
+    assert provider.calls == 0

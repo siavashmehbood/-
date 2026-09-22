@@ -177,6 +177,13 @@ class ProviderManager:
     def health(self):
         try:
             stored = load_critical_json(self.path, {})
+            for entry in stored.values():
+                if not isinstance(entry, dict):
+                    raise StateCorruptionError('Invalid provider health entry')
+                for field in ('next_allowed', 'last_success'):
+                    value = entry.get(field, 0)
+                    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value < 0:
+                        raise StateCorruptionError('Invalid provider health timestamp')
         except StateCorruptionError:
             # Never infer fresh quota/cooldown from unreadable durable health.
             return [{'provider':p.name, 'state':'ERROR', 'reason':'provider_state_corrupt',
