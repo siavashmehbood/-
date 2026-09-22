@@ -365,8 +365,11 @@ class IranRuntime:
         }
 
     def generate_curriculum_learning_inputs(self, batch_size=8):
+        before = {g.goal_id for g in self.self_directed_learning.goals}
         goals = self.self_directed_learning.next_curriculum_goals(limit=batch_size)
-        return {"ok":True, "goals":goals, "created":len(goals), "review_queue":self.chatgpt_review_status()}
+        created = sum(1 for goal in goals if goal.get("goal_id") not in before)
+        return {"ok":True, "goals":goals, "created":created, "reused":len(goals)-created,
+                "review_queue":self.chatgpt_review_status()}
 
     @serialized
     def learning_tick(self):
