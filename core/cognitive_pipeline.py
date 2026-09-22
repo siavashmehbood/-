@@ -38,6 +38,8 @@ class CognitivePipeline:
         self.memory_intelligence = MemoryIntelligence(self.runtime.memory)
         self.reasoning_planning = ReasoningPlanningEngine()
         self.semantic_verifier = SemanticVerifier()
+        from core.self_correction import SelfCorrectionEngine
+        self.self_correction = SelfCorrectionEngine(__import__("pathlib").Path(self.runtime.root) / "data" / "self_corrections.json")
 
     def _emit(self, event, data):
         try:
@@ -153,6 +155,24 @@ class CognitivePipeline:
             self._emit("user_model_update", {"extracted": extracted, "count": len(extracted), "source": "canonical_pipeline"})
 
         low = text.lower()
+
+        # Outcome-backed self-correction is part of the canonical turn, before generic correction handling.
+        previous_question = getattr(e.state, "last_user_message", "")
+        previous_answer = getattr(e.state, "last_assistant_answer", "")
+        feedback_kind = self.self_correction.classify_feedback(text)
+        explicit_correction = self.self_correction.extract_correction(text)
+        if feedback_kind in {"negative", "positive"} and previous_question and previous_answer:
+            self.self_correction.record_feedback(previous_question, previous_answer, text)
+        if explicit_correction and previous_question and previous_answer:
+            result = self.self_correction.record_correction(previous_question, previous_answer, text)
+            self._emit("self_correction_recorded", {"question": previous_question, "correction": result.get("correction", ""), "lesson": result.get("lesson", "")})
+        if not feedback_kind and not explicit_correction:
+            learned = self.self_correction.retrieve(text, limit=5, threshold=.20)
+            strong = next((row for row in learned if row.get("kind") == "correction" and float(row.get("question_match", 0)) >= .88 and row.get("correction")), None)
+            if strong:
+                corrected = clean(str(strong.get("correction", "")).strip(" ."))
+                if corrected:
+                    return self._persist_answer(text, f"طبق اصلاح ثبت‌شده از مکالمه قبلی: «{corrected}».", "SELF_CORRECTED", .98)
 
         # Canonical correction/memory routes for multi-turn conversation.
         if is_correction(text):
