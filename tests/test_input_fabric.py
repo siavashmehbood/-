@@ -27,3 +27,24 @@ class InputFabricTests(unittest.TestCase):
             self.assertEqual(f.stats()["domains"]["programming"],1)
 
 if __name__=="__main__": unittest.main()
+
+
+def test_long_input_duplicate_survives_restart(tmp_path):
+    from learning.input_fabric import InputFabric
+    content = 'متن طولانی ' * 4000
+    fabric = InputFabric(tmp_path)
+    first = fabric.ingest(content)
+    assert not first['duplicate']
+    restored = InputFabric(tmp_path)
+    assert restored.ingest(content)['duplicate']
+    assert len(restored.events) == 1
+
+
+def test_long_inputs_with_same_prefix_remain_distinct(tmp_path):
+    from learning.input_fabric import InputFabric
+    prefix = 'متن طولانی ' * 4000
+    fabric = InputFabric(tmp_path)
+    fabric.ingest(prefix + 'اول')
+    restored = InputFabric(tmp_path)
+    assert not restored.ingest(prefix + 'دوم')['duplicate']
+    assert restored.ingest(prefix + 'اول')['duplicate']

@@ -317,3 +317,18 @@ sending a request. This check deliberately does not reset the corrupt health fil
 Full pytest: 475 passed; unittest: 234 passed. Identical runtime evaluation:
 29/30 on 24fe6a5, 30/30 after. These are local failure-injection tests; no live
 external reviewer success is claimed.
+
+
+## Full-input identity across restart
+
+InputFabric hashed full input in memory but persisted only its first 30,000
+characters. Restart recomputed a different hash, so long duplicate inputs were
+processed again. Each new retained event now stores its original content key.
+Legacy records without keys still load using the prior content-based fallback;
+missing suffixes of old truncated records cannot be reconstructed. Event retention
+limits are unchanged; this is not an unbounded deduplication ledger.
+
+Two regressions reproduce long-input repetition and distinguish different suffixes
+sharing a long prefix. Full pytest: 477 passed; unittest: 234 passed. Identical
+runtime evaluation: 30/31 on 839c85d, 31/31 after, including actual runtime restart
+and no XP from repeated input.

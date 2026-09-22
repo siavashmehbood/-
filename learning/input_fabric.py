@@ -40,7 +40,7 @@ class InputFabric:
     def _load(self):
         payload=load_critical_json(self.path,{})
         self.events=payload.get("events",[])[-self.max_events:]
-        self.seen={self._key(r.get("source",""),r.get("input_type",""),r.get("content","")) for r in self.events}
+        self.seen={r.get("content_key") or self._key(r.get("source",""),r.get("input_type",""),r.get("content","")) for r in self.events}
         self.stats_data.update(payload.get("stats",{}))
     def _save(self):
         payload={"version":1,"events":self.events[-self.max_events:],"stats":self.stats_data}
@@ -104,7 +104,7 @@ class InputFabric:
             self.stats_data["duplicates"]=int(self.stats_data.get("duplicates",0))+1
             return {"ok":True,"duplicate":True,"key":key,"units":[]}
         event=InputEvent("inp-"+uuid.uuid4().hex[:12],source,input_type,content[:30000],self.detect_domain(content,domain),datetime.now().isoformat(timespec="seconds"),dict(provenance or {}),max(0,min(1,float(confidence or 0))),str(cycle_id or ""))
-        units=self.extract_units(content,source,input_type); payload=asdict(event); payload["units"]=units
+        units=self.extract_units(content,source,input_type); payload=asdict(event); payload["units"]=units; payload["content_key"]=key
         self.events.append(payload); self.events=self.events[-self.max_events:]; self.seen.add(key)
         self.stats_data["ingested"]=int(self.stats_data.get("ingested",0))+1
         self.stats_data["units"]=int(self.stats_data.get("units",0))+len(units)
