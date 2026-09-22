@@ -153,6 +153,32 @@ class AutonomousSupervisorTests(unittest.TestCase):
                 supervisor._choose_action = original_choose
                 runtime.close()
 
+    def test_repeated_purposeful_observation_is_not_recorded_again(self):
+        with tempfile.TemporaryDirectory() as directory:
+            runtime = self.make_runtime(directory)
+            supervisor = runtime.autonomous_supervisor
+            original_record, original_lessons = runtime.learning.record, runtime.learning.lessons
+            original_run, original_observe = runtime.registry.run, supervisor.monitor.observe_changes
+            original_choose, original_control = supervisor._choose_action, supervisor.self_awareness.control_next_action
+            try:
+                from core.autonomous_supervisor import EnvironmentSignal
+                calls = []
+                supervisor.monitor.observe_changes = lambda: [EnvironmentSignal("files_changed", ["same.txt"], novelty=1.0)]
+                supervisor._choose_action = lambda selected: "project_files"
+                runtime.registry.run = lambda action: {"changed": ["same.txt"]}
+                result_text = json.dumps({"changed": ["same.txt"]}, ensure_ascii=False, sort_keys=True, default=str)[:1200]
+                runtime.learning.lessons = lambda objective, limit: [{"action": "project_files", "result": result_text}]
+                runtime.learning.record = lambda *args, **kwargs: calls.append((args, kwargs))
+                supervisor.self_awareness.control_next_action = lambda candidates: {"preferred_action": "project_files", "reason": "known", "expected_effect": "understand project change"}
+                report = runtime.autonomous_supervisor_step()
+                self.assertEqual([x for x in calls if x[1].get("intent") == "autonomous"], [])
+                self.assertFalse(report["learning"]["purposeful"])
+            finally:
+                runtime.learning.record, runtime.learning.lessons = original_record, original_lessons
+                runtime.registry.run, supervisor.monitor.observe_changes = original_run, original_observe
+                supervisor._choose_action, supervisor.self_awareness.control_next_action = original_choose, original_control
+                runtime.close()
+
     def test_curriculum_generation_runs_once_per_supervisor_cycle(self):
         with tempfile.TemporaryDirectory() as directory:
             runtime = self.make_runtime(directory)
