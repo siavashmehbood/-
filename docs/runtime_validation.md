@@ -7,7 +7,7 @@ The same isolated runtime evaluation was run against the baseline snapshot and t
 | --- | ---: | ---: |
 | Behavioral runtime scenarios | 8 / 15 | 15 / 15 |
 | Existing baseline pytest suite | 303 passed | preserved, no removed/relaxed tests |
-| Full revised pytest suite | — | 435 passed |
+| Full revised pytest suite | — | 446 passed |
 | Legacy unittest discovery | 234 passed | 234 passed |
 
 The 15 scenarios cover topic switching, verified action recovery, multi-turn identity recall, correction, reference resolution, unknown handling, restart memory, external then human approval, hidden candidates, feedback without XP, candidate deduplication, untrusted review metadata, source conflict detection, offline/provider fallback and approved knowledge reuse credited once. See `runtime_evaluation.json` for individual outcomes and `evaluation/runtime_suite.py` to reproduce. This is a regression suite, not a percentage measure of general intelligence.
@@ -184,3 +184,19 @@ This does not demonstrate general skill acquisition or measured improvement over
 a prior model. Only the addition contract has a promotion/held-out contract here;
 other existing templates are diagnostics. Historical saved skills are not deleted
 or retroactively declared validated by the new checks.
+
+
+## Internet permission recovery
+
+Unlike learned data, permission cannot safely be restored from an older backup:
+it may precede revocation. Six new tests reproduced re-enabling from strings or
+numbers, stale enabled backups after a missing/corrupt OFF primary, and an enable
+write failure leaving network allowed in memory. Only a valid boolean in the
+current primary now authorizes restart access; explicit enable repairs state.
+Write failures leave this process offline and surface the error. A failed disable
+write cannot promise persistence across restart; disk errors must be resolved.
+The GUI catches write errors, displays OFF and starts no reviewer job.
+
+Full pytest: 446 passed, including the Qt error path; unittest: 234 passed.
+Identical runtime suite: 22/23 before, 23/23 after. These tests do not call a live
+provider or assume credentials/quota availability.

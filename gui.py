@@ -225,7 +225,12 @@ class ChatWindow(QMainWindow):
 
     def toggle_internet(self):
         access = self.runtime.internet_access
-        access.disable() if access.status()["enabled"] else access.enable()
+        try:
+            access.disable() if access.status()["enabled"] else access.enable()
+        except OSError as exc:
+            self.refresh_internet()
+            self.status.setText(f"خطا در ذخیره تنظیم اینترنت؛ اتصال خاموش ماند: {exc}")
+            return
         self.refresh_internet()
         self.run_chatgpt_review_once()
 

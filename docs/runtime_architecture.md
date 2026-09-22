@@ -74,3 +74,10 @@ same recovered queue as approval checks. Provider/worker cooldown corruption
 cannot authorize a fresh request: health exposes an error and candidates remain
 waiting. The GUI reports this failure separately from normal rate limiting and
 keeps local chat usable when review queue synchronization fails.
+
+
+Network permission is deliberately stricter than data recovery. Restart honors
+only a valid boolean in the current permission file. Missing/corrupt state is OFF;
+a stale backup never restores a previous ON permission after revocation. Explicit
+user enable can repair it. Persistence errors are surfaced and keep this process
+offline; unsuccessful disk writes cannot promise restart durability.

@@ -83,3 +83,19 @@ def test_corrupt_review_state_is_visible_without_stranding_chat(tmp_path, monkey
     window.show_chatgpt_reviews()
     assert dialogs and 'خطا' in dialogs[-1][1]
     window.close();app.processEvents()
+
+
+def test_failed_internet_toggle_stays_off_and_visible(tmp_path,monkeypatch):
+    shutil.copy(Path(__file__).parents[1]/'config.json',tmp_path)
+    monkeypatch.setattr(gui,'ROOT',tmp_path)
+    app=QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    window=gui.ChatWindow();window.show()
+    window.autonomy_timer.stop();window.chatgpt_review_timer.stop()
+    def fail(): raise OSError('fixture disk failure')
+    monkeypatch.setattr(window.runtime.internet_access,'_save',fail)
+    window.toggle_internet()
+    assert not window.runtime.internet_access.status()['enabled']
+    assert 'خاموش' in window.internet_button.text()
+    assert 'خطا' in window.status.text()
+    assert not window._jobs
+    window.close();app.processEvents()

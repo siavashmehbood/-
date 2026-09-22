@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from threading import RLock
-from persistence import atomic_write_json, load_json_with_backup
+from persistence import atomic_write_json
 
 
 class InternetAccessManager:
@@ -16,17 +16,26 @@ class InternetAccessManager:
         self._lock = RLock()
         self.enabled = False
         self.mode = "off"
+        self.failure_reason = None
         self._load()
 
     def _load(self):
+        # Permission differs from learned data: a backup can predate revocation.
+        # Only the current primary may authorize network access after restart.
+        if not self.path.exists():
+            return
         try:
-            data = load_json_with_backup(self.path, {})
-            # Network permission is intentionally session-scoped by default.
-            self.enabled = bool(data.get("enabled", False))
-            self.mode = "on" if self.enabled else "off"
+            data = json.loads(self.path.read_text(encoding='utf-8'))
+            if not isinstance(data, dict) or not isinstance(data.get('enabled'), bool):
+                raise ValueError('permission must be a boolean')
+            enabled = data['enabled']
+            mode = 'on' if enabled else 'off'
+            if data.get('mode', mode) != mode:
+                raise ValueError('inconsistent permission mode')
+            self.enabled, self.mode = enabled, mode
         except (OSError, ValueError, TypeError):
-            self.enabled = False
-            self.mode = "off"
+            self.enabled, self.mode = False, 'off'
+            self.failure_reason = 'permission_state_unreadable'
 
     def _save(self):
         payload = {"enabled": self.enabled, "mode": self.mode}
@@ -35,21 +44,26 @@ class InternetAccessManager:
     def status(self):
         with self._lock:
             return {"enabled": self.enabled, "mode": self.mode,
-                    "scope": "project", "learning_approval_separate": True}
+                    "scope": "project", "learning_approval_separate": True,
+                    "failure_reason": self.failure_reason}
+
+    def _set_enabled(self, enabled):
+        with self._lock:
+            self.enabled, self.mode = enabled, 'on' if enabled else 'off'
+            try:
+                self._save()
+            except OSError:
+                self.enabled, self.mode = False, 'off'
+                self.failure_reason = 'permission_write_failed'
+                raise
+            self.failure_reason = None
+            return self.status()
 
     def enable(self):
-        with self._lock:
-            self.enabled = True
-            self.mode = "on"
-            self._save()
-            return self.status()
+        return self._set_enabled(True)
 
     def disable(self):
-        with self._lock:
-            self.enabled = False
-            self.mode = "off"
-            self._save()
-            return self.status()
+        return self._set_enabled(False)
 
     def require(self):
         with self._lock:
