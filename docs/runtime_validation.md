@@ -7,7 +7,7 @@ The same isolated runtime evaluation was run against the baseline snapshot and t
 | --- | ---: | ---: |
 | Behavioral runtime scenarios | 8 / 15 | 15 / 15 |
 | Existing baseline pytest suite | 303 passed | preserved, no removed/relaxed tests |
-| Full revised pytest suite | — | 431 passed |
+| Full revised pytest suite | — | 435 passed |
 | Legacy unittest discovery | 234 passed | 234 passed |
 
 The 15 scenarios cover topic switching, verified action recovery, multi-turn identity recall, correction, reference resolution, unknown handling, restart memory, external then human approval, hidden candidates, feedback without XP, candidate deduplication, untrusted review metadata, source conflict detection, offline/provider fallback and approved knowledge reuse credited once. See `runtime_evaluation.json` for individual outcomes and `evaluation/runtime_suite.py` to reproduce. This is a regression suite, not a percentage measure of general intelligence.
@@ -162,3 +162,25 @@ Design references: Python's [AST documentation](https://docs.python.org/3/librar
 and [resource limits](https://docs.python.org/3/library/resource.html). No external
 code was copied. AST restriction and process limits provide complementary checks;
 Python isolated mode alone does not prevent filesystem/network operations.
+
+
+## Capability evidence validity
+
+Three new regressions reproduced unrelated smoke tests promoting domain skills,
+missing executable artifacts, and a broken implementation passing transfer
+because transfer executed unrelated hard-coded expressions. Generic tests now
+report diagnostic_only, never claim verification or a promotable domain skill.
+The currently supported artifact is local integer addition, retained as executable
+code and checked on held-out negative/zero inputs. Its goals and description
+refer to that contract, not the source topic or unverified source claim.
+
+A real runtime integration test executes experiments, requires both reviews,
+restarts, reloads the approved artifact and executes it on a new input. A constant
+implementation overfitted to the training example fails transfer. No XP is minted.
+Existing tests were not removed or weakened. Full pytest: 435 passed; unittest:
+234 passed. Same runtime evaluation: 21/22 before, 22/22 after.
+
+This does not demonstrate general skill acquisition or measured improvement over
+a prior model. Only the addition contract has a promotion/held-out contract here;
+other existing templates are diagnostics. Historical saved skills are not deleted
+or retroactively declared validated by the new checks.

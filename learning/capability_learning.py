@@ -157,40 +157,50 @@ class CapabilityLearningEngine:
     def _build_skill(self, candidate, experiment, results):
         if not results or not all(x["success"] for x in results):
             return None
-        steps = [{"order": i + 1, "action": x["action"], "test": x["test"],
-                  "expected_effect": "sandbox verification succeeded"} for i, x in enumerate(results)]
+        # Only a retained executable with an explicit input/output contract is
+        # eligible. Topic labels and smoke-test success cannot validate a claim.
+        artifact = next((step for step in experiment["steps"]
+                         if step["test"] == "python_function"), None)
+        if artifact is None:
+            return None
         return {
-            "skill_id": self._id("capability", candidate["candidate_id"]),
-            "name": "capability:" + candidate["topic"],
-            "description": "Procedure verified by isolated execution and independent transfer.",
-            "domain": candidate["topic"],
-            "goal_patterns": [candidate["topic"], candidate["claim"]],
+            "skill_id": self._id("capability", "integer_addition_v1"),
+            "name": "local integer addition",
+            "description": "Local addition procedure checked on held-out inputs; source claim unverified.",
+            "domain": "arithmetic",
+            "goal_patterns": ["جمع دو عدد", "integer addition"],
             "preconditions": [],
-            "procedure": {"steps": steps, "expected_outcome": "all deterministic tests pass",
-                          "knowledge_claim": candidate["claim"]},
-            "required_capabilities": ["sandbox_python"], "risk": "low",
-            "confidence": min(.99, .60 + .08 * len(results)),
-            "evidence": {"knowledge_proposal": candidate["provenance"],
-                         "experiment_id": experiment["experiment_id"],
-                         "source_count": len(candidate.get("sources", []))},
-            "successful_episodes": 1, "transfer_episodes": 0,
+            "procedure": {
+                "steps": [{"order":1, "action":"sandbox_python", "test":"python_function",
+                           "code":artifact["code"], "expected_effect":"addition contract holds"}],
+                "expected_outcome":"integer addition contract holds",
+                "contract":"integer_addition_v1", "claim_verified":False,
+            },
+            "required_capabilities": ["sandbox_python"], "risk":"low",
+            "confidence": .76,
+            "evidence": {"knowledge_proposal":candidate["provenance"],
+                         "experiment_id":experiment["experiment_id"],
+                         "source_count":len(candidate.get("sources", [])),
+                         "claim_verified":False, "improvement_measured":False},
+            "successful_episodes":1, "transfer_episodes":0,
         }
 
     def _transfer(self, skill):
-        """Run two fresh, independent verification tasks in novel contexts."""
+        """Check the retained implementation against held-out contract inputs."""
         checks = []
-        steps = (skill.get("procedure") or {}).get("steps", [])
-        contexts = ("novel_context_a", "novel_context_b")
+        procedure = skill.get("procedure") or {}
+        steps = procedure.get("steps", [])
+        if procedure.get("contract") != "integer_addition_v1" or len(steps) != 1:
+            return False
+        artifact = steps[0].get("code")
+        if not isinstance(artifact, str) or not artifact.strip():
+            return False
+        contexts = ("negative_operand", "zero_identity")
+        assertions = ("assert add(-3, 5) == 2", "assert add(0, 0) == 0")
         for i, context in enumerate(contexts):
             task = self.runtime.create_task(f"capability transfer: {skill.get('skill_id')} #{i+1}")
             self.runtime.tasks.transition(task["task_id"], "ready", "transfer queued")
-            code = {
-                "python programming fundamentals": "assert (10 + 5) == 15",
-                "algorithms and data structures": "assert sorted([4,2,3,1]) == [1,2,3,4]",
-            }.get(str(skill.get("domain", "")).lower(),
-                   "assert sorted([3,1,2]) == [1,2,3]")
-            if i == 1:
-                code = code + "\nassert isinstance(True, bool)"
+            code = artifact + "\n" + assertions[i]
             try:
                 action = self.runtime.actions.execute(task["task_id"], "sandbox_python",
                                                        "independent transfer verified",
@@ -256,6 +266,13 @@ class CapabilityLearningEngine:
 
         self.state["successes"] += 1
         skill = self._build_skill(candidate, experiment, results)
+        if skill is None:
+            self.state["last"] = {"topic":candidate["topic"], "status":"diagnostic_only",
+                                  "claim_verified":False, "transfer_verified":False}
+            self._save()
+            return {"ok":True, "status":"diagnostic_only", "verification_scope":"diagnostic_only",
+                    "claim_verified":False, "transfer_verified":False,
+                    "candidate":candidate, "experiment":experiment, "results":results}
         transfer = self._transfer(skill)
         if transfer:
             self.state["transfers"] += 1

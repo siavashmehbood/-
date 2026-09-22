@@ -177,7 +177,15 @@ def run(repository):
         except PermissionError:
             blocked=True
         require(blocked and not marker.exists(), 'sandbox wrote outside experiment directory')
-    for name, operation in [('sandbox_boundary',sandbox_boundary), ('corroborating_sources',corroborating_sources), ('corrupt_reviewer_state',corrupt_reviewer_state), ('recover_then_learn',recover_then_learn), ('knowledge_correction',knowledge_correction), ('conflicting_knowledge',conflicting_knowledge), ('topic_switch',topic_switch), ('verified_action_recovery',verified_action), ('multi_turn_memory',recall), ('correction',correction), ('reference_resolution',reference), ('unknown',unknown), ('restart_memory',restart), ('review_then_human',approval), ('hidden_candidate',hidden), ('feedback_no_xp',feedback), ('deduplication',duplicate), ('forged_review_rejected',forged), ('source_conflict',conflict), ('provider_offline_fallback',provider), ('learn_apply_observe_credit_once',reuse)]:
+    def diagnostic_not_learning(r):
+        proposal={'topic':'astronomy fixture','confidence':.8,'proposal_id':'fixture',
+                  'agreements':[{'claim':'Unverified astronomy claim.'}]}
+        result=r.capability_learning.learn_from_proposal(proposal)
+        require(result.get('verification_scope')=='diagnostic_only', 'smoke test promoted domain capability')
+        require(not result.get('transfer_verified'), 'unrelated transfer claimed')
+        require(not result.get('pending_approval'), 'unsupported skill queued')
+        require(r.effect_learning.stats()['xp']==0, 'diagnostic minted XP')
+    for name, operation in [('diagnostic_not_learning',diagnostic_not_learning), ('sandbox_boundary',sandbox_boundary), ('corroborating_sources',corroborating_sources), ('corrupt_reviewer_state',corrupt_reviewer_state), ('recover_then_learn',recover_then_learn), ('knowledge_correction',knowledge_correction), ('conflicting_knowledge',conflicting_knowledge), ('topic_switch',topic_switch), ('verified_action_recovery',verified_action), ('multi_turn_memory',recall), ('correction',correction), ('reference_resolution',reference), ('unknown',unknown), ('restart_memory',restart), ('review_then_human',approval), ('hidden_candidate',hidden), ('feedback_no_xp',feedback), ('deduplication',duplicate), ('forged_review_rejected',forged), ('source_conflict',conflict), ('provider_offline_fallback',provider), ('learn_apply_observe_credit_once',reuse)]:
         case(name, operation)
     return {'cases': results, 'passed': sum(x['passed'] for x in results), 'total': len(results), 'live_external_services': 'NOT_TESTED'}
 
