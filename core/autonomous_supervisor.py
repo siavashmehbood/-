@@ -384,5 +384,3 @@ class LongHorizonWorldBenchmarkV2(LongHorizonWorldBenchmark):
         if not isinstance(max_cycles, int):
             max_cycles = 50
         return super().run(max_cycles=max_cycles)
-
-AutonomousBenchmark = LongHorizonWorldBenchmarkV2
