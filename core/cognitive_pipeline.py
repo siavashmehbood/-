@@ -201,6 +201,24 @@ class CognitivePipeline:
             topic = clean(e.state.current_topic)
             return self._persist_answer(text, f"حتماً؛ ادامه را از «{topic}» می‌دهم و همان موضوع را مبنا می‌گیرم." if topic else "موضوع فعالی برای ادامه در حافظه ندارم.", "REFERENCE", .98)
 
+        # Durable profile/project recall belongs to the canonical memory route.
+        if any(x in low for x in ("چه چیزهایی از من یادت هست", "چی از من یادت هست", "درباره خودم چی یادت هست")):
+            facts = self.runtime.user_model.current_profile(limit=20)
+            lines = []
+            labels = {"name":"نام شما", "work_on":"روی این موضوع کار می‌کنید", "goal":"هدف صریح شما", "likes":"گفتید دوست دارید", "dislikes":"گفتید دوست ندارید"}
+            for fact in facts:
+                pred, obj = fact.get("predicate"), fact.get("object")
+                if pred in labels and obj:
+                    lines.append(f"• {labels[pred]}: {obj}")
+            answer = "تا این لحظه این اطلاعات صریح را از تو دارم:\n" + "\n".join(lines) if lines else "فعلاً اطلاعات صریح قابل‌بازیابی از تو ندارم."
+            return self._persist_answer(text, answer, "MEMORY", .99)
+        if "هدف دانا چی بود" in low or "هدفش چی بود" in low:
+            goal = e.state.topic_goals.get("دانا", "")
+            if not goal:
+                goal = next((f.get("object", "") for f in self.runtime.user_model.current_profile(limit=30) if f.get("predicate") == "goal"), "")
+            if goal:
+                return self._persist_answer(text, f"هدف ثبت‌شده برای «دانا»: «{goal}».", "MEMORY", .99)
+
         # Resolve identity and terse contextual follow-ups inside the canonical route.
         try:
             identity = self.runtime.user_model.answer_identity(text)
