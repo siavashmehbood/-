@@ -58,9 +58,13 @@ class PersianLanguageEngine:
         constraints=[]
         for marker in ('بدون','فقط','نباید','حتماً','حداکثر','حداقل','لازم نیست','ترجیحاً','فعلاً'):
             if marker in t: constraints.append(t[t.find(marker):].strip(' :،'))
-        steps=[x.strip() for x in re.split(r'\s*(?:و سپس|بعدش|سپس|؛|;)\s*',t) if x.strip()]
+        # Persian task chains commonly use «بعد/بعدش/بعد از آن» as well as
+        # punctuation. Preserve each clause as an independently actionable step.
+        steps=[x.strip(" ،,") for x in re.split(r'\s*(?:و\s+سپس|بعدش|بعد\s+از\s+آن|سپس|؛|;)\s*',t) if x.strip(" ،,")]
         neg=self.detect_negation(t); typed=parsed['entities']
         alternatives=parsed.get('alternatives',[]); ambiguity=min(.95,max(0,(len(alternatives)*.18)+(0.25 if confidence<.6 else 0)))
+        # Multiple imperative clauses are meaningful even when the intent ranker
+        # collapses them to one label; expose them to downstream planning.
         return LanguageAnalysis(t,intent,goal,self._entities(t),questions,constraints,steps,confidence,
             self._question_type(t) if questions else 'none',self._temporal(t),self._numbers(t),bool(neg),self.detect_language(t),
             [c['goal'] for c in self.extract_commands(t)],alternatives,round(ambiguity,3),typed)
