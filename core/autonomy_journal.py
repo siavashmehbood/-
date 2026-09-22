@@ -24,6 +24,8 @@ class AutonomyJournal:
             "confidence": (report.get("decision") or {}).get("prediction_confidence"),
             "verified": bool(report.get("verified")),
             "lesson": (report.get("reflection") or {}).get("lessons", [])[:2],
+            "learning": report.get("learning"),
+            "curriculum_learning": report.get("curriculum_learning"),
         }
         rows = self.read()
         rows.append(entry)
