@@ -381,6 +381,16 @@ class AutonomousSupervisorTests(unittest.TestCase):
                         shadowed.append(target.id)
         self.assertEqual(shadowed, [])
 
+    def test_benchmark_policy_matches_canonical_supervisor_mapping(self):
+        benchmark = AutonomousBenchmark()
+        expected = {
+            "baseline": "project_summary",
+            "files_changed": "project_files",
+            "files_added": "project_files",
+            "files_removed": "project_files",
+        }
+        self.assertEqual({signal: benchmark._decision(signal) for signal in expected}, expected)
+
     def test_benchmark_has_100_scenarios(self):
         result = AutonomousBenchmark().run()
         self.assertEqual(result["total"], 100)
