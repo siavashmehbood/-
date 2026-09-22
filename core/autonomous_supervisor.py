@@ -262,10 +262,12 @@ class AutonomousSupervisor:
         anomaly = self.runtime.anomaly.observe(signal_text or "stable")
         predictions = self.runtime.prediction.predict(["project_summary", "memory_search", "project_files"], context=signal_text, state=goal)
         best = self.runtime.prediction.best(predictions)
-        cycle = self.runtime.kernel.cycle(goal)
-        score = float(getattr(cycle, "confidence", .5))
+        # Supervisor reasoning must not traverse the dialogue kernel: that path can
+        # create conversation-learning records for an internal autonomy goal.
+        hypotheses = [f"signal:{s.kind}" for s in signals if float(getattr(s, "novelty", 0)) >= .35]
+        score = float(getattr(best, "confidence", .5)) if best else .5
         reflection = self.runtime.reflector.reflect(goal, str(best.action if best else "observe"), score, signals)
-        return {"goal": goal, "anomaly": asdict(anomaly), "hypotheses": list(getattr(cycle, "hypotheses", []) or []),
+        return {"goal": goal, "anomaly": asdict(anomaly), "hypotheses": hypotheses,
                 "predictions": [asdict(p) if hasattr(p, "__dataclass_fields__") else p for p in predictions],
                 "best_prediction": asdict(best) if best else None, "confidence": round(score, 3), "reflection": asdict(reflection)}
 
