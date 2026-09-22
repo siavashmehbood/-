@@ -217,6 +217,9 @@ class AutonomousSupervisor:
             control = self.self_awareness.control_next_action(["project_summary", "project_files", "memory_search"])
             report["self_awareness_control"] = control
             report["decision"]["next_action"] = control["preferred_action"]
+            expected_effect = str(control.get("expected_effect") or "").strip()
+            if expected_effect:
+                report["decision"]["expected_effect"] = expected_effect
         except Exception as exc:
             report["self_awareness_control"] = {"error": type(exc).__name__}
         entry = self.journal.append(report)
