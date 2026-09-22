@@ -69,7 +69,10 @@ class AutonomousSupervisorTests(unittest.TestCase):
                 self.assertIn("status", report["long_horizon"])
                 self.assertIn("recorded", report["learning"])
                 self.assertFalse(report["learning"]["recorded"])
-                self.assertIn("pending", report["curriculum_learning"])
+                self.assertTrue(report["curriculum_learning"]["ok"])
+                self.assertIn("created", report["curriculum_learning"])
+                self.assertIn("review_queue", report["curriculum_learning"])
+                self.assertIn("pending", report["curriculum_learning"]["review_queue"])
                 events = {e["event"] for e in runtime.events.recent(100)}
                 self.assertIn("supervisor_cycle", events)
                 self.assertIn("self_awareness_updated", events)
