@@ -373,11 +373,6 @@ class LongHorizonWorldBenchmark:
             cases.append({"id": i, "goal": goal, "success": world.goal_satisfied(goal), "cycles": len(history), "history": history})
         return {"total": 100, "passed": passed, "success": passed == 100, "cases": cases}
 
-# Replace the earlier smoke benchmark with the substantive long-horizon benchmark.
-AutonomousBenchmark = LongHorizonWorldBenchmark
-
-
-
 
 class LongHorizonWorldBenchmarkV2(LongHorizonWorldBenchmark):
     def run(self, max_cycles=50, supervisor=None):
