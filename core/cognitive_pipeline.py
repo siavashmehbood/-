@@ -380,6 +380,7 @@ class CognitivePipeline:
         semantic_check = self.semantic_verifier.verify(
             text, answer, getattr(e.state, "remembered_constraints", []),
             getattr(e.state, "rejected_answers", []),
+            evidence=self.verification_evidence(),
         )
         if not semantic_check.accepted and semantic_check.contradictions:
             answer = "UNKNOWN: پاسخ با محدودیت‌ها یا شواهد معتبر سازگار نیست."
