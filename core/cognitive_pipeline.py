@@ -470,7 +470,10 @@ class CognitivePipeline:
             reasoning_status=getattr(chain_result, "status", "NOT_RUN"),
             answer_status=getattr(synthesis, "status", plan.answer_type),
             verification_status=verification.status,
-            verification_reasons=list(getattr(verification, "reasons", []) or []),
+            verification_reasons=list(dict.fromkeys(
+                list(getattr(verification, "reasons", []) or []) +
+                list(semantic_check.reasons) + list(semantic_check.contradictions) +
+                list(final_check.reasons) + list(final_check.contradictions))),
             missing_units=list(getattr(verification, "missing_units", []) or []),
             confidence=float(verification.score),
             sources=list(getattr(synthesis, "sources", []) or []),
