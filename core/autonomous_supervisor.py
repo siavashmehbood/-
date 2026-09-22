@@ -222,11 +222,9 @@ class AutonomousSupervisor:
                 report["decision"]["expected_effect"] = expected_effect
         except Exception as exc:
             report["self_awareness_control"] = {"error": type(exc).__name__}
-        entry = self.journal.append(report)
-        report["autonomy_status"] = self.journal.summary()
-        report["decision_explanation"] = {"trigger": entry.get("signals", []), "selected_goal": entry.get("goal"),
-                                          "why": entry.get("reason"), "chosen_action": entry.get("action"),
-                                          "verified": entry.get("verified")}
+        report["decision_explanation"] = {"trigger": report.get("signals", []), "selected_goal": selected_data.get("goal"),
+                                          "why": report.get("reasoning", {}).get("reason"), "chosen_action": action,
+                                          "verified": verified}
         try:
             report["curriculum_learning"] = self.runtime.generate_curriculum_learning_inputs(24)
         except Exception as exc:
@@ -249,6 +247,9 @@ class AutonomousSupervisor:
         else:
             report["learning"] = {"recorded": False, "verified": verified, "purposeful": False,
                                   "novelty": novelty, "reason": "routine_or_repeated_observation"}
+        # Persist the complete cycle only after curriculum and learning outcomes exist.
+        self.journal.append(report)
+        report["autonomy_status"] = self.journal.summary()
         self.last_report = report
         self.runtime.events.emit("self_awareness_updated", report["self_awareness"])
         self.runtime.events.emit("self_awareness_control", report["self_awareness_control"])
