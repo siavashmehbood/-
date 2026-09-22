@@ -302,7 +302,12 @@ class SelfDirectedLearning:
         for domain in (domains or self.CURRICULUM):
             for topic in self.CURRICULUM.get(domain, []):
                 old = next((g for g in self.goals if g.topic == topic and g.domain == domain), None)
-                if old and old.status == "consolidated": continue
+                if old:
+                    # An existing curriculum goal is already the durable work item.
+                    # Do not report it as freshly created on every supervisor cycle.
+                    if old.status != "consolidated":
+                        result.append(asdict(old))
+                    break
                 result.append(self.create_goal(topic, "curriculum", "demonstrate:"+topic, "medium", domain))
                 break
             if len(result) >= max(1,min(int(limit),20)): break
