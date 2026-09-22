@@ -419,6 +419,13 @@ class CognitivePipeline:
         if not final_check.accepted:
             answer = "UNKNOWN: پاسخ با شواهد معتبر سازگار نیست یا شواهد کافی وجود ندارد."
             verification.status = "UNKNOWN"
+            # Preserve the strongest evidence diagnosis from the candidate
+            # answer. Re-verifying an abstention cannot rediscover which facts
+            # originally conflicted because UNKNOWN intentionally states none.
+            if semantic_check.evidence_status == "CONFLICTING":
+                final_check.evidence_status = "CONFLICTING"
+                final_check.evidence_sources = list(dict.fromkeys(
+                    list(semantic_check.evidence_sources) + list(final_check.evidence_sources)))
         elif final_check.status == "UNKNOWN":
             verification.status = "UNKNOWN"
         verification.score = min(verification.score, final_check.score)
