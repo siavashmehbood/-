@@ -115,6 +115,23 @@ class AutonomousSupervisor:
         self.running = False
         self.cycle_count = 0
         self.last_report: dict[str, Any] = {}
+        self.scored_initiatives = ScoredInitiativeEngine(runtime)
+        self.last_initiatives = []
+        self.completed_initiatives = []
+        journal_path = Path(runtime.config.get("runtime", {}).get("autonomy_journal", "data/autonomy_journal.json"))
+        if not journal_path.is_absolute():
+            journal_path = runtime.root / journal_path
+        self.journal = AutonomyJournal(journal_path)
+        self._goal_signature = None
+        self._goal_stagnation = 0
+        goal_state = Path(runtime.config.get("runtime", {}).get("autonomous_goal_state", "data/autonomous_goal_state.json"))
+        if not goal_state.is_absolute():
+            goal_state = runtime.root / goal_state
+        self.goal_runner = AutonomousGoalRunner(runtime, goal_state)
+        awareness_state = Path(runtime.config.get("runtime", {}).get("self_awareness_state", "data/self_awareness.json"))
+        if not awareness_state.is_absolute():
+            awareness_state = runtime.root / awareness_state
+        self.self_awareness = SelfAwarenessEngine(awareness_state)
 
     def _safe_action(self, goal: str) -> str:
         if goal in {"inspect project changes", "inspect removed project files"}:
@@ -342,7 +359,6 @@ _old_v2_init = AutonomousSupervisor.__init__
 def _supervisor_init_v2(self, runtime):
     _old_v2_init(self, runtime)
     _init_scored(self)
-AutonomousSupervisor.__init__ = _supervisor_init_v2
 
 
 def _choose_action(self, initiative):
@@ -444,7 +460,6 @@ _old_supervisor_init_v3 = AutonomousSupervisor.__init__
 def _supervisor_init_v3(self, runtime):
     _old_supervisor_init_v3(self, runtime)
     self.journal = AutonomyJournal(Path(runtime.config.get('runtime', {}).get('autonomy_journal', 'data/autonomy_journal.json')))
-AutonomousSupervisor.__init__ = _supervisor_init_v3
 
 _old_step_v3 = AutonomousSupervisor.step
 def _step_v4(self):
@@ -470,7 +485,6 @@ def _supervisor_init_v4(self, runtime):
     _old_init_v4(self, runtime)
     self._goal_signature = None
     self._goal_stagnation = 0
-AutonomousSupervisor.__init__ = _supervisor_init_v4
 
 _old_step_v4 = AutonomousSupervisor.step
 def _step_v5(self):
@@ -544,7 +558,6 @@ def _supervisor_init_v5(self, runtime):
     if not goal_state.is_absolute():
         goal_state = runtime.root / goal_state
     self.goal_runner = AutonomousGoalRunner(runtime, goal_state)
-AutonomousSupervisor.__init__ = _supervisor_init_v5
 
 _old_step_v6 = AutonomousSupervisor.step
 def _step_v7(self):
@@ -585,7 +598,6 @@ def _supervisor_init_v6(self, runtime):
     if not awareness_state.is_absolute():
         awareness_state = runtime.root / awareness_state
     self.self_awareness = SelfAwarenessEngine(awareness_state)
-AutonomousSupervisor.__init__ = _supervisor_init_v6
 
 _old_step_v7 = AutonomousSupervisor.step
 def _step_v8(self):
