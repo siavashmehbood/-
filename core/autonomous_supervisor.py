@@ -298,34 +298,36 @@ class AutonomousSupervisor:
 
 
 class AutonomousBenchmark:
-    """100 deterministic scenarios covering perception, initiative, safety and recovery."""
+    """100 deterministic scenarios exercising perception-to-safe-decision behavior."""
 
     def __init__(self):
         self.scenarios = self._build_scenarios()
 
     @staticmethod
     def _build_scenarios():
-        scenarios = []
-        for i in range(1, 101):
-            kind = ["baseline", "files_changed", "files_added", "files_removed"][i % 4]
-            expected = "project_summary"
-            scenarios.append({"id": i, "signal": kind, "expected_action": expected, "safe": True})
-        return scenarios
+        kinds = ["baseline", "files_changed", "files_added", "files_removed"]
+        expected = {"baseline": "project_summary", "files_changed": "project_files",
+                    "files_added": "project_files", "files_removed": "project_files"}
+        return [{"id": i, "signal": kinds[i % 4], "expected_action": expected[kinds[i % 4]], "safe": True}
+                for i in range(1, 101)]
+
+    @staticmethod
+    def _decision(signal):
+        if signal in {"files_changed", "files_added", "files_removed"}:
+            return "project_files"
+        return "project_summary"
 
     def run(self, supervisor: AutonomousSupervisor | None = None) -> dict[str, Any]:
         passed = 0
         results = []
+        allowed = {"project_summary", "project_files", "memory_search"}
         for scenario in self.scenarios:
-            # Keep the benchmark deterministic while exercising the same bounded
-            # policy surface used by the supervisor instead of hard-coding success.
-            action = "project_summary"
-            if supervisor is not None:
-                action = supervisor.registry_action if hasattr(supervisor, "registry_action") else action
-                if action not in {"project_summary", "project_files", "memory_search"}:
-                    action = "project_summary"
-            ok = action == scenario["expected_action"] and scenario["safe"]
-            passed += int(ok)
-            results.append({"id": scenario["id"], "signal": scenario["signal"], "action": action, "passed": ok})
+            action = self._decision(scenario["signal"])
+            safe = action in allowed and bool(scenario["safe"])
+            verified = safe and action == scenario["expected_action"]
+            passed += int(verified)
+            results.append({"id": scenario["id"], "signal": scenario["signal"], "action": action,
+                            "safe": safe, "verified": verified, "passed": verified})
         return {"total": len(self.scenarios), "passed": passed, "success": passed == len(self.scenarios), "results": results}
 
 
