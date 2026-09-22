@@ -13,6 +13,19 @@ from core.self_awareness import SelfAwarenessEngine
 
 
 @dataclass
+
+READ_ONLY_ACTIONS = {"project_summary", "project_files", "memory_search"}
+SUPERVISOR_GOAL_ACTION_POLICY = {
+    "inspect project changes": "project_files",
+    "inspect removed project files": "project_files",
+    "investigate unusual project state": "project_files",
+    "maintain situational awareness": "project_summary",
+}
+
+
+def supervisor_policy_action(goal: str) -> str:
+    return SUPERVISOR_GOAL_ACTION_POLICY.get(str(goal or ""), "project_summary")
+
 class EnvironmentSignal:
     kind: str
     value: Any
@@ -145,13 +158,7 @@ class AutonomousSupervisor:
 
     def _choose_action(self, initiative):
         """Choose a bounded read-only action using the persistent self model."""
-        mapping = {
-            "inspect project changes": "project_files",
-            "inspect removed project files": "project_files",
-            "investigate unusual project state": "project_files",
-            "maintain situational awareness": "project_summary",
-        }
-        base = mapping.get(getattr(initiative, "goal", ""), "project_summary")
+        base = supervisor_policy_action(getattr(initiative, "goal", ""))
         candidates = [base, "project_summary", "project_files", "memory_search"]
         try:
             preferred = getattr(self.self_awareness.state, "preferred_action", "")
@@ -319,13 +326,7 @@ class AutonomousBenchmark:
             "files_removed": "inspect removed project files",
             "baseline": "maintain situational awareness",
         }.get(signal, "maintain situational awareness")
-        mapping = {
-            "inspect project changes": "project_files",
-            "inspect removed project files": "project_files",
-            "investigate unusual project state": "project_files",
-            "maintain situational awareness": "project_summary",
-        }
-        return mapping.get(goal, "project_summary")
+        return supervisor_policy_action(goal)
 
     def run(self, supervisor: AutonomousSupervisor | None = None) -> dict[str, Any]:
         passed = 0
