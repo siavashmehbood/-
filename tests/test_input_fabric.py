@@ -48,3 +48,24 @@ def test_long_inputs_with_same_prefix_remain_distinct(tmp_path):
     restored = InputFabric(tmp_path)
     assert not restored.ingest(prefix + 'دوم')['duplicate']
     assert restored.ingest(prefix + 'اول')['duplicate']
+
+
+def test_failed_save_does_not_consume_input_or_evict_previous_event(tmp_path, monkeypatch):
+    import pytest
+    from copy import deepcopy
+    fabric = InputFabric(tmp_path, max_events=1)
+    fabric.ingest('اولین ورودی محفوظ است.')
+    previous_events = deepcopy(fabric.events)
+    previous_stats = deepcopy(fabric.stats_data)
+    save = fabric._save
+    def fail():
+        raise OSError('disk full fixture')
+    monkeypatch.setattr(fabric, '_save', fail)
+    with pytest.raises(OSError):
+        fabric.ingest('دومین ورودی باید دوباره تلاش شود.')
+    assert fabric.events == previous_events
+    assert fabric.stats_data == previous_stats
+    monkeypatch.setattr(fabric, '_save', save)
+    assert not fabric.ingest('دومین ورودی باید دوباره تلاش شود.')['duplicate']
+    restored = InputFabric(tmp_path, max_events=1)
+    assert restored.ingest('دومین ورودی باید دوباره تلاش شود.')['duplicate']

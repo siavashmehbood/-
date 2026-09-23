@@ -1,5 +1,6 @@
 """Unified input/ingestion fabric for IRAN."""
 from dataclasses import dataclass, asdict
+from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
 import hashlib, json, re, uuid
@@ -105,12 +106,20 @@ class InputFabric:
             return {"ok":True,"duplicate":True,"key":key,"units":[]}
         event=InputEvent("inp-"+uuid.uuid4().hex[:12],source,input_type,content[:30000],self.detect_domain(content,domain),datetime.now().isoformat(timespec="seconds"),dict(provenance or {}),max(0,min(1,float(confidence or 0))),str(cycle_id or ""))
         units=self.extract_units(content,source,input_type); payload=asdict(event); payload["units"]=units; payload["content_key"]=key
-        self.events.append(payload); self.events=self.events[-self.max_events:]; self.seen.add(key)
+        previous_events, previous_stats = self.events, self.stats_data
+        self.events = (self.events + [payload])[-self.max_events:]
+        self.stats_data = deepcopy(self.stats_data)
         self.stats_data["ingested"]=int(self.stats_data.get("ingested",0))+1
         self.stats_data["units"]=int(self.stats_data.get("units",0))+len(units)
         self.stats_data.setdefault("domains",{})[event.domain]=int(self.stats_data.get("domains",{}).get(event.domain,0))+1
         self.stats_data.setdefault("sources",{})[source]=int(self.stats_data.get("sources",{}).get(source,0))+1
-        self._save()
+        try:
+            self._save()
+        except Exception:
+            self.events, self.stats_data = previous_events, previous_stats
+            raise
+        # Only durable input may consume its duplicate key or reach learning.
+        self.seen.add(key)
         learning_candidates=[u for u in units if u.get("reusable") and u.get("kind") in {"correction","claim_candidate","procedure_candidate"}]
         learning_results=[]
         learning_errors=[]

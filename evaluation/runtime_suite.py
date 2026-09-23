@@ -278,7 +278,27 @@ def run(repository):
             require(restored.effect_learning.stats()['xp']==0,'input duplicate minted XP')
         finally:
             restored.close()
-    for name, operation in [('long_input_restart',long_input_restart), ('structured_health',structured_health), ('credential_free_only',credential_free_only), ('structured_queue_recovery',structured_queue_recovery), ('numeric_evidence',numeric_evidence), ('remembered_constraints',remembered_constraints), ('subject_binding',subject_binding), ('assistant_not_evidence',assistant_not_evidence), ('offline_permission_recovery',offline_permission_recovery), ('diagnostic_not_learning',diagnostic_not_learning), ('sandbox_boundary',sandbox_boundary), ('corroborating_sources',corroborating_sources), ('corrupt_reviewer_state',corrupt_reviewer_state), ('recover_then_learn',recover_then_learn), ('knowledge_correction',knowledge_correction), ('conflicting_knowledge',conflicting_knowledge), ('topic_switch',topic_switch), ('verified_action_recovery',verified_action), ('multi_turn_memory',recall), ('correction',correction), ('reference_resolution',reference), ('unknown',unknown), ('restart_memory',restart), ('review_then_human',approval), ('hidden_candidate',hidden), ('feedback_no_xp',feedback), ('deduplication',duplicate), ('forged_review_rejected',forged), ('source_conflict',conflict), ('provider_offline_fallback',provider), ('learn_apply_observe_credit_once',reuse)]:
+    def input_save_recovery(r):
+        fabric=r.input_fabric
+        save=fabric._save
+        def fail(): raise OSError('disk-full fixture')
+        fabric._save=fail
+        content='این یک ادعای آزمایشی برای بررسی ذخیره است.'
+        try:
+            try:
+                fabric.ingest(content,source='document',input_type='document',create_goal=False)
+            except OSError:
+                pass
+            else:
+                raise AssertionError('write error hidden')
+        finally:
+            fabric._save=save
+        require(not r.learning_gate.pending(),'failed input reached learning')
+        retry=fabric.ingest(content,source='document',input_type='document',create_goal=False)
+        require(not retry['duplicate'],'failed input consumed duplicate key')
+        require(bool(r.learning_gate.pending()),'retried input did not reach review queue')
+        require(not r.human_learning_pending(),'unreviewed input bypassed reviewer')
+    for name, operation in [('input_save_recovery',input_save_recovery), ('long_input_restart',long_input_restart), ('structured_health',structured_health), ('credential_free_only',credential_free_only), ('structured_queue_recovery',structured_queue_recovery), ('numeric_evidence',numeric_evidence), ('remembered_constraints',remembered_constraints), ('subject_binding',subject_binding), ('assistant_not_evidence',assistant_not_evidence), ('offline_permission_recovery',offline_permission_recovery), ('diagnostic_not_learning',diagnostic_not_learning), ('sandbox_boundary',sandbox_boundary), ('corroborating_sources',corroborating_sources), ('corrupt_reviewer_state',corrupt_reviewer_state), ('recover_then_learn',recover_then_learn), ('knowledge_correction',knowledge_correction), ('conflicting_knowledge',conflicting_knowledge), ('topic_switch',topic_switch), ('verified_action_recovery',verified_action), ('multi_turn_memory',recall), ('correction',correction), ('reference_resolution',reference), ('unknown',unknown), ('restart_memory',restart), ('review_then_human',approval), ('hidden_candidate',hidden), ('feedback_no_xp',feedback), ('deduplication',duplicate), ('forged_review_rejected',forged), ('source_conflict',conflict), ('provider_offline_fallback',provider), ('learn_apply_observe_credit_once',reuse)]:
         case(name, operation)
     return {'cases': results, 'passed': sum(x['passed'] for x in results), 'total': len(results), 'live_external_services': 'NOT_TESTED'}
 
