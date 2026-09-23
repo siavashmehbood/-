@@ -332,3 +332,19 @@ Two regressions reproduce long-input repetition and distinguish different suffix
 sharing a long prefix. Full pytest: 477 passed; unittest: 234 passed. Identical
 runtime evaluation: 30/31 on 839c85d, 31/31 after, including actual runtime restart
 and no XP from repeated input.
+
+
+## Input write failure recovery
+
+Input ingestion previously mutated its events, counters and duplicate set before
+saving. A failed save could evict an older retained event and permanently suppress
+a retry in the current process. The staged event and counters now roll back on
+save failure; the duplicate key is added only after persistence succeeds. Learning
+routing still occurs after the durable input write.
+
+Full pytest: 478 passed; unittest: 234 passed. Identical runtime evaluation:
+31/32 on 5dd5934, 32/32 after. The new runtime scenario injects a write failure,
+checks that no candidate is created, then retries successfully into the gated queue.
+The unit regression also preserves an older event at the retention boundary.
+This does not claim atomicity across input persistence and subsequent learning
+routing; recovery of a failure in that later handoff remains a separate audit item.
