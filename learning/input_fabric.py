@@ -103,7 +103,7 @@ class InputFabric:
         key=self._key(source,input_type,content)
         if key in self.seen:
             self.stats_data["duplicates"]=int(self.stats_data.get("duplicates",0))+1
-            return {"ok":True,"duplicate":True,"key":key,"units":[]}
+            event=next((row for row in reversed(self.events) if row.get("content_key")==key),None)\n            learning_results, learning_errors = self._route_learning(event) if event is not None else ([], [])\n            return {"ok":True,"duplicate":True,"key":key,"units":[],"learning":learning_results,"learning_errors":learning_errors}
         event=InputEvent("inp-"+uuid.uuid4().hex[:12],source,input_type,content[:30000],self.detect_domain(content,domain),datetime.now().isoformat(timespec="seconds"),dict(provenance or {}),max(0,min(1,float(confidence or 0))),str(cycle_id or ""))
         units=self.extract_units(content,source,input_type); payload=asdict(event); payload["units"]=units; payload["content_key"]=key
         previous_events, previous_stats = self.events, self.stats_data
