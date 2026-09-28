@@ -120,28 +120,7 @@ class InputFabric:
             raise
         # Only durable input may consume its duplicate key or reach learning.
         self.seen.add(key)
-        learning_candidates=[u for u in units if u.get("reusable") and u.get("kind") in {"correction","claim_candidate","procedure_candidate"}]
-        learning_results=[]
-        learning_errors=[]
-        if self.runtime is not None and learning_candidates:
-            for unit in learning_candidates:
-                try:
-                    learning_results.append(self.runtime.learning.record(
-                        goal=f"learn_from_input:{event.domain}",
-                        action=f"input_{unit["kind"]}",
-                        result=unit["content"],
-                        score=max(0.75, event.confidence or 0.75),
-                        intent="input_candidate",
-                        strategy="input_fabric",
-                        domain=event.domain,
-                        objective=f"turn reusable {unit["kind"]} input into a reviewable learning candidate",
-                        expected_effect="the same or similar future input should be handled with this reusable evidence",
-                        signal_source=f"input:{source}",
-                        evidence=event.event_id,
-                    ))
-                except Exception as exc:
-                    learning_errors.append({"kind":unit["kind"],"error":type(exc).__name__})
-        if self.runtime is not None:
+        learning_candidates=[u for u in units if u.get("reusable") and u.get("kind") in {"correction","claim_candidate","procedure_candidate"}]\n        learning_results, learning_errors = self._route_learning(payload)\n        if self.runtime is not None:
             try:self.runtime.events.emit("input_ingested",{"event_id":event.event_id,"source":source,"input_type":input_type,"domain":event.domain,"units":len(units)})
             except Exception:pass
             if create_goal and event.domain!="general" and learning_candidates:
