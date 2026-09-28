@@ -75,5 +75,35 @@ class InputLearningRoutingTests(unittest.TestCase):
             self.assertEqual(len(result["learning" ]), 0)
             self.assertEqual(result["learning_errors"][0]["error"], "RuntimeError")
 
+    def test_failed_route_retries_after_restart_without_reprocessing_success(self):
+        with tempfile.TemporaryDirectory() as d:
+            runtime=FakeRuntime()
+            calls=[]
+            def record(**kwargs):
+                calls.append(kwargs["result"])
+                if "Java" in kwargs["result"] and calls.count(kwargs["result"]) == 1:
+                    raise RuntimeError("temporary routing failure")
+                return {"proposal_id": "p-" + str(len(calls)), "status": "pending"}
+            runtime.learning.record=record
+            text="Python یک زبان برنامه‌نویسی است. Java یک زبان برنامه‌نویسی است."
+            first=InputFabric(Path(d), runtime=runtime).ingest(text, source="user", input_type="knowledge")
+            self.assertEqual(len(first["learning"]), 1)
+            self.assertEqual(len(first["learning_errors"]), 1)
+            self.assertEqual(len(calls), 2)
+
+            restored=InputFabric(Path(d), runtime=runtime)
+            retry=restored.ingest(text, source="user", input_type="knowledge")
+            self.assertTrue(retry["duplicate"])
+            self.assertEqual(len(retry["learning"]), 1)
+            self.assertEqual(retry["learning_errors"], [])
+            self.assertEqual(len(calls), 3)
+            self.assertEqual(calls.count("Python یک زبان برنامه‌نویسی است."), 1)
+            self.assertEqual(calls.count("Java یک زبان برنامه‌نویسی است."), 2)
+
+            again=InputFabric(Path(d), runtime=runtime).ingest(text, source="user", input_type="knowledge")
+            self.assertTrue(again["duplicate"])
+            self.assertEqual(again["learning"], [])
+            self.assertEqual(len(calls), 3)
+
 if __name__=="__main__":
     unittest.main()
