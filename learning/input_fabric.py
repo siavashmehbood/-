@@ -148,6 +148,47 @@ class InputFabric:
                 try:self.runtime.self_directed_learning.create_goal(content[:160],"input_requires_grounded_processing",f"extract_and_verify:{content[:160]}","medium",event.domain)
                 except Exception:pass
         return {"ok":True,"duplicate":False,"event":payload,"units":units,"learning":learning_results,"learning_errors":learning_errors}
+    @staticmethod
+    def _unit_key(unit):
+        raw=f'{unit.get("kind","")}|{InputFabric.normalize(unit.get("content","")).lower()}'
+        return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:24]
+
+    def _route_learning(self,event):
+        if self.runtime is None or not event:
+            return [], []
+        candidates=[u for u in event.get("units",[]) if u.get("reusable") and u.get("kind") in {"correction","claim_candidate","procedure_candidate"}]
+        if not candidates:
+            return [], []
+        routes=event.setdefault("learning_routes",{})
+        results=[]; errors=[]
+        for unit in candidates:
+            unit_key=self._unit_key(unit)
+            route=routes.setdefault(unit_key,{"kind":unit["kind"],"status":"pending","attempts":0})
+            if route.get("status")=="done":
+                continue
+            route["attempts"]=int(route.get("attempts",0))+1
+            try:
+                result=self.runtime.learning.record(
+                    goal=f'learn_from_input:{event.get("domain","general")}',
+                    action=f'input_{unit["kind"]}',
+                    result=unit["content"],
+                    score=max(0.75,float(event.get("confidence",0) or 0.75)),
+                    intent="input_candidate",
+                    strategy="input_fabric",
+                    domain=event.get("domain","general"),
+                    objective=f'turn reusable {unit["kind"]} input into a reviewable learning candidate',
+                    expected_effect="the same or similar future input should be handled with this reusable evidence",
+                    signal_source=f'input:{event.get("source","system")}',
+                    evidence=event.get("event_id",""),
+                )
+                route["status"]="done"; route.pop("error",None)
+                results.append(result)
+            except Exception as exc:
+                route["status"]="pending"; route["error"]=type(exc).__name__
+                errors.append({"kind":unit["kind"],"error":type(exc).__name__})
+            self._save()
+        return results, errors
+
     def ingest_batch(self,items,create_goal=True):
         results=[]
         for item in items or []:
