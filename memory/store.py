@@ -16,7 +16,7 @@ class Memory:
         self.conn.execute('CREATE TABLE IF NOT EXISTS lessons (id INTEGER PRIMARY KEY, goal TEXT, lesson TEXT, confidence REAL, source TEXT, uses INTEGER DEFAULT 0, created_at TEXT, updated_at TEXT, UNIQUE(goal,lesson))')
         self.conn.execute('CREATE INDEX IF NOT EXISTS idx_memory_kind ON memories(kind)'); self.conn.execute('CREATE INDEX IF NOT EXISTS idx_fact_subject ON semantic_facts(subject)'); self.conn.execute('CREATE INDEX IF NOT EXISTS idx_lesson_goal ON lessons(goal)'); self.conn.commit()
     def _tokens(self,text): return set(re.findall(r'[\wآ-ی]+',str(text).lower()))
-    def _norm(self,text): return re.sub(r'\s+',' ',str(text).strip().replace('ي','ی').replace('ك','ک'))
+    def _norm(self,text): t=str(text).strip().replace("ي","ی").replace("ك","ک"); t=t.replace("\u200c"," "); return re.sub(r"\s+", " ", t)
     def add(self,kind,content,importance=.5,confidence=None,source='local'):
         content=self._norm(content)
         if not content:return None
@@ -60,9 +60,9 @@ class Memory:
             self.conn.execute('UPDATE semantic_facts SET confidence=MAX(confidence,?),source=?,updated_at=? WHERE id=?',(float(confidence),str(source),now,row[0])); self.conn.commit(); return row[0]
         cur=self.conn.execute('INSERT INTO semantic_facts(subject,predicate,value,confidence,source,created_at,updated_at) VALUES(?,?,?,?,?,?,?)',(s,p,v,float(confidence),str(source),now,now)); self.conn.commit(); return cur.lastrowid
     def semantic_search(self,query,limit=8):
-        q=self._tokens(query); rows=self.conn.execute('SELECT subject,predicate,value,confidence,source,updated_at FROM semantic_facts').fetchall(); scored=[]
+        query=self._norm(query); q=self._tokens(query); rows=self.conn.execute('SELECT subject,predicate,value,confidence,source,updated_at FROM semantic_facts').fetchall(); scored=[]
         for s,p,v,c,src,updated in rows:
-            text=f'{s} {p} {v}'; inter=q&self._tokens(text)
+            text=f'{self._norm(s)} {self._norm(p)} {self._norm(v)}'; inter=q&self._tokens(text)
             if not inter:continue
             score=.65*len(inter)/max(1,len(q))+.35*float(c)
             scored.append((score,{'subject':s,'predicate':p,'value':v,'confidence':c,'source':src,'updated_at':updated}))
