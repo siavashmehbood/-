@@ -8,7 +8,7 @@ FOLLOW_UPS = ('چرا؟', 'چطور؟', 'چگونه؟', 'پس چی؟', 'حالا
 
 
 def clean(text):
-    return re.sub(r'\s+', ' ', str(text).strip().replace('ي', 'ی').replace('ك', 'ک'))
+    return re.sub(r'\s+', ' ', str(text).strip().replace('ي', 'ی').replace('ك', 'ک').replace('\u200c', ''))
 
 
 def substantive(text):
