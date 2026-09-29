@@ -129,7 +129,21 @@ class ChatWindow(QMainWindow):
         w = QWidget(); l = QVBoxLayout(w); l.setSpacing(7); l.addWidget(QLabel("وضعیت شناختی"))
         self.conf = QLabel("اطمینان: —"); self.quality = QLabel("کیفیت: —"); self.intent = QLabel("هدف: —"); self.elapsed = QLabel("زمان: —"); self.experience_xp = QLabel("XP تأییدشده: ۰")
         self.chatgpt_pending = QLabel("درخواست‌های بازبینی ناظر: ۰")
-        for x in (self.conf, self.quality, self.intent, self.elapsed, self.experience_xp, self.chatgpt_pending): l.addWidget(x)
+        self.online_review_status = QLabel("ناظر آنلاین: —")
+        self.duplicate_warning = QLabel("ورودی تکراری: —")
+        self.cooldown_status = QLabel("خنک‌سازی: —")
+        self.queue_status = QLabel("صف: —")
+        self.integrity_status = QLabel("یکپارچگی: —")
+        self.recovery_status = QLabel("بازیابی: —")
+        self.review_rows_detail = QLabel("صف بازبینی: —")
+        self.human_pending = QLabel("در انتظار انسان: —")
+        self.review_accepted = QLabel("تأیید شده: —")
+        self.review_rejected = QLabel("رد شده: —")
+        self.review_errors = QLabel("خطاهای بازبینی: —")
+        self.input_fabric_json = QLabel("ورودی‌ها: —")
+        self.restart_button = QPushButton("راه‌اندازی مجدد ناظر")
+        self.restart_button.clicked.connect(self.restart_worker)
+        for x in (self.conf, self.quality, self.intent, self.elapsed, self.experience_xp, self.chatgpt_pending, self.online_review_status, self.duplicate_warning, self.cooldown_status, self.queue_status, self.integrity_status, self.recovery_status, self.review_rows_detail, self.human_pending, self.review_accepted, self.review_rejected, self.review_errors, self.input_fabric_json, self.restart_button): l.addWidget(x)
         self.internet_button = QPushButton()
         self.internet_button.clicked.connect(self.toggle_internet)
         l.addWidget(self.internet_button); self.refresh_internet()
@@ -556,6 +570,32 @@ class ChatWindow(QMainWindow):
         l.addWidget(QLabel("یادگیری اینترنتی: فقط با تأیید کاربر"))
         z = QDialogButtonBox(QDialogButtonBox.Ok); z.accepted.connect(d.accept); l.addWidget(z); d.exec()
 
+    def bulk_review_refresh(self):
+        try:
+            from persistence import load_critical_json
+            path = self.runtime.root / "data/chatgpt_review.json" if hasattr(self.runtime, "root") else Path("data/chatgpt_review.json")
+            rows = load_critical_json(path, [])
+            accepted = sum(1 for row in rows if row.get("status") == "approved" or row.get("human_decision") == "approved")
+            rejected = sum(1 for row in rows if row.get("status") == "rejected" or row.get("human_decision") == "rejected")
+            errors = sum(1 for row in rows if row.get("status") == "error")
+            self.review_accepted.setText(f"تأیید شده: {accepted}")
+            self.review_rejected.setText(f"رد شده: {rejected}")
+            self.review_errors.setText(f"خطاهای بازبینی: {errors}")
+        except Exception as exc:
+            self.review_errors.setText(f"خطاهای بازبینی: خواندن ناموفق (.bak recovery فعال) | {exc}")
+
+    def restart_worker(self):
+        try:
+            worker = getattr(self.runtime, "chatgpt_review_worker", None)
+            restart = getattr(worker, "restart", None)
+            if callable(restart):
+                restart()
+                self.recovery_status.setText("بازیابی: راه‌اندازی مجدد انجام شد")
+            else:
+                self.recovery_status.setText("بازیابی: worker قابلیت restart ندارد")
+        except Exception as exc:
+            self.recovery_status.setText(f"بازیابی: خطا در راه‌اندازی مجدد — {exc}")
+
 if __name__ == "__main__":
     if not _acquire_gui_lock():
         sys.exit(0)
@@ -572,3 +612,4 @@ if __name__ == "__main__":
     #sourceLabel { font-weight:700; color:#cbd5e1; }
     """)
     window = ChatWindow(); window.show(); sys.exit(app.exec())
+
