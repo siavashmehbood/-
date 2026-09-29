@@ -47,3 +47,18 @@ def test_empty_context_stays_unresolved():
     s = ConversationState()
     assert ReferenceResolver().resolve("این بخش", s) == ""
     assert s.references["reference_trace"]["candidate"] == ""
+
+
+def test_colloquial_ordinal_references_cover_deeper_topic_stack():
+    s = ConversationState()
+    s.topic_stack = ["پایتون", "Django", "حافظه", "استدلال", "برنامه‌ریزی"]
+    s.current_topic = "راستی‌آزمایی"
+    resolver = ReferenceResolver()
+    assert resolver.resolve("سومیش رو ادامه بده", s) == "حافظه"
+    assert resolver.resolve("موضوع چهارم رو توضیح بده", s) == "استدلال"
+    assert resolver.resolve("مورد پنجم چی بود؟", s) == "برنامه‌ریزی"
+
+
+def test_last_reference_prefers_current_topic():
+    s = make_state()
+    assert ReferenceResolver().resolve("آخری رو ادامه بده", s) == "حافظه"
