@@ -35,7 +35,12 @@ class MemoryIntelligence:
         self.memory = memory
 
     def _norm(self, text):
-        return re.sub(r"\s+", " ", str(text).strip().replace("ي", "ی").replace("ك", "ک"))
+        text = str(text).strip().replace("ي", "ی").replace("ى", "ی").replace("ك", "ک")
+        # Persian users freely alternate ZWNJ, ordinary spaces and Arabic
+        # diacritics. Retrieval identity must not depend on keyboard choice.
+        text = text.replace("\u200c", " ").replace("\u200f", "").replace("\u200e", "")
+        text = re.sub(r"[\u064b-\u065f\u0670\u06d6-\u06ed]", "", text)
+        return re.sub(r"\s+", " ", text)
 
     def _tokens(self, text):
         return {x for x in re.findall(r"[آ-یA-Za-z][آ-یA-Za-z0-9‌_-]*", self._norm(text).lower()) if x not in self.STOP}
