@@ -258,7 +258,8 @@ class QuestionAnalyzer:
 class ReferenceResolver:
     def resolve(self, text, state, history=None):
         t=bare(text); history=history or []
-        if is_follow_up(t) and state.last_assistant_answer and substantive(state.last_assistant_answer):
+        ordinal_reference = bool(re.search(r'(اول|دوم|سوم|چهارم|پنجم|آخر)', t))
+        if is_follow_up(t) and not ordinal_reference and state.last_assistant_answer and substantive(state.last_assistant_answer):
             return state.last_assistant_answer
         if any(x in t for x in ('موضوع قبلی', 'بحث قبلی')):
             return state.topic_stack[-1] if state.topic_stack else state.current_topic
