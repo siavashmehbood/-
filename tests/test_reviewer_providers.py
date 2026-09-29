@@ -288,3 +288,61 @@ def test_mistral_free_policy_can_activate_with_explicit_attestation(monkeypatch)
         }
     })
     assert p.availability()==('AVAILABLE','')
+
+
+def test_openrouter_model_cooldown_persists_across_restart(tmp_path, monkeypatch):
+    monkeypatch.setenv('OPENROUTER_API_KEY','test-key')
+    internet=InternetAccessManager(tmp_path/'internet.json'); internet.enable()
+    p=ReviewerProvider('openrouter',{
+        'enabled':True,'dynamic_free_models':True,'model_attempts':3,
+        'cooldown':60,'min_interval':0,
+    },clock=lambda:1000)
+    monkeypatch.setattr(p,'_discover_openrouter_free_models',lambda:['a:free','b:free'])
+    seen=[]
+    def call(candidate, model):
+        seen.append(model)
+        if model=='a:free':
+            raise ReviewFailure('http_429','RATE_LIMITED',120)
+        return {'learn':False,'reason':'ok','confidence':1.0,'corrections':[],
+                'provider':'openrouter','model':model}
+    monkeypatch.setattr(p,'_review_with_model',call)
+    m=ProviderManager(tmp_path,{
+        'external_access':{'credential_free_only':False},
+        'reviewers':{'max_attempts':4,'max_seconds':40},
+    },internet,[p],clock=lambda:1000)
+    result=m.review({'claim':'x'})
+    assert result['ok'] and result['result']['model']=='b:free'
+    assert seen==['a:free','b:free']
+    stored=json.loads(m.path.read_text())
+    assert stored['openrouter']['models']['a:free']['state']=='RATE_LIMITED'
+    assert stored['openrouter']['models']['a:free']['next_allowed']==1120
+
+    p2=ReviewerProvider('openrouter',{
+        'enabled':True,'dynamic_free_models':True,'model_attempts':3,
+        'cooldown':60,'min_interval':0,
+    },clock=lambda:1000)
+    monkeypatch.setattr(p2,'_discover_openrouter_free_models',lambda:['a:free','b:free'])
+    m2=ProviderManager(tmp_path,{
+        'external_access':{'credential_free_only':False},
+        'reviewers':{'max_attempts':4,'max_seconds':40},
+    },internet,[p2],clock=lambda:1000)
+    assert m2.health()[0]['state']=='AVAILABLE'
+    assert p2.review_models()==['b:free']
+
+
+def test_corrupt_nested_model_health_blocks_requests(tmp_path, monkeypatch):
+    monkeypatch.setenv('OPENROUTER_API_KEY','test-key')
+    internet=InternetAccessManager(tmp_path/'internet.json'); internet.enable()
+    p=ReviewerProvider('openrouter',{'enabled':True,'dynamic_free_models':True})
+    m=ProviderManager(tmp_path,{
+        'external_access':{'credential_free_only':False}
+    },internet,[p],clock=lambda:1000)
+    m.path.parent.mkdir(parents=True,exist_ok=True)
+    m.path.write_text(json.dumps({
+        'openrouter':{
+            'state':'AVAILABLE','next_allowed':0,'last_success':0,
+            'models':{'a:free':{'next_allowed':'bad','last_success':0}}
+        }
+    }))
+    assert m.health()[0]['reason']=='provider_state_corrupt'
+    assert m.review({})['state']=='WAITING_FOR_REVIEWER'

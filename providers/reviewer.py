@@ -99,6 +99,7 @@ class ReviewerProvider:
         self.dynamic_free_models = self.name == 'openrouter' and bool(config.get('dynamic_free_models', False))
         self.free_model_limit, self.model_attempts = 25, 4
         self._free_models_cache, self._free_models_cache_at = [], 0.0
+        self._model_health = {}
         try:
             self.timeout = bounded_number(config.get('timeout', 10), 1, 30)
             self.cooldown = bounded_number(config.get('cooldown', 60), 1, 86400)
@@ -110,6 +111,26 @@ class ReviewerProvider:
             self.config['free_models_ttl'] = bounded_number(config.get('free_models_ttl', 900), 60, 86400)
         except (ValueError, TypeError, OverflowError):
             self.invalid_config = True
+
+    def set_model_health(self, health):
+        self._model_health = dict(health) if isinstance(health, dict) else {}
+
+    def model_health_snapshot(self):
+        return {str(model): dict(entry) for model, entry in self._model_health.items()
+                if isinstance(entry, dict)}
+
+    def _record_model_health(self, model, state, reason='', retry_after=None, success=False):
+        now = self.clock()
+        if success:
+            self._model_health[model] = {
+                'state':'AVAILABLE','reason':'','next_allowed':0,'last_success':now
+            }
+            return
+        delay = max(self.cooldown, retry_after or 0)
+        self._model_health[model] = {
+            'state':state,'reason':reason,'next_allowed':now+delay,
+            'last_success':self._model_health.get(model, {}).get('last_success', 0)
+        }
 
     def zero_budget_enforced(self):
         if self.dynamic_free_models:
@@ -171,9 +192,20 @@ class ReviewerProvider:
             raise ReviewFailure('invalid_model_catalog') from None
 
     def review_models(self):
-        if self.dynamic_free_models:
-            return self._discover_openrouter_free_models()
-        return [self.model] if self.model else []
+        if not self.dynamic_free_models:
+            return [self.model] if self.model else []
+        models = self._discover_openrouter_free_models()
+        now = self.clock()
+        ready = [model for model in models
+                 if self._model_health.get(model, {}).get('next_allowed', 0) <= now]
+        if ready:
+            return ready
+        waits = [entry.get('next_allowed', 0) - now
+                 for model, entry in self._model_health.items()
+                 if model in models and isinstance(entry, dict)
+                 and entry.get('next_allowed', 0) > now]
+        retry_after = min(waits) if waits else self.cooldown
+        raise ReviewFailure('all_free_models_cooling_down', 'RATE_LIMITED', retry_after)
 
     def availability(self):
         cfg = self.config
@@ -245,9 +277,14 @@ class ReviewerProvider:
         last_failure = None
         for model in models[:self.model_attempts]:
             try:
-                return self._review_with_model(candidate, model)
+                result = self._review_with_model(candidate, model)
+                self._record_model_health(model, 'AVAILABLE', success=True)
+                return result
             except ReviewFailure as failure:
                 last_failure = failure
+                self._record_model_health(
+                    model, failure.state, failure.reason, failure.retry_after
+                )
                 if failure.reason in ('http_401','http_402'):
                     raise
         raise last_failure or ReviewFailure('no_free_model_succeeded', 'UNAVAILABLE')
@@ -285,19 +322,31 @@ class ProviderManager:
                     value = entry.get(field, 0)
                     if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value < 0:
                         raise StateCorruptionError('Invalid provider health timestamp')
+                models = entry.get('models', {})
+                if not isinstance(models, dict):
+                    raise StateCorruptionError('Invalid model health map')
+                for model_entry in models.values():
+                    if not isinstance(model_entry, dict):
+                        raise StateCorruptionError('Invalid model health entry')
+                    for field in ('next_allowed', 'last_success'):
+                        value = model_entry.get(field, 0)
+                        if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value < 0:
+                            raise StateCorruptionError('Invalid model health timestamp')
         except StateCorruptionError:
             # Never infer fresh quota/cooldown from unreadable durable health.
             return [{'provider':p.name, 'state':'ERROR', 'reason':'provider_state_corrupt',
                      'next_allowed':None, 'last_success':None} for p in self.providers]
         result = [{'provider':'configuration','state':'INVALID_CONFIG','reason':'invalid_manager_configuration'}] if self.invalid_config else []
         for p in self.providers:
+            entry = dict(stored.get(p.name, {}))
+            if hasattr(p, 'set_model_health'):
+                p.set_model_health(entry.get('models', {}))
             requires_credentials = getattr(p, 'requires_credentials', True)
             zero_budget = bool(getattr(p, 'zero_budget_enforced', lambda: False)())
             if self.credential_free_only and requires_credentials and not (self.zero_budget_credentials_allowed and zero_budget):
                 status, reason = 'UNAVAILABLE', 'credentials_disallowed'
             else:
                 status, reason = p.availability()
-            entry = dict(stored.get(p.name, {}))
             if status == 'AVAILABLE' and entry.get('next_allowed', 0) > self.clock():
                 status, reason = ('RATE_LIMITED' if entry.get('state') == 'RATE_LIMITED' else 'COOLDOWN'), entry.get('reason', '')
             result.append({'provider':p.name, 'state':status, 'reason':reason,
@@ -327,14 +376,17 @@ class ProviderManager:
                     result.update(provider=provider.name, model=reviewed.get('model', getattr(provider,'model','')))
                     with json_transaction(self.path,{}) as state:
                         state[provider.name]={'state':'AVAILABLE','reason':'','last_success':self.clock(),
-                                              'next_allowed':self.clock()+float(provider.config.get('min_interval',15))}
+                                              'next_allowed':self.clock()+float(provider.config.get('min_interval',15)),
+                                              'models':getattr(provider,'model_health_snapshot',lambda:{})()}
                     return {'ok':True,'result':result,'attempts':attempts+[{'provider':provider.name,'state':'AVAILABLE'}]}
                 except Exception as exc:
                     failure = exc if isinstance(exc,ReviewFailure) else ReviewFailure('transport_error')
                     attempts.append({'provider':provider.name,'state':failure.state,'reason':failure.reason})
                     with json_transaction(self.path,{}) as state:
                         state[provider.name]={'state':failure.state, 'reason':failure.reason,
-                            'next_allowed': self.clock()+max(provider.cooldown, failure.retry_after or 0)}
+                            'next_allowed': self.clock()+max(provider.cooldown, failure.retry_after or 0),
+                            'last_success':state.get(provider.name, {}).get('last_success', 0),
+                            'models':getattr(provider,'model_health_snapshot',lambda:{})()}
                     # No immediate retry on throttling/config errors; move to next provider.
                     if failure.state in ('RATE_LIMITED','UNAVAILABLE','INVALID_CONFIG'): break
         return {'ok':False,'reason':'no_reviewer_available','state':'WAITING_FOR_REVIEWER','attempts':attempts}
