@@ -243,3 +243,19 @@ def test_zero_budget_keyed_openrouter_can_be_explicitly_allowed(tmp_path, monkey
 def test_decision_accepts_single_embedded_json_object():
     result=decision('Result: {"learn": false, "reason": "insufficient", "confidence": 0.7, "corrections": []}')
     assert result['learn'] is False and result['confidence']==0.7
+
+
+def test_openrouter_dynamic_pool_continues_after_model_specific_403(monkeypatch):
+    monkeypatch.setenv('OPENROUTER_API_KEY','test-key')
+    p=ReviewerProvider('openrouter', {'enabled':True,'dynamic_free_models':True,'model_attempts':3})
+    monkeypatch.setattr(p,'_discover_openrouter_free_models',lambda:['a:free','b:free'])
+    seen=[]
+    def call(candidate, model):
+        seen.append(model)
+        if model=='a:free':
+            raise ReviewFailure('http_403','UNAVAILABLE')
+        return {'learn':False,'reason':'ok','confidence':1.0,'corrections':[],'provider':'openrouter','model':model}
+    monkeypatch.setattr(p,'_review_with_model',call)
+    result=p.review({'claim':'x'})
+    assert result['model']=='b:free'
+    assert seen==['a:free','b:free']

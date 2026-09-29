@@ -156,7 +156,7 @@ class ReviewerProvider:
                 if not priced_values or any(not self._zero_price(value) for value in priced_values):
                     continue
                 models.append(model_id)
-            models = list(dict.fromkeys(models))[:self.free_model_limit]
+            models = sorted(dict.fromkeys(models), key=lambda m: (0 if 'code' in m.lower() else 1, m))[:self.free_model_limit]
             if not models:
                 raise ReviewFailure('no_verified_free_models', 'UNAVAILABLE')
             self._free_models_cache, self._free_models_cache_at = list(models), now
@@ -247,7 +247,7 @@ class ReviewerProvider:
                 return self._review_with_model(candidate, model)
             except ReviewFailure as failure:
                 last_failure = failure
-                if failure.reason in ('http_401','http_402','http_403'):
+                if failure.reason in ('http_401','http_402'):
                     raise
         raise last_failure or ReviewFailure('no_free_model_succeeded', 'UNAVAILABLE')
 
