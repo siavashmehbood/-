@@ -264,15 +264,20 @@ class ReferenceResolver:
             return state.topic_stack[-1] if state.topic_stack else state.current_topic
         if 'همون قبلی' in t:
             return state.references.get('latest', '') or (state.topic_stack[-1] if state.topic_stack else state.current_topic)
-        if any(x in t for x in ('بحث اول', 'مورد اول', 'اولی')):
-            return state.topic_by_index(1)
-        if any(x in t for x in ('بحث دوم', 'مورد دوم', 'دومی')):
-            return state.topic_by_index(2)
+        ordinal_markers = (
+            (1, ('بحث اول', 'مورد اول', 'موضوع اول', 'اولی', 'اولیش')),
+            (2, ('بحث دوم', 'مورد دوم', 'موضوع دوم', 'دومی', 'دومیش')),
+            (3, ('بحث سوم', 'مورد سوم', 'موضوع سوم', 'سومی', 'سومیش')),
+            (4, ('بحث چهارم', 'مورد چهارم', 'موضوع چهارم', 'چهارمی', 'چهارمیش')),
+            (5, ('بحث پنجم', 'مورد پنجم', 'موضوع پنجم', 'پنجمی', 'پنجمیش')),
+        )
+        for index, markers in ordinal_markers:
+            if any(self._has_marker(t, marker) for marker in markers):
+                return state.topic_by_index(index)
+        if any(self._has_marker(t, x) for x in ('آخری', 'آخرین موضوع', 'آخرین بحث')):
+            return state.current_topic or (state.topic_stack[-1] if state.topic_stack else state.active_goal)
         if any(x in t for x in ('موضوع فعلی', 'همین موضوع')):
             return state.current_topic or state.active_goal
-        if any(x in t for x in ('\u0628\u062d\u062b \u0627\u0648\u0644','\u0645\u0648\u0631\u062f \u0627\u0648\0644','\u0627\u0648\u0644\u06cc')): return state.topic_by_index(1)
-        if any(x in t for x in ('\u0628\u062d\u062b \u062f\u0648\u0645','\u0645\u0648\u0631\u062f \u062f\u0648\u0645','\u062f\u0648\u0645\u06cc')): return state.topic_by_index(2)
-        if any(x in t for x in ('\u0645\u0648\u0636\u0648\u0639 \u0641\u0639\u0644\u06cc','\u0647\u0645\u06cc\u0646 \u0645\u0648\u0636\u0648\u0639')): return state.current_topic or state.active_goal
         if is_follow_up(t) or any(self._has_marker(t,m) for m in REF_MARKERS):
             if state.current_topic and substantive(state.current_topic): return state.current_topic
             latest=state.references.get('latest','')
