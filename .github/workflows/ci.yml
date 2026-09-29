@@ -32,3 +32,30 @@ jobs:
         run: python evaluation/runtime_suite.py
       - name: CLI smoke
         run: printf '/health\n/exit\n' | python main.py
+
+
+  live-reviewer-acceptance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      PYTHONUTF8: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Detect configured live reviewer
+        id: key
+        shell: bash
+        run: |
+          if [ -n "$OPENROUTER_API_KEY" ]; then echo "available=true" >> "$GITHUB_OUTPUT"; else echo "available=false" >> "$GITHUB_OUTPUT"; fi
+      - name: Install runtime dependencies
+        if: steps.key.outputs.available == 'true'
+        run: python -m pip install -r requirements.txt
+      - name: Live reviewer acceptance chain
+        if: steps.key.outputs.available == 'true'
+        run: python evaluation/live_reviewer_probe.py
+      - name: Record external blocker without weakening gate
+        if: steps.key.outputs.available != 'true'
+        run: echo "BLOCKED_EXTERNAL OPENROUTER_API_KEY is not configured; learning gate remains fail-closed."
