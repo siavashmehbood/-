@@ -60,11 +60,12 @@ class ReferenceIntelligence:
         rows = []
         seen = set()
         def add(value, source, evidence, score, recency=0, topic_match=0.0):
-            value = self._clean(value)
-            if len(value) < 2 or value in seen:
+            raw = re.sub(r"\s+", " ", str(value or "").strip().replace("ي", "ی").replace("ك", "ک"))
+            norm = self._clean(raw)
+            if len(norm) < 2 or norm in seen:
                 return
-            seen.add(value)
-            rows.append(ReferenceCandidate(value, source, evidence, score, recency, topic_match))
+            seen.add(norm)
+            rows.append(ReferenceCandidate(raw, source, evidence, score, recency, topic_match))
 
         current = self._clean(getattr(state, "current_topic", ""))
         previous = self._previous(state)
@@ -74,7 +75,10 @@ class ReferenceIntelligence:
             add(current, "current_topic", "active topic", 0.90, 0, 0.35)
         if latest:
             add(latest, "latest_reference", "stored reference", 0.86, 1, 0.30)
-        if previous:
+        # For PREVIOUS triggers, previous refers to the topic before current; keep current too
+        if previous and previous != current:
+            add(previous, "previous_topic", "topic stack", 0.90, 2, 0.45)
+        else:
             add(previous, "previous_topic", "topic stack", 0.84, 2, 0.45)
         if active_goal:
             add(active_goal, "active_goal", "active goal", 0.62, 3, 0.20)
@@ -88,12 +92,22 @@ class ReferenceIntelligence:
                 add(content, "history", "recent conversation", max(.32, .62 - i * .05), i + 1, .05)
         return self._boost_by_trigger(rows, text, current, previous)
     def _boost_by_trigger(self, rows, text, current, previous):
-        if any(x in text for x in self.PREVIOUS):
+        explicit_previous = any(x in text for x in ("موضوع قبلی", "بحث قبلی", "بخش قبلی", "قبلیش"))
+        colloquial_same = any(x in text for x in ("همون قبلی", "اون قبلی"))
+        if explicit_previous:
             for row in rows:
-                if row.value == previous:
-                    row.score += .22
-                elif row.value == current:
-                    row.score -= .18
+                norm = self._clean(row.value)
+                if norm == current:
+                    row.score -= .10
+                elif norm == previous:
+                    row.score += .35
+        elif colloquial_same:
+            for row in rows:
+                norm = self._clean(row.value)
+                if norm == current:
+                    row.score += .35
+                elif norm == previous:
+                    row.score += .05
         elif any(x in text for x in self.DEMONSTRATIVES) or any(x in text for x in self.DISTAL):
             for row in rows:
                 if row.value == current:
@@ -108,9 +122,14 @@ class ReferenceIntelligence:
     def _previous(state):
         stack = list(getattr(state, "topic_stack", []) or [])
         current = str(getattr(state, "current_topic", "") or "")
+        # previous = آخرین عنصر stack اگر current جدا از آن باشد
+        if stack and current and current != stack[-1]:
+            return str(stack[-1])
+        if stack and len(stack) >= 2:
+            return str(stack[-2])
         if stack:
             return str(stack[-1])
-        return ""
+        return current or ""
 
     @staticmethod
     def _content(item):
@@ -137,31 +156,4 @@ class ReferenceIntelligence:
 
     @staticmethod
     def _clean(value):
-        return re.sub(r"\s+", " ", str(value or "").strip().replace("ي", "ی").replace("ك", "ک")).rstrip("؟?!.").strip()
-
-
-# v2.1 compatibility/precision layer: explicit ordinal and lexical references win.
-_reference_resolve_v21 = ReferenceIntelligence.resolve
-
-def _resolve_v21(self, text, state, history=None, tracker=None):
-    t = self._clean(text)
-    stack = list(getattr(state, "topic_stack", []) or [])
-    ordinal_markers = (
-        (1, ("بحث اول", "مورد اول", "موضوع اول", "اولی", "اولیش")),
-        (2, ("بحث دوم", "مورد دوم", "موضوع دوم", "دومی", "دومیش")),
-        (3, ("بحث سوم", "مورد سوم", "موضوع سوم", "سومی", "سومیش")),
-        (4, ("بحث چهارم", "مورد چهارم", "موضوع چهارم", "چهارمی", "چهارمیش")),
-        (5, ("بحث پنجم", "مورد پنجم", "موضوع پنجم", "پنجمی", "پنجمیش")),
-    )
-    for index, markers in ordinal_markers:
-        match = next((marker for marker in markers if marker in t), "")
-        if match:
-            value = stack[index - 1] if len(stack) >= index else ""
-            return ReferenceResolution(value, .98 if value else 0.0, False, [], match)
-    known = stack + [getattr(state, "current_topic", ""), getattr(state, "references", {}).get("latest", "")]
-    for value in reversed([self._clean(x) for x in known]):
-        if value and value in t and value != t:
-            return ReferenceResolution(value, .99, False, [], value)
-    return _reference_resolve_v21(self, text, state, history, tracker)
-
-ReferenceIntelligence.resolve = _resolve_v21
+        return re.sub(r"\s+", " ", str(value or "").strip().replace("ي", "ی").replace("ك", "ک").replace("\u200c", "")).rstrip("؟?!.").strip()
