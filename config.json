@@ -48,7 +48,7 @@
     "max_seconds": 40,
     "providers": {
       "openrouter": {
-        "enabled": false,
+        "enabled": true,
         "base_url": "https://openrouter.ai/api/v1",
         "key_env": "OPENROUTER_API_KEY",
         "model_env": "OPENROUTER_MODEL",
@@ -62,7 +62,11 @@
           "confirmed": false,
           "models": [],
           "expires_at": ""
-        }
+        },
+        "dynamic_free_models": true,
+        "free_model_limit": 25,
+        "model_attempts": 4,
+        "free_models_ttl": 900
       },
       "gemini": {
         "enabled": false,
@@ -119,6 +123,7 @@
   },
   "learning_sources": [],
   "external_access": {
-    "credential_free_only": true
+    "credential_free_only": true,
+    "zero_budget_credentials_allowed": true
   }
 }

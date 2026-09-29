@@ -168,3 +168,78 @@ def test_structurally_corrupt_health_never_sends_request(tmp_path, entry):
     assert m.health()[0]['reason'] == 'provider_state_corrupt'
     assert m.review({})['state'] == 'WAITING_FOR_REVIEWER'
     assert provider.calls == 0
+
+
+def test_openrouter_dynamic_free_pool_requires_key(monkeypatch):
+    monkeypatch.delenv('OPENROUTER_API_KEY', raising=False)
+    p=ReviewerProvider('openrouter', {'enabled':True, 'dynamic_free_models':True})
+    assert p.availability()==('UNAVAILABLE','api_key_missing')
+
+
+def test_openrouter_dynamic_pool_filters_only_verified_zero_cost_free_models(monkeypatch):
+    import urllib.request
+    monkeypatch.setenv('OPENROUTER_API_KEY','test-key')
+    rows=[
+        *[{'id':f'vendor/model-{i}:free',
+           'pricing':{'prompt':'0','completion':'0','request':'0'}} for i in range(30)],
+        {'id':'vendor/paid:free','pricing':{'prompt':'0.1','completion':'0','request':'0'}},
+        {'id':'vendor/sneaky:free','pricing':{'prompt':'0','completion':'0','request':'0.01'}},
+        {'id':'vendor/zero-not-free','pricing':{'prompt':'0','completion':'0','request':'0'}},
+    ]
+    class Response:
+        def __enter__(self): return self
+        def __exit__(self,*a): return False
+        def read(self,n): return json.dumps({'data':rows}).encode()
+    class Opener:
+        def open(self,*a,**k): return Response()
+    monkeypatch.setattr(urllib.request,'build_opener',lambda *a,**k:Opener())
+    p=ReviewerProvider('openrouter',{
+        'enabled':True,'dynamic_free_models':True,
+        'free_model_limit':25,'free_models_ttl':900,
+    },clock=lambda:1000)
+    models=p.review_models()
+    assert len(models)==25
+    assert all(model.endswith(':free') for model in models)
+    assert 'vendor/paid:free' not in models
+    assert 'vendor/sneaky:free' not in models
+    assert 'vendor/zero-not-free' not in models
+
+
+def test_openrouter_dynamic_fallback_moves_past_rate_limited_model(monkeypatch):
+    monkeypatch.setenv('OPENROUTER_API_KEY','test-key')
+    p=ReviewerProvider('openrouter',{
+        'enabled':True,'dynamic_free_models':True,'model_attempts':3,
+    })
+    monkeypatch.setattr(p,'review_models',lambda:['a:free','b:free','c:free'])
+    calls=[]
+    def fake_review(candidate, model):
+        calls.append(model)
+        if model=='a:free':
+            raise ReviewFailure('http_429','RATE_LIMITED',60)
+        return {'learn':False,'reason':'ok','confidence':1.0,
+                'corrections':[],'provider':'openrouter','model':model}
+    monkeypatch.setattr(p,'_review_with_model',fake_review)
+    result=p.review({'claim':'x'})
+    assert calls==['a:free','b:free']
+    assert result['model']=='b:free'
+
+
+def test_zero_budget_keyed_openrouter_can_be_explicitly_allowed(tmp_path, monkeypatch):
+    monkeypatch.setenv('OPENROUTER_API_KEY','test-key')
+    internet=InternetAccessManager(tmp_path/'internet.json'); internet.enable()
+    provider=ReviewerProvider('openrouter',{
+        'enabled':True,'dynamic_free_models':True,
+    })
+    m=ProviderManager(tmp_path,{
+        'external_access':{
+            'credential_free_only':True,
+            'zero_budget_credentials_allowed':True,
+        },
+        'reviewers':{}
+    },internet,[provider])
+    assert m.health()[0]['state']=='AVAILABLE'
+
+
+def test_decision_accepts_single_embedded_json_object():
+    result=decision('Result: {"learn": false, "reason": "insufficient", "confidence": 0.7, "corrections": []}')
+    assert result['learn'] is False and result['confidence']==0.7
