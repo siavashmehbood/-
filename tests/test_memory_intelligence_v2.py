@@ -71,5 +71,19 @@ class MemoryIntelligenceV2Tests(unittest.TestCase):
             m.close()
 
 
+    def test_zwnj_space_and_diacritics_do_not_break_persian_retrieval(self):
+        with tempfile.TemporaryDirectory() as d:
+            m = Memory(Path(d) / "m.db")
+            m.add("user", "من برنامه‌نویسی پایتون را دوست دارم", .9, .9, "test")
+            out = MemoryIntelligence(m).retrieve("برنامه نویسی پایتون", limit=3)
+            self.assertTrue(out)
+            self.assertIn("برنامه", out[0].content)
+            self.assertGreater(out[0].relevance, .5)
+            m.add("user", "حافِظه شناختی برای بازیابی مهم است", .9, .9, "test")
+            out2 = MemoryIntelligence(m).retrieve("حافظه شناختی", limit=3)
+            self.assertTrue(any("حافِظه" in row.content for row in out2))
+            m.close()
+
+
 if __name__ == "__main__":
     unittest.main()
