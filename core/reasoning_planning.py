@@ -143,12 +143,26 @@ class ReasoningPlanningEngine:
 
     @staticmethod
     def mark_result(trace, step_id, success, observation=""):
-        for step in trace.steps:
-            if step["id"] == int(step_id):
-                step["status"] = "done" if success else "failed"
-                step["observation"] = str(observation)
-                if not success:
-                    trace.replan_required = True
-                    trace.status = "REPLAN_REQUIRED"
-                break
+        target_id = int(step_id)
+        by_id = {int(step["id"]): step for step in trace.steps}
+        step = by_id.get(target_id)
+        if step is None:
+            return trace
+        unmet = [dep for dep in step.get("depends_on", []) if by_id.get(int(dep), {}).get("status") != "done"]
+        if unmet:
+            step["status"] = "blocked"
+            step["observation"] = str(observation or "dependency_not_completed")
+            step["blocked_by"] = unmet
+            trace.replan_required = True
+            trace.status = "REPLAN_REQUIRED"
+            trace.decisions.append("مرحله وابسته قبل از تکمیل پیش‌نیاز اجرا نشد.")
+            return trace
+        step["status"] = "done" if success else "failed"
+        step["observation"] = str(observation)
+        if not success:
+            trace.replan_required = True
+            trace.status = "REPLAN_REQUIRED"
+        elif all(row.get("status") == "done" for row in trace.steps):
+            trace.status = "COMPLETED"
+            trace.replan_required = False
         return trace
