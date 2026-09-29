@@ -118,6 +118,25 @@
           "models": [],
           "expires_at": ""
         }
+      },
+      "mistral": {
+        "enabled": false,
+        "base_url": "https://api.mistral.ai/v1",
+        "key_env": "MISTRAL_API_KEY",
+        "model_env": "MISTRAL_MODEL",
+        "model": "mistral-small-latest",
+        "timeout": 10,
+        "retries": 0,
+        "cooldown": 60,
+        "min_interval": 15,
+        "free_policy": {
+          "budget": 0,
+          "confirmed": false,
+          "models": [
+            "mistral-small-latest"
+          ],
+          "expires_at": ""
+        }
       }
     }
   },

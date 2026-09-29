@@ -44,7 +44,7 @@ def test_retry_is_bounded(tmp_path):
     assert len(m.review({})['attempts'])==4
     assert a.calls+b.calls==4
 
-@pytest.mark.parametrize('name',['openrouter','gemini','groq','cerebras'])
+@pytest.mark.parametrize('name',['openrouter','gemini','groq','cerebras','mistral'])
 def test_no_implicit_paid_activation(name):
     p=ReviewerProvider(name,{'enabled':True,'model':'some-model'})
     assert p.availability()==('INVALID_CONFIG','free_access_unconfirmed')
@@ -259,3 +259,32 @@ def test_openrouter_dynamic_pool_continues_after_model_specific_403(monkeypatch)
     result=p.review({'claim':'x'})
     assert result['model']=='b:free'
     assert seen==['a:free','b:free']
+
+
+def test_mistral_endpoint_and_free_policy_fail_closed(monkeypatch):
+    monkeypatch.setenv('MISTRAL_API_KEY','test-key')
+    p=ReviewerProvider('mistral',{
+        'enabled':True,
+        'model':'mistral-small-latest',
+        'base_url':'https://api.mistral.ai/v1',
+        'free_policy':{
+            'budget':0,'confirmed':False,
+            'models':['mistral-small-latest'],'expires_at':''
+        }
+    })
+    assert p.availability()==('INVALID_CONFIG','free_access_unconfirmed')
+
+
+def test_mistral_free_policy_can_activate_with_explicit_attestation(monkeypatch):
+    monkeypatch.setenv('MISTRAL_API_KEY','test-key')
+    p=ReviewerProvider('mistral',{
+        'enabled':True,
+        'model':'mistral-small-latest',
+        'base_url':'https://api.mistral.ai/v1',
+        'free_policy':{
+            'budget':0,'confirmed':True,
+            'models':['mistral-small-latest'],
+            'expires_at':'2099-12-31T23:59:59Z'
+        }
+    })
+    assert p.availability()==('AVAILABLE','')

@@ -22,6 +22,7 @@ ENDPOINTS = {
     'gemini': ('https://generativelanguage.googleapis.com/v1beta/openai', 'GEMINI_API_KEY'),
     'groq': ('https://api.groq.com/openai/v1', 'GROQ_API_KEY'),
     'cerebras': ('https://api.cerebras.ai/v1', 'CEREBRAS_API_KEY'),
+    'mistral': ('https://api.mistral.ai/v1', 'MISTRAL_API_KEY'),
 }
 
 def bounded_number(value, low, high):
