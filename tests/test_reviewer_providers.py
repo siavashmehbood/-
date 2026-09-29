@@ -346,3 +346,41 @@ def test_corrupt_nested_model_health_blocks_requests(tmp_path, monkeypatch):
     }))
     assert m.health()[0]['reason']=='provider_state_corrupt'
     assert m.review({})['state']=='WAITING_FOR_REVIEWER'
+
+
+def test_dynamic_pool_status_is_local_and_reports_ready_cooling(monkeypatch, tmp_path):
+    monkeypatch.setenv('OPENROUTER_API_KEY','test-key')
+    p=ReviewerProvider('openrouter',{
+        'enabled':True,'dynamic_free_models':True,'free_model_limit':25
+    },clock=lambda:1000)
+    p._free_models_cache=['a:free','b:free','c:free']
+    p.set_model_health({
+        'a:free':{'state':'RATE_LIMITED','reason':'http_429','next_allowed':1120,'last_success':0},
+        'b:free':{'state':'AVAILABLE','reason':'','next_allowed':0,'last_success':990},
+    })
+    pool=p.model_pool_status()
+    assert pool['capacity']==25
+    assert pool['cached_catalog_count']==3
+    assert pool['known_count']==3
+    assert pool['ready_count']==2
+    assert pool['cooling_down_count']==1
+    assert pool['last_successful_model']=='b:free'
+    states={row['model']:row['state'] for row in pool['models']}
+    assert states['a:free']=='COOLDOWN'
+    assert states['b:free']=='AVAILABLE'
+    assert states['c:free']=='READY'
+
+    internet=InternetAccessManager(tmp_path/'internet.json'); internet.enable()
+    m=ProviderManager(tmp_path,{
+        'external_access':{'credential_free_only':False}
+    },internet,[p],clock=lambda:1000)
+    m.path.parent.mkdir(parents=True,exist_ok=True)
+    m.path.write_text(json.dumps({
+        'openrouter':{
+            'state':'AVAILABLE','reason':'','next_allowed':0,'last_success':990,
+            'models':p.model_health_snapshot()
+        }
+    }))
+    health=m.health()[0]
+    assert health['model_pool']['known_count']==3
+    assert health['model_pool']['cooling_down_count']==1
