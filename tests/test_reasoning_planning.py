@@ -60,5 +60,26 @@ class ReasoningPlanningTests(unittest.TestCase):
             self.assertEqual(step["gate"], "observable_result")
 
 
+    def test_step_cannot_complete_before_dependency(self):
+        trace = self.engine.analyze(
+            "یک پروژه بساز",
+            {"intent": "build", "goal": "یک پروژه بساز", "constraints": []},
+        )
+        self.engine.mark_result(trace, 3, True, "premature")
+        self.assertEqual(trace.steps[2]["status"], "blocked")
+        self.assertEqual(trace.steps[2]["blocked_by"], [2])
+        self.assertTrue(trace.replan_required)
+
+    def test_plan_completes_only_after_ordered_verified_steps(self):
+        trace = self.engine.analyze(
+            "یک پروژه بساز",
+            {"intent": "build", "goal": "یک پروژه بساز", "constraints": []},
+        )
+        for step in trace.steps:
+            self.engine.mark_result(trace, step["id"], True, "verified")
+        self.assertEqual(trace.status, "COMPLETED")
+        self.assertFalse(trace.replan_required)
+
+
 if __name__ == "__main__":
     unittest.main()
