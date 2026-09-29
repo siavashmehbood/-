@@ -146,10 +146,18 @@ _reference_resolve_v21 = ReferenceIntelligence.resolve
 def _resolve_v21(self, text, state, history=None, tracker=None):
     t = self._clean(text)
     stack = list(getattr(state, "topic_stack", []) or [])
-    if "بحث اول" in t or "مورد اول" in t or t == "اولی":
-        return ReferenceResolution(stack[0] if stack else "", .98, False, [], "اولی")
-    if "بحث دوم" in t or "مورد دوم" in t or t == "دومی":
-        return ReferenceResolution(stack[1] if len(stack) > 1 else "", .98, False, [], "دومی")
+    ordinal_markers = (
+        (1, ("بحث اول", "مورد اول", "موضوع اول", "اولی", "اولیش")),
+        (2, ("بحث دوم", "مورد دوم", "موضوع دوم", "دومی", "دومیش")),
+        (3, ("بحث سوم", "مورد سوم", "موضوع سوم", "سومی", "سومیش")),
+        (4, ("بحث چهارم", "مورد چهارم", "موضوع چهارم", "چهارمی", "چهارمیش")),
+        (5, ("بحث پنجم", "مورد پنجم", "موضوع پنجم", "پنجمی", "پنجمیش")),
+    )
+    for index, markers in ordinal_markers:
+        match = next((marker for marker in markers if marker in t), "")
+        if match:
+            value = stack[index - 1] if len(stack) >= index else ""
+            return ReferenceResolution(value, .98 if value else 0.0, False, [], match)
     known = stack + [getattr(state, "current_topic", ""), getattr(state, "references", {}).get("latest", "")]
     for value in reversed([self._clean(x) for x in known]):
         if value and value in t and value != t:
