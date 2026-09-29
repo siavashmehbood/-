@@ -149,7 +149,7 @@ class ReasoningPlanningEngine:
         if step is None:
             return trace
         unmet = [dep for dep in step.get("depends_on", []) if by_id.get(int(dep), {}).get("status") != "done"]
-        if unmet:
+        if unmet and success:
             step["status"] = "blocked"
             step["observation"] = str(observation or "dependency_not_completed")
             step["blocked_by"] = unmet
