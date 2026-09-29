@@ -178,12 +178,22 @@ class ConversationState:
     @classmethod
     def load(cls, path):
         path = Path(path)
-        if not path.exists():
-            return cls()
+        if not path.exists(): return cls()
         try:
-            return cls.from_dict(json.loads(path.read_text(encoding="utf-8")))
-        except (OSError, ValueError, TypeError):
-            return cls()
+            data = json.loads(path.read_text(encoding="utf-8"))
+            # Normalization for Persian persistence
+            def persisted_norm(value):
+                return clean(str(value)).replace("\u200c", "")
+            for key in ("corrections", "unresolved_questions", "current_topic", "active_goal"):
+                val = data.get(key)
+                if isinstance(val, list): data[key] = [persisted_norm(x) for x in val]
+                elif isinstance(val, str): data[key] = persisted_norm(val)
+            # topic_stack: only strip ZWNJ/spaces, keep word boundaries (do not collapse multi-word topics)
+            stack = data.get("topic_stack")
+            if isinstance(stack, list):
+                data["topic_stack"] = [str(x).replace("\u200c","").strip() for x in stack]
+            return cls.from_dict(data)
+        except (OSError, ValueError, TypeError): return cls()
 
 
 @dataclass
