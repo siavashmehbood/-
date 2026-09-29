@@ -132,6 +132,38 @@ class ReviewerProvider:
             'last_success':self._model_health.get(model, {}).get('last_success', 0)
         }
 
+    def model_pool_status(self):
+        if not self.dynamic_free_models:
+            return None
+        now = self.clock()
+        ids = list(dict.fromkeys(list(self._free_models_cache) + list(self._model_health)))
+        rows = []
+        for model in ids:
+            entry = dict(self._model_health.get(model, {}))
+            next_allowed = entry.get('next_allowed', 0)
+            cooling = isinstance(next_allowed, (int, float)) and next_allowed > now
+            state = 'COOLDOWN' if cooling else entry.get('state', 'READY')
+            rows.append({
+                'model': model,
+                'state': state,
+                'next_allowed': next_allowed or 0,
+                'last_success': entry.get('last_success', 0) or 0,
+            })
+        ready = sum(row['state'] != 'COOLDOWN' for row in rows)
+        cooling = len(rows) - ready
+        successful = [row for row in rows if row['last_success'] > 0]
+        last_successful = max(successful, key=lambda row: row['last_success'])['model'] if successful else None
+        return {
+            'dynamic': True,
+            'capacity': self.free_model_limit,
+            'cached_catalog_count': len(self._free_models_cache),
+            'known_count': len(rows),
+            'ready_count': ready,
+            'cooling_down_count': cooling,
+            'last_successful_model': last_successful,
+            'models': rows,
+        }
+
     def zero_budget_enforced(self):
         if self.dynamic_free_models:
             return self.name == 'openrouter'
@@ -349,8 +381,12 @@ class ProviderManager:
                 status, reason = p.availability()
             if status == 'AVAILABLE' and entry.get('next_allowed', 0) > self.clock():
                 status, reason = ('RATE_LIMITED' if entry.get('state') == 'RATE_LIMITED' else 'COOLDOWN'), entry.get('reason', '')
-            result.append({'provider':p.name, 'state':status, 'reason':reason,
-                           'next_allowed':entry.get('next_allowed'), 'last_success':entry.get('last_success')})
+            item={'provider':p.name, 'state':status, 'reason':reason,
+                  'next_allowed':entry.get('next_allowed'), 'last_success':entry.get('last_success')}
+            pool=getattr(p,'model_pool_status',lambda:None)()
+            if pool is not None:
+                item['model_pool']=pool
+            result.append(item)
         return result
 
     def review(self, candidate):
