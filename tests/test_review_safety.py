@@ -144,3 +144,49 @@ def test_worker_recovers_cooldown_from_backup(runtime):
     assert worker.process_one()['reason']=='cooldown'
     assert not calls
     assert worker.status()['cooldown_seconds']==200
+
+
+def test_learning_tick_auto_reviews_online_candidate_then_waits_for_human(runtime):
+    holder = {}
+    states = []
+
+    runtime.self_directed_learning.prioritize = lambda limit: [{
+        "goal": {
+            "goal_id": "online-goal-1",
+            "topic": "online review fixture",
+            "status": "needs_evidence",
+            "attempts": 0,
+        }
+    }]
+    runtime.internet_learning.discover = lambda topic: [{"url": "https://example.org"}]
+
+    def fake_learn(topic):
+        proposal = runtime.learning_gate.request(
+            "memory.add_lesson",
+            {"goal": topic, "lesson": "reviewed but not human approved", "confidence": .9},
+            "online learning fixture",
+        )
+        holder["proposal"] = proposal
+        return {"ok": True, "topic": topic, "review": proposal, "auto_learned": False}
+
+    runtime.learn_from_internet = fake_learn
+    runtime.self_directed_learning.update_outcome = lambda goal_id, state, *a, **k: states.append((goal_id, state))
+    runtime.chatgpt_review_worker.transport = lambda row: {
+        "learn": True,
+        "reason": "supported",
+        "confidence": .95,
+        "corrections": [],
+        "provider": "openrouter",
+        "model": "fixture:free",
+    }
+
+    result = runtime.learning_tick()
+    proposal_id = holder["proposal"]["proposal_id"]
+
+    assert result["online_review"]["ok"]
+    assert result["online_review"]["learn"] is True
+    assert ("online-goal-1", "human_pending") in states
+    assert runtime.learning_gate.get(proposal_id)["status"] == "pending"
+    pending = runtime.human_learning_pending()
+    assert pending and pending[0]["proposal_id"] == proposal_id
+    assert runtime.memory.lessons("online review fixture") == []
