@@ -189,4 +189,4 @@ def test_learning_tick_auto_reviews_online_candidate_then_waits_for_human(runtim
     assert runtime.learning_gate.get(proposal_id)["status"] == "pending"
     pending = runtime.human_learning_pending()
     assert pending and pending[0]["proposal_id"] == proposal_id
-    assert runtime.memory.lessons("online review fixture") == []
+    assert runtime.memory.lesson_search("online review fixture", limit=5) == []  # no durable lesson before human approval
