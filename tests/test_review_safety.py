@@ -153,6 +153,7 @@ def test_learning_tick_auto_reviews_online_candidate_then_waits_for_human(runtim
         "memory.add_lesson",
         {"goal": "older fixture", "lesson": "must not be consumed by this goal", "confidence": .9},
     )
+    runtime.sync_chatgpt_learning_reviews()
     reviewed_ids = []
 
     runtime.self_directed_learning.prioritize = lambda limit: [{
