@@ -136,7 +136,20 @@ def test_real_internet_learning_path_commits_into_offline_brain_after_two_review
         assert proposal["status"] == "pending"
         assert runtime.knowledge.query("ستاره نوا") == []
 
-        mark_chatgpt_correct(runtime, proposal_id, "independent fixture review")
+        runtime.chatgpt_review_worker.transport = lambda row: {
+            "learn": True,
+            "reason": "two independent fixture sources support the claim",
+            "confidence": 0.95,
+            "corrections": [],
+            "provider": "fixture",
+            "model": "offline-test",
+        }
+        external_review = runtime.process_one_online_learning_review(proposal_id)
+        assert external_review["proposal_id"] == proposal_id
+        assert external_review["learn"] is True
+        assert runtime.learning_gate.get(proposal_id)["status"] == "pending"
+        assert runtime.human_learning_pending()[0]["proposal_id"] == proposal_id
+
         approval = runtime.approve_learning(proposal_id)
         assert approval["ok"]
         assert claim in " ".join(str(row.get("object", "")) for row in runtime.knowledge.query("ستاره نوا"))
