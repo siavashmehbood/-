@@ -151,5 +151,40 @@ class ChatGPTReviewPipelineTests(unittest.TestCase):
         self.assertEqual(review["human_decision"], "approved")
         self.assertEqual(review["status"], "approved")
 
+
+    def test_sync_repairs_reviewer_rejection_interrupted_before_gate_write(self):
+        root, runtime, gate = self.make_runtime()
+        candidate = self.add_candidate(gate, "partial reviewer rejection")
+        runtime.sync_chatgpt_learning_reviews()
+        path = root / "data" / "chatgpt_reviews.json"
+        rows = json.loads(path.read_text(encoding="utf-8"))
+        rows[0].update({
+            "review_status": "reviewed",
+            "chatgpt_decision": "reject",
+            "status": "rejected",
+        })
+        path.write_text(json.dumps(rows), encoding="utf-8")
+
+        runtime.sync_chatgpt_learning_reviews()
+
+        self.assertEqual(gate.get(candidate["proposal_id"])["status"], "rejected")
+        self.assertEqual(runtime.human_learning_pending(10), [])
+
+    def test_sync_repairs_human_rejection_interrupted_after_gate_write(self):
+        root, runtime, gate = self.make_runtime()
+        candidate = self.add_candidate(gate, "partial human rejection")
+        runtime.chatgpt_review_worker = ChatGPTReviewWorker(
+            root, transport=lambda row: {"learn": True, "reason": "eligible"}
+        )
+        runtime.process_one_chatgpt_learning_review()
+        gate.decide(candidate["proposal_id"], "rejected")
+
+        runtime.sync_chatgpt_learning_reviews()
+
+        review = runtime.chatgpt_learning_review_status(candidate["proposal_id"])["row"]
+        self.assertEqual(review["human_decision"], "rejected")
+        self.assertEqual(review["status"], "rejected")
+        self.assertEqual(runtime.human_learning_pending(10), [])
+
 if __name__ == "__main__":
     unittest.main()
