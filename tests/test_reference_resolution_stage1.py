@@ -50,3 +50,14 @@ def test_legacy_stack_tail_does_not_return_current_topic_as_previous():
     assert r.resolve("همون قبلی", s) == "پایتون"
     assert r.resolve("ادامه بده", s) == "Django"
 
+def test_numbered_reference_matches_canonical_ordinals_through_fifth():
+    s = ConversationState(
+        current_topic="معماری",
+        topic_stack=["پایتون", "Django", "حافظه", "یادگیری"],
+        active_goal="معماری",
+    )
+    r = ReferenceResolverStage1()
+
+    assert r.resolve("موضوع سوم", s) == "حافظه"
+    assert r.resolve("چهارمیش", s) == "یادگیری"
+    assert r.resolve("بحث پنجم", s) == "معماری"

@@ -971,10 +971,16 @@ class ReferenceResolverStage1:
             return previous_topic
         if "همون قبلی" in t:
             return previous_topic or state.references.get("latest_topic", "")
-        if any(x in t for x in ("بحث اول", "مورد اول", "اولی")):
-            return state.topic_by_index(1)
-        if any(x in t for x in ("بحث دوم", "مورد دوم", "دومی")):
-            return state.topic_by_index(2)
+        ordinal_markers = (
+            (1, ("بحث اول", "مورد اول", "موضوع اول", "اولی", "اولیش")),
+            (2, ("بحث دوم", "مورد دوم", "موضوع دوم", "دومی", "دومیش")),
+            (3, ("بحث سوم", "مورد سوم", "موضوع سوم", "سومی", "سومیش")),
+            (4, ("بحث چهارم", "مورد چهارم", "موضوع چهارم", "چهارمی", "چهارمیش")),
+            (5, ("بحث پنجم", "مورد پنجم", "موضوع پنجم", "پنجمی", "پنجمیش")),
+        )
+        for index, markers in ordinal_markers:
+            if any(self._has_marker(t, marker) for marker in markers):
+                return state.topic_by_index(index)
         if any(x in t for x in ("موضوع فعلی", "همین موضوع")):
             return state.current_topic or state.active_goal
         if is_follow_up(t) or any(self._has_marker(t, m) for m in REF_MARKERS):
