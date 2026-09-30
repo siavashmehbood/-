@@ -112,3 +112,24 @@ class ChatGPTReviewPipelineTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+    def test_targeted_review_does_not_consume_an_older_unrelated_candidate(self):
+        root, runtime, gate = self.make_runtime()
+        earlier = self.add_candidate(gate, "unrelated older candidate")
+        target = self.add_candidate(gate, "targeted online goal")
+        seen = []
+        runtime.chatgpt_review_worker = ChatGPTReviewWorker(
+            root,
+            transport=lambda row: (seen.append(row["proposal_id"]) or {
+                "learn": True, "reason": "supported", "confidence": 0.95,
+            }),
+        )
+
+        result = runtime.process_one_chatgpt_learning_review(target["proposal_id"])
+
+        self.assertEqual(result["proposal_id"], target["proposal_id"])
+        self.assertEqual(seen, [target["proposal_id"]])
+        self.assertEqual(gate.get(earlier["proposal_id"])["status"], "pending")
+        self.assertEqual(gate.get(target["proposal_id"])["status"], "pending")
+        self.assertEqual(runtime.human_learning_pending(10)[0]["proposal_id"], target["proposal_id"])
