@@ -67,3 +67,17 @@ def test_question_analyzer_treats_all_ordinal_topics_as_followups():
 
     for text in ("اولین مورد", "موضوع سوم", "بحث چهارم", "مورد پنجم"):
         assert analyzer.analyze(text)["question_type"] == "follow_up"
+
+
+def test_legacy_stack_tail_is_not_counted_twice_for_ordinals():
+    s = ConversationState(
+        current_topic="حافظه",
+        topic_stack=["پایتون", "Django", "حافظه"],
+        active_goal="حافظه",
+    )
+    r = ReferenceResolverStage1()
+
+    assert s.topic_by_index(3) == "حافظه"
+    assert s.topic_by_index(4) == ""
+    assert r.resolve("موضوع سوم", s) == "حافظه"
+    assert r.resolve("موضوع چهارم", s) == ""

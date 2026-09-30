@@ -177,7 +177,9 @@ class ConversationState:
         return previous
 
     def topic_by_index(self, index):
-        all_topics = self.topic_stack + ([self.current_topic] if self.current_topic else [])
+        all_topics = list(self.topic_stack)
+        if self.current_topic and (not all_topics or all_topics[-1] != self.current_topic):
+            all_topics.append(self.current_topic)
         if not all_topics:
             return ""
         try:
