@@ -177,14 +177,18 @@ def test_learning_tick_auto_reviews_online_candidate_then_waits_for_human(runtim
 
     runtime.learn_from_internet = fake_learn
     runtime.self_directed_learning.update_outcome = lambda goal_id, state, *a, **k: states.append((goal_id, state))
-    runtime.chatgpt_review_worker.transport = lambda row: {
-        "learn": True,
-        "reason": "supported",
-        "confidence": .95,
-        "corrections": [],
-        "provider": "openrouter",
-        "model": "fixture:free",
-    }
+    def review_target(row):
+        reviewed_ids.append(row["proposal_id"])
+        return {
+            "learn": True,
+            "reason": "supported",
+            "confidence": .95,
+            "corrections": [],
+            "provider": "openrouter",
+            "model": "fixture:free",
+        }
+
+    runtime.chatgpt_review_worker.transport = review_target
 
     result = runtime.learning_tick()
     proposal_id = holder["proposal"]["proposal_id"]
