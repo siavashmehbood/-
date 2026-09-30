@@ -76,3 +76,18 @@ def test_legacy_goal_state_migrates_to_version_history(tmp_path):
 
     assert state.topic_goals["دانا"] == "آموزش"
     assert state.goal_versions("دانا") == ["آموزش"]
+
+def test_colloquial_ordinal_history_queries_use_canonical_topic_order(tmp_path):
+    shutil.copy(Path(__file__).parents[1] / "config.json", tmp_path)
+    runtime = IranRuntime(tmp_path)
+    try:
+        for topic in ("پایتون", "Django", "حافظه", "یادگیری", "معماری"):
+            runtime.dialogue.state._push_topic(topic)
+        runtime.dialogue.state.save(runtime.dialogue.state_path)
+
+        assert "پایتون" in runtime.handle("اولین مورد چی بود؟")
+        assert "یادگیری" in runtime.handle("چهارمیش چی بود؟")
+        assert "معماری" in runtime.handle("پنجمیش چی بود؟")
+        assert runtime.dialogue.state.current_topic == "معماری"
+    finally:
+        runtime.close()

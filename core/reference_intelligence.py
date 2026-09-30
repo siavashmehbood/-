@@ -39,7 +39,7 @@ class ReferenceIntelligence:
         t = self._clean(text)
         history = history or []
         trigger = self._trigger(t)
-        ordinal = self._ordinal_index(t)
+        ordinal = self.ordinal_index(t)
         if ordinal:
             value = state.topic_by_index(ordinal)
             if value:
@@ -67,7 +67,7 @@ class ReferenceIntelligence:
         )
 
     @staticmethod
-    def _ordinal_index(text):
+    def ordinal_index(text):
         t = str(text or "")
         ordinals = (
             (1, ("بحث اول", "مورد اول", "موضوع اول", "اولی", "اولیش", "اولین مورد")),
