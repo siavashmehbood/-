@@ -1,4 +1,5 @@
 """Canonical single-turn cognitive pipeline for IRAN."""
+import re
 from dataclasses import dataclass, field
 from datetime import datetime
 from core.dialogue import CognitiveContext, clean, is_correction, is_follow_up
@@ -206,6 +207,76 @@ class CognitivePipeline:
         if "حافظه" in low and any(x in low for x in ("چیه","چیست","چی ")):
             answer="حافظه در IRAN برای نگه‌داشتن زمینه گفت‌وگو، واقعیت‌های صریح، تجربه‌ها و دانش قابل‌بازیابی استفاده می‌شود؛ هدفش این است که پیام‌هایی مثل «چرا؟» و «ادامه بده» به پیام‌های قبلی وصل بمانند."
             return self._persist_answer(text,answer,"MEMORY",.97)
+
+        # Specific history queries must run before the broad «گفتم» fallback.
+        if "آخرین اصلاح" in low:
+            correction = next((clean(x) for x in reversed(e.state.corrections) if clean(x) != text), "")
+            answer = (
+                f"آخرین اصلاح ثبت‌شده: «{correction}»."
+                if correction
+                else "اصلاحی در حافظه گفتگو ثبت نشده است."
+            )
+            return self._persist_answer(text, answer, "MEMORY_RECALL", .99)
+
+        ordinal_markers = (
+            (1, ("موضوع اول", "بحث اول", "مورد اول")),
+            (2, ("موضوع دوم", "بحث دوم", "مورد دوم")),
+            (3, ("موضوع سوم", "بحث سوم", "مورد سوم")),
+            (4, ("موضوع چهارم", "بحث چهارم", "مورد چهارم")),
+            (5, ("موضوع پنجم", "بحث پنجم", "مورد پنجم")),
+        )
+        ordinal_index = next(
+            (index for index, markers in ordinal_markers if any(marker in low for marker in markers)),
+            None,
+        )
+        if ordinal_index is not None:
+            topic = clean(e.state.topic_by_index(ordinal_index))
+            answer = (
+                f"موضوع {ordinal_index} ثبت‌شده: «{topic}»."
+                if topic
+                else f"موضوع {ordinal_index} در حافظه گفتگو ثبت نشده است."
+            )
+            return self._persist_answer(text, answer, "REFERENCE", .99)
+
+        asks_for_project_list = (
+            "پروژه" in low
+            and any(marker in low for marker in ("چه پروژه", "کدام پروژه", "چه پروژه‌هایی", "چه پروژه هایی"))
+            and any(marker in low for marker in ("گفتم", "یادت", "گفته"))
+        )
+        if asks_for_project_list:
+            projects = []
+
+            def remember_project(value):
+                value = clean(value)
+                value = re.sub(r"^پروژه\s+", "", value, flags=re.I).strip(" ،,:؛؟?!")
+                if value.lower() in {"", "من", "ما", "خودم", "فعلی", "جدید"}:
+                    return
+                if value not in projects:
+                    projects.append(value)
+
+            try:
+                for fact in self.runtime.user_model.facts(predicate="work_on", limit=100):
+                    remember_project(fact.get("object", ""))
+            except Exception:
+                pass
+            for project in e.state.topic_goals:
+                remember_project(project)
+            try:
+                for row in self.runtime.memory.recent(120):
+                    if not isinstance(row, (tuple, list)) or len(row) < 2 or row[0] != "user":
+                        continue
+                    message = clean(row[1])
+                    for match in re.finditer(r"(?:پروژه|project)\s+([آ-یA-Za-z0-9_-]+)", message, re.I):
+                        remember_project(match.group(1))
+            except Exception:
+                pass
+            answer = (
+                "پروژه‌هایی که در گفتگو نام بردی: " + "، ".join(projects) + "."
+                if projects
+                else "نام پروژه‌ای در حافظه گفتگو پیدا نکردم."
+            )
+            return self._persist_answer(text, answer, "MEMORY_RECALL", .99)
+
         if "گفتم" in low or "حرف قبلی" in low:
             try:
                 for row in reversed(self.runtime.memory.recent(80)):
