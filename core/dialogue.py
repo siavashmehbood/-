@@ -180,12 +180,13 @@ class ConversationState:
         all_topics = list(self.topic_stack)
         if self.current_topic and (not all_topics or all_topics[-1] != self.current_topic):
             all_topics.append(self.current_topic)
-        if not all_topics:
-            return ""
         try:
-            return all_topics[int(index) - 1]
-        except (ValueError, IndexError):
+            position = int(index)
+        except (TypeError, ValueError):
             return ""
+        if position < 1 or position > len(all_topics):
+            return ""
+        return all_topics[position - 1]
 
     def to_dict(self):
         return asdict(self)
