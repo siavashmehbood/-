@@ -310,7 +310,8 @@ class QuestionAnalyzer:
             qtype = "what"
         elif "آیا" in low:
             qtype = "yes_no"
-        if is_follow_up(t) or any(marker in t for marker in ("موضوع قبلی", "بحث اول", "بحث دوم")):
+        if (is_follow_up(t) or any(marker in t for marker in ("موضوع قبلی", "بحث قبلی"))
+                or _REFERENCE_INTELLIGENCE._ordinal_index(t)):
             qtype = "follow_up"
         if is_correction(t):
             qtype = "correction"
@@ -972,7 +973,7 @@ class ReferenceResolverStage1:
         if "همون قبلی" in t:
             return previous_topic or state.references.get("latest_topic", "")
         ordinal_markers = (
-            (1, ("بحث اول", "مورد اول", "موضوع اول", "اولی", "اولیش")),
+            (1, ("بحث اول", "مورد اول", "موضوع اول", "اولی", "اولیش", "اولین مورد")),
             (2, ("بحث دوم", "مورد دوم", "موضوع دوم", "دومی", "دومیش")),
             (3, ("بحث سوم", "مورد سوم", "موضوع سوم", "سومی", "سومیش")),
             (4, ("بحث چهارم", "مورد چهارم", "موضوع چهارم", "چهارمی", "چهارمیش")),

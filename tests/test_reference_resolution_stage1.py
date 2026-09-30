@@ -1,4 +1,4 @@
-from core.dialogue import ConversationState, ReferenceResolverStage1
+from core.dialogue import ConversationState, QuestionAnalyzer, ReferenceResolverStage1
 
 
 def state_with_topics():
@@ -61,3 +61,9 @@ def test_numbered_reference_matches_canonical_ordinals_through_fifth():
     assert r.resolve("موضوع سوم", s) == "حافظه"
     assert r.resolve("چهارمیش", s) == "یادگیری"
     assert r.resolve("بحث پنجم", s) == "معماری"
+
+def test_question_analyzer_treats_all_ordinal_topics_as_followups():
+    analyzer = QuestionAnalyzer()
+
+    for text in ("اولین مورد", "موضوع سوم", "بحث چهارم", "مورد پنجم"):
+        assert analyzer.analyze(text)["question_type"] == "follow_up"
