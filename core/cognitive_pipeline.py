@@ -5,6 +5,7 @@ from datetime import datetime
 from core.dialogue import CognitiveContext, clean, is_correction, is_follow_up
 from core.context_tracker import ContextTracker
 from core.memory_intelligence import MemoryIntelligence
+from core.reference_intelligence import ReferenceIntelligence
 from core.reasoning_planning import ReasoningPlanningEngine
 from core.semantic_verifier import SemanticVerifier
 
@@ -321,17 +322,7 @@ class CognitivePipeline:
             )
             return self._persist_answer(text, answer, "MEMORY_RECALL", .99)
 
-        ordinal_markers = (
-            (1, ("موضوع اول", "بحث اول", "مورد اول")),
-            (2, ("موضوع دوم", "بحث دوم", "مورد دوم")),
-            (3, ("موضوع سوم", "بحث سوم", "مورد سوم")),
-            (4, ("موضوع چهارم", "بحث چهارم", "مورد چهارم")),
-            (5, ("موضوع پنجم", "بحث پنجم", "مورد پنجم")),
-        )
-        ordinal_index = next(
-            (index for index, markers in ordinal_markers if any(marker in low for marker in markers)),
-            None,
-        )
+        ordinal_index = ReferenceIntelligence.ordinal_index(low) or None
         if ordinal_index is not None:
             topic = clean(e.state.topic_by_index(ordinal_index))
             answer = (

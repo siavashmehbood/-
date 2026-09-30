@@ -311,7 +311,7 @@ class QuestionAnalyzer:
         elif "آیا" in low:
             qtype = "yes_no"
         if (is_follow_up(t) or any(marker in t for marker in ("موضوع قبلی", "بحث قبلی"))
-                or _REFERENCE_INTELLIGENCE._ordinal_index(t)):
+                or _REFERENCE_INTELLIGENCE.ordinal_index(t)):
             qtype = "follow_up"
         if is_correction(t):
             qtype = "correction"
