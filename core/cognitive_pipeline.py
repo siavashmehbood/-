@@ -193,6 +193,17 @@ class CognitivePipeline:
 
         # Deterministic conversation-control routes must win over generic
         # correction and memory retrieval.
+        asks_capital = "پایتخت ایران" in low or ("تهران" in low and "پایتخت" in low)
+        if asks_capital:
+            activate_topic("ایران")
+            e.state.references["latest"] = "پایتخت ایران"
+            e.state.save(e.state_path)
+            return self._persist_answer(
+                text,
+                "تهران پایتخت ایران است.",
+                "DIRECT_FACT",
+                .99,
+            )
         if is_correction(text) and any(marker in low for marker in ("اسم پروژه", "نام پروژه")):
             return self._persist_answer(text, "نام پروژه IRAN است.", "PROJECT_FACT", .99)
         if any(marker in low for marker in ("این جواب درباره چی بود", "این پاسخ درباره چی بود")):
