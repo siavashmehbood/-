@@ -933,6 +933,8 @@ ConversationState.update=_state_update_v5
 _LocalDialogue_handle_base=LocalDialogueEngine.handle
 
 
+_prev_knowledge = LocalDialogueEngine._knowledge
+
 def _knowledge_v2(self,text,parsed):
     rows=_prev_knowledge(self,text,parsed); low=bare(text).lower()
     if any(x in low for x in ("مرکز سیاسی کشور ایران","مرکز سیاسی ایران")):
