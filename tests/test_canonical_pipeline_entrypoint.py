@@ -25,11 +25,11 @@ def test_dialogue_and_pipeline_have_one_execution_owner():
     dialogue_source = Path("core/dialogue.py").read_text(encoding="utf-8")
     pipeline_source = Path("core/cognitive_pipeline.py").read_text(encoding="utf-8")
 
-    handle_bindings = re.findall(r"(?m)^LocalDialogueEngine\\.handle\\s*=", dialogue_source)
-    run_methods = re.findall(r"(?m)^    def run\\(self, text\\):", pipeline_source)
+    handle_bindings = re.findall(r"(?m)^LocalDialogueEngine\.handle\s*=", dialogue_source)
+    run_methods = re.findall(r"(?m)^    def run\(self, text\):", pipeline_source)
 
     assert len(handle_bindings) == 1
     assert "LocalDialogueEngine.handle = _canonical_pipeline_handle" in dialogue_source
     assert len(run_methods) == 1
-    assert not re.search(r"(?m)^CognitivePipeline\\.run\\s*=", pipeline_source)
+    assert not re.search(r"(?m)^CognitivePipeline\.run\s*=", pipeline_source)
     assert "_pipeline_v55_base" not in pipeline_source
