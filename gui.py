@@ -141,9 +141,9 @@ class ChatWindow(QMainWindow):
         self.review_rejected = QLabel("رد شده: —")
         self.review_errors = QLabel("خطاهای بازبینی: —")
         self.input_fabric_json = QLabel("ورودی‌ها: —")
-        self.restart_button = QPushButton("راه‌اندازی مجدد ناظر")
-        self.restart_button.clicked.connect(self.restart_worker)
-        for x in (self.conf, self.quality, self.intent, self.elapsed, self.experience_xp, self.chatgpt_pending, self.online_review_status, self.duplicate_warning, self.cooldown_status, self.queue_status, self.integrity_status, self.recovery_status, self.review_rows_detail, self.human_pending, self.review_accepted, self.review_rejected, self.review_errors, self.input_fabric_json, self.restart_button): l.addWidget(x)
+        self.review_next_button = QPushButton("بازبینی مورد بعدی")
+        self.review_next_button.clicked.connect(self.run_chatgpt_review_once)
+        for x in (self.conf, self.quality, self.intent, self.elapsed, self.experience_xp, self.chatgpt_pending, self.online_review_status, self.duplicate_warning, self.cooldown_status, self.queue_status, self.integrity_status, self.recovery_status, self.review_rows_detail, self.human_pending, self.review_accepted, self.review_rejected, self.review_errors, self.input_fabric_json, self.review_next_button): l.addWidget(x)
         self.internet_button = QPushButton()
         self.internet_button.clicked.connect(self.toggle_internet)
         l.addWidget(self.internet_button); self.refresh_internet()
@@ -417,18 +417,52 @@ class ChatWindow(QMainWindow):
     def refresh_chatgpt_count(self):
         try:
             status = self.runtime.chatgpt_review_status()
-            if status.get("state") == "ERROR":
-                self.chatgpt_pending.setText(f"ناظر: خطا در داده‌های ذخیره‌شده | {status.get('last_error', '')}")
-            elif status.get("cooldown"):
-                self.chatgpt_pending.setText(
-                    f"ناظر: در انتظار / Rate Limit | صف: {status.get('pending', 0):,} | تلاش بعدی: {status.get('next_allowed_at', '—')}"
-                )
-            else:
-                self.chatgpt_pending.setText(
-                    f"درخواست‌های بازبینی ناظر: {status.get('pending', 0):,} | بازبینی انسانی: {status.get('human_pending', 0):,}"
-                )
-        except Exception:
+            pending = int(status.get("pending", 0) or 0)
+            human_pending = int(status.get("human_pending", 0) or 0)
+            waiting = int(status.get("waiting", 0) or 0)
+            self.chatgpt_pending.setText(
+                f"درخواست‌های بازبینی ناظر: {pending:,} | بازبینی انسانی: {human_pending:,}"
+            )
+            providers = status.get("providers", [])
+            provider_text = ", ".join(
+                f"{row.get('provider', 'ناظر')}: {row.get('state', 'نامشخص')}"
+                for row in providers
+            ) or "بدون ارائه‌دهنده"
+            self.online_review_status.setText(f"ناظر آنلاین: {provider_text}")
+            self.queue_status.setText(f"صف: {pending:,} | منتظر ناظر: {waiting:,}")
+            self.human_pending.setText(f"در انتظار انسان: {human_pending:,}")
+            cooldown = int(status.get("cooldown_seconds", 0) or 0)
+            self.cooldown_status.setText(
+                f"خنک‌سازی: {cooldown} ثانیه" if cooldown else "خنک‌سازی: آماده"
+            )
+            error = status.get("last_error")
+            failed_state = status.get("state") == "ERROR" or bool(error)
+            self.integrity_status.setText(
+                f"یکپارچگی: خطا — {error or 'داده ناظر نامعتبر'}"
+                if failed_state else "یکپارچگی: سالم"
+            )
+            recovered = status.get("last_success_at")
+            self.recovery_status.setText(
+                f"بازیابی: آخرین موفقیت {recovered}" if recovered else "بازیابی: هنوز موفقیتی ثبت نشده"
+            )
+            self.review_rows_detail.setText(
+                f"رکوردها: {int(status.get('total', 0) or 0):,} | ردشده در بازبینی: {int(status.get('rejected', 0) or 0):,}"
+            )
+            gate = self.runtime.learning_gate.stats()
+            self.review_accepted.setText(f"تأیید انسانی: {gate.get('approved', 0):,}")
+            self.review_rejected.setText(f"رد انسانی: {gate.get('rejected', 0):,}")
+            self.review_errors.setText(f"خطاهای بازبینی: {error or 'ندارد'}")
+            fabric = self.runtime.input_fabric_status()
+            self.duplicate_warning.setText(
+                f"ورودی تکراری: {int(fabric.get('duplicates', 0) or 0):,}"
+            )
+            self.input_fabric_json.setText(
+                f"ورودی‌ها: {int(fabric.get('ingested', 0) or 0):,} | واحدها: {int(fabric.get('units', 0) or 0):,}"
+            )
+        except Exception as exc:
             self.chatgpt_pending.setText("درخواست‌های بازبینی ناظر: خطا")
+            self.integrity_status.setText(f"یکپارچگی: خطا — {type(exc).__name__}")
+            self.review_errors.setText(f"خطاهای بازبینی: {type(exc).__name__}")
 
     def show_chatgpt_reviews(self):
         # Pending candidate content is private until the external review accepts it.
@@ -584,17 +618,7 @@ class ChatWindow(QMainWindow):
         except Exception as exc:
             self.review_errors.setText(f"خطاهای بازبینی: خواندن ناموفق (.bak recovery فعال) | {exc}")
 
-    def restart_worker(self):
-        try:
-            worker = getattr(self.runtime, "chatgpt_review_worker", None)
-            restart = getattr(worker, "restart", None)
-            if callable(restart):
-                restart()
-                self.recovery_status.setText("بازیابی: راه‌اندازی مجدد انجام شد")
-            else:
-                self.recovery_status.setText("بازیابی: worker قابلیت restart ندارد")
-        except Exception as exc:
-            self.recovery_status.setText(f"بازیابی: خطا در راه‌اندازی مجدد — {exc}")
+
 
 if __name__ == "__main__":
     if not _acquire_gui_lock():
