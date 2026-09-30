@@ -248,26 +248,36 @@ class Verification:
 
 
 class QuestionAnalyzer:
-    """Small deterministic analyzer. Existing PersianLanguageEngine supplies richer signals."""
+    """Deterministic Persian question and follow-up analyzer."""
     def analyze(self, text, parsed=None):
         t = clean(text)
-        p = parsed or {}
         low = bare(t).lower()
-        units = list(p.get("question_units") or [])
-        if not units and ("؟" in t or "?" in t):
-            units = [x.strip() for x in re.split(r"[؟?]", t) if x.strip()]
-        if not units and any(x in low for x in ("چرا", "چطور", "چی", "کجاست", "چیه")):
+        units = [part.strip() for part in re.split(r"[؟?]", t) if part.strip()]
+        pieces = re.split(
+            r"\s+و\s+(?=چرا\b|چطور\b|چگونه\b|برای پروژه\b|برای پروژه‌م\b|آیا\b)",
+            bare(t),
+        )
+        if len(pieces) > 1:
+            units = [part.strip() for part in pieces if part.strip()]
+        if not units and substantive(t):
             units = [bare(t)]
+
         qtype = "general"
-        if "چرا" in low: qtype = "why"
-        elif any(x in low for x in ("چطور", "چگونه", "چه جوری", "چجوری")): qtype = "how"
-        elif any(x in low for x in ("چیست", "چیه", "چی ")): qtype = "what"
-        elif any(x in low for x in ("کجاست", "کجاست")): qtype = "where"
-        elif "آیا" in low: qtype = "yes_no"
-        elif any(x in low for x in ("بهتر است یا", "بهتره یا", "کدام بهتر", "کدوم بهتر", "مقایسه")): qtype = "comparison"
-        if is_follow_up(t): qtype = "follow_up"
-        if is_correction(t): qtype = "correction"
-        return {"question_type": qtype, "question_units": units or ([bare(t)] if substantive(t) else [])}
+        if "چرا" in low:
+            qtype = "why"
+        elif any(marker in low for marker in ("چطور", "چگونه", "چه جوری", "چجوری")):
+            qtype = "how"
+        elif any(marker in low for marker in ("چیست", "چیه", "چی ")):
+            qtype = "what"
+        elif "آیا" in low:
+            qtype = "yes_no"
+        if is_follow_up(t) or any(marker in t for marker in ("موضوع قبلی", "بحث اول", "بحث دوم")):
+            qtype = "follow_up"
+        if is_correction(t):
+            qtype = "correction"
+        return {"question_type": qtype, "question_units": units}
+
+
 
 
 class ReferenceResolver:
@@ -728,23 +738,6 @@ def _state_update_v2(self, user_text, answer="", answer_type="", parsed=None, co
 ConversationState.update = _state_update_v2
 
 
-def _analyze_v2(self, text, parsed=None):
-    t=clean(text); p=parsed or {}; low=bare(t).lower()
-    units=list(p.get("question_units") or [])
-    if not units and ("؟" in t or "?" in t): units=[x.strip() for x in re.split(r"[؟?]",t) if x.strip()]
-    if len(units)<=1 and re.search(r"\s+و\s+", bare(t)):
-        pieces=[x.strip() for x in re.split(r"\s+و\s+", bare(t)) if x.strip()]
-        if len(pieces)>=2 and any(x in low for x in ("چی", "چیه", "چرا", "چطور", "برای پروژه", "کجاست")):
-            units=pieces
-    qtype="general"
-    if "چرا" in low:qtype="why"
-    elif any(x in low for x in ("چطور","چگونه","چه جوری","چجوری")):qtype="how"
-    elif any(x in low for x in ("چیست","چیه","چی ")):qtype="what"
-    elif "آیا" in low:qtype="yes_no"
-    if is_follow_up(t) or "موضوع قبلی" in t:qtype="follow_up"
-    if is_correction(t):qtype="correction"
-    return {"question_type":qtype,"question_units":units or ([bare(t)] if substantive(t) else [])}
-QuestionAnalyzer.analyze = _analyze_v2
 
 _LocalDialogue_direct_base = LocalDialogueEngine._direct_answer
 def _direct_answer_v2(self, context):
@@ -797,25 +790,6 @@ LocalDialogueEngine._direct_answer = _direct_answer_v2
 
 
 # v0.40b: contextual recommendations inherit the nearest meaningful technical topic.
-def _analyze_v3(self, text, parsed=None):
-    t=clean(text); p=parsed or {}; low=bare(t).lower()
-    units=[]
-    explicit=re.split(r"[؟?]",t)
-    if len(explicit)>1: units=[x.strip() for x in explicit if x.strip()]
-    if not units:
-        # Split only at conjunctions that introduce a new question unit.
-        units=[bare(t)]
-        pieces=re.split(r"\s+و\s+(?=چرا\b|چطور\b|چگونه\b|برای پروژه\b|برای پروژه‌م\b|آیا\b)",bare(t))
-        if len(pieces)>1: units=[x.strip() for x in pieces if x.strip()]
-    qtype="general"
-    if "چرا" in low:qtype="why"
-    elif any(x in low for x in ("چطور","چگونه","چه جوری","چجوری")):qtype="how"
-    elif any(x in low for x in ("چیست","چیه","چی ")):qtype="what"
-    elif "آیا" in low:qtype="yes_no"
-    if is_follow_up(t) or "موضوع قبلی" in t or "بحث اول" in t:qtype="follow_up"
-    if is_correction(t):qtype="correction"
-    return {"question_type":qtype,"question_units":units if substantive(t) else []}
-QuestionAnalyzer.analyze=_analyze_v3
 
 # Keep generic social turns out of the topic stack.
 _prev_state_update_v2=ConversationState.update
@@ -834,22 +808,6 @@ ConversationState.update=_state_update_v3
 # v0.40c: complete common Persian reference phrases and compound-question splitting.
 REF_MARKERS = REF_MARKERS + ("این قسمت",)
 
-def _analyze_v4(self, text, parsed=None):
-    t=clean(text); p=parsed or {}; low=bare(t).lower(); units=[]
-    explicit=[x.strip() for x in re.split(r"[؟?]",t) if x.strip()]
-    if explicit: units=explicit
-    pieces=re.split(r"\s+و\s+(?=چرا\b|چطور\b|چگونه\b|برای پروژه\b|برای پروژه‌م\b|آیا\b)",bare(t))
-    if len(pieces)>1: units=[x.strip() for x in pieces if x.strip()]
-    if not units and substantive(t): units=[bare(t)]
-    qtype="general"
-    if "چرا" in low:qtype="why"
-    elif any(x in low for x in ("چطور","چگونه","چه جوری","چجوری")):qtype="how"
-    elif any(x in low for x in ("چیست","چیه","چی ")):qtype="what"
-    elif "آیا" in low:qtype="yes_no"
-    if is_follow_up(t) or any(x in t for x in ("موضوع قبلی","بحث اول","بحث دوم")):qtype="follow_up"
-    if is_correction(t):qtype="correction"
-    return {"question_type":qtype,"question_units":units}
-QuestionAnalyzer.analyze=_analyze_v4
 
 _prev_state_update_v3=ConversationState.update
 def _state_update_v4(self,user_text,answer="",answer_type="",parsed=None,confidence=0.0,reference=None):
