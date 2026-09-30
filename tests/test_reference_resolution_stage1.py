@@ -81,3 +81,13 @@ def test_legacy_stack_tail_is_not_counted_twice_for_ordinals():
     assert s.topic_by_index(4) == ""
     assert r.resolve("موضوع سوم", s) == "حافظه"
     assert r.resolve("موضوع چهارم", s) == ""
+
+
+def test_topic_index_rejects_invalid_and_non_positive_positions():
+    s = state_with_topics()
+
+    assert s.topic_by_index(0) == ""
+    assert s.topic_by_index(-1) == ""
+    assert s.topic_by_index(4) == ""
+    assert s.topic_by_index("invalid") == ""
+    assert s.topic_by_index(None) == ""
