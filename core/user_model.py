@@ -19,6 +19,9 @@ class UserModel:
 
     def extract_explicit_facts(self, text):
         t = self._clean(text).rstrip(".!?؟")
+        # A leading Persian/ASCII "no" commonly marks a correction. Strip it
+        # before matching explicit facts so the corrected statement is durable.
+        t = re.sub(r"^نه(?:[،,]\s*|\s+)", "", t, flags=re.I)
         facts = []
         man = "من"
         end = r"(?:هستم|ام)"
