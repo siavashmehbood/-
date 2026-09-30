@@ -107,3 +107,46 @@ def test_runtime_claim_reuse_records_retrieval_without_promoting_goal(tmp_path):
     assert current.assessments[0]['kind']=='retrieval'
     assert r.effect_learning.stats()['xp']==1_000_000
     r.close()
+
+
+def test_real_internet_learning_path_commits_into_offline_brain_after_two_reviews(tmp_path):
+    shutil.copy(Path(__file__).parents[1] / "config.json", tmp_path)
+    runtime = IranRuntime(tmp_path)
+    try:
+        runtime.internet_access.enable()
+        claim = "ستاره نوا یک ستاره آزمایشی با رنگ آبی روشن است."
+
+        def fetch_fixture(url):
+            return {
+                "url": url,
+                "title": "ستاره نوا",
+                "text": claim,
+                "confidence": 0.9,
+                "source_type": "documentation",
+            }
+
+        runtime.internet_learning.fetch = fetch_fixture
+        result = runtime.learn_from_internet(
+            "ستاره نوا",
+            ["https://one.example.org/nova", "https://two.example.net/nova"],
+        )
+
+        proposal = result["review"]
+        proposal_id = proposal["proposal_id"]
+        assert proposal["status"] == "pending"
+        assert runtime.knowledge.query("ستاره نوا") == []
+
+        mark_chatgpt_correct(runtime, proposal_id, "independent fixture review")
+        approval = runtime.approve_learning(proposal_id)
+        assert approval["ok"]
+        assert claim in " ".join(str(row.get("object", "")) for row in runtime.knowledge.query("ستاره نوا"))
+        assert claim in runtime.handle("ستاره نوا چیست؟")
+    finally:
+        runtime.close()
+
+    restored = IranRuntime(tmp_path)
+    try:
+        assert claim in restored.handle("ستاره نوا چیست؟")
+        assert restored.learning_gate.get(proposal_id)["status"] == "approved"
+    finally:
+        restored.close()
