@@ -110,10 +110,6 @@ class ChatGPTReviewPipelineTests(unittest.TestCase):
         restarted.transport.assert_not_called()
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
     def test_targeted_review_does_not_consume_an_older_unrelated_candidate(self):
         root, runtime, gate = self.make_runtime()
         earlier = self.add_candidate(gate, "unrelated older candidate")
@@ -133,3 +129,6 @@ if __name__ == "__main__":
         self.assertEqual(gate.get(earlier["proposal_id"])["status"], "pending")
         self.assertEqual(gate.get(target["proposal_id"])["status"], "pending")
         self.assertEqual(runtime.human_learning_pending(10)[0]["proposal_id"], target["proposal_id"])
+
+if __name__ == "__main__":
+    unittest.main()
