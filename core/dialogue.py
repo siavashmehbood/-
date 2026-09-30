@@ -966,10 +966,11 @@ class ReferenceResolverStage1:
     def resolve(self, text, state, history=None):
         t = bare(text)
         previous = "موضوع قبلی"
+        previous_topic = self._previous_topic(state)
         if previous in t or "بحث قبلی" in t:
-            return state.topic_stack[-1] if state.topic_stack else state.current_topic
+            return previous_topic
         if "همون قبلی" in t:
-            return state.references.get("latest_topic", "") or (state.topic_stack[-1] if state.topic_stack else state.current_topic)
+            return previous_topic or state.references.get("latest_topic", "")
         if any(x in t for x in ("بحث اول", "مورد اول", "اولی")):
             return state.topic_by_index(1)
         if any(x in t for x in ("بحث دوم", "مورد دوم", "دومی")):
@@ -979,6 +980,18 @@ class ReferenceResolverStage1:
         if is_follow_up(t) or any(self._has_marker(t, m) for m in REF_MARKERS):
             return state.current_topic or state.references.get("latest", "") or state.active_goal
         return ""
+
+    @staticmethod
+    def _previous_topic(state):
+        stack = list(getattr(state, "topic_stack", []) or [])
+        current = str(getattr(state, "current_topic", "") or "")
+        if stack and current and stack[-1] != current:
+            return str(stack[-1])
+        if len(stack) >= 2:
+            return str(stack[-2])
+        if stack:
+            return str(stack[-1])
+        return current
 
     @staticmethod
     def _has_marker(text, marker):
