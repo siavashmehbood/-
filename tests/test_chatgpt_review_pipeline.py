@@ -131,5 +131,25 @@ class ChatGPTReviewPipelineTests(unittest.TestCase):
         self.assertEqual(gate.get(target["proposal_id"])["status"], "pending")
         self.assertEqual(runtime.human_learning_pending(10)[0]["proposal_id"], target["proposal_id"])
 
+
+    def test_late_human_reject_cannot_rewrite_approved_review(self):
+        root, runtime, gate = self.make_runtime()
+        candidate = self.add_candidate(gate, "already approved")
+        runtime.chatgpt_review_worker = ChatGPTReviewWorker(
+            root, transport=lambda row: {"learn": True, "reason": "eligible"}
+        )
+        runtime.process_one_chatgpt_learning_review()
+        gate.decide(candidate["proposal_id"], "approved")
+        runtime._set_human_review_status(candidate["proposal_id"], "approved")
+
+        result = runtime.reject_learning(candidate["proposal_id"])
+
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["reason"], "proposal_not_pending")
+        self.assertEqual(gate.get(candidate["proposal_id"])["status"], "approved")
+        review = runtime.chatgpt_learning_review_status(candidate["proposal_id"])["row"]
+        self.assertEqual(review["human_decision"], "approved")
+        self.assertEqual(review["status"], "approved")
+
 if __name__ == "__main__":
     unittest.main()
