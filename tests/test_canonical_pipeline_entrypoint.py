@@ -33,3 +33,13 @@ def test_dialogue_and_pipeline_have_one_execution_owner():
     assert len(run_methods) == 1
     assert not re.search(r"(?m)^CognitivePipeline\.run\s*=", pipeline_source)
     assert "_pipeline_v55_base" not in pipeline_source
+
+    patch_bindings = (
+        "LocalDialogueEngine.__init__ =",
+        "LocalDialogueEngine._memory =",
+        "LocalDialogueEngine._knowledge =",
+        "AnswerVerifier.verify =",
+        "ReferenceResolver.resolve =",
+        "AnswerRepair.repair =",
+    )
+    assert not any(binding in dialogue_source for binding in patch_bindings)
