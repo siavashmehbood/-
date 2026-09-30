@@ -950,18 +950,6 @@ _DIALOGUE_BASE_HANDLE = LocalDialogueEngine.handle
 
 
 
-def _memory_chain_context(self, text):
-    rows = _PREV_MEMORY_CHAIN(self, text)
-    query = clean(text)
-    out = []
-    for row in rows:
-        content = row[1] if isinstance(row, (tuple, list)) and len(row) > 1 else str(row)
-        if clean(content) == query:
-            continue
-        out.append(row)
-    return out
-
-
 # Canonical dialogue entry point. All natural-language turns use one pipeline.
 
 def _canonical_pipeline_handle(self, text):
@@ -1026,13 +1014,3 @@ def _direct_answer_v41b(self, context):
 
 LocalDialogueEngine._direct_answer = _direct_answer_v41b
 
-# v0.41-learning: make learned dialogue policy affect the actual response path.
-def _repair_learning(self, context, answer, verification, plan):
-    steps = set(plan.steps or [])
-    if "avoid_recent_failed_pattern" in steps and verification.status == "PASS" and context.uncertainty >= .70 and not context.relevant_knowledge:
-        return "UNKNOWN: اطلاعات محلی کافی برای پاسخ مطمئن ندارم؛ نمی‌خواهم همان الگوی قبلیِ نامطمئن را تکرار کنم."
-    repaired = _PREV_REPAIR_LEARNING(self, context, answer, verification, plan)
-    if "preserve_conversation_context" in steps and context.question_type == "follow_up" and context.current_topic:
-        if context.current_topic not in str(repaired):
-            return f"با توجه به موضوع قبلی «{context.current_topic}»، {str(repaired).lstrip()}"
-    return repaired
