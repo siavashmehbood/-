@@ -381,13 +381,18 @@ class IranRuntime:
             if not self.internet_learning.discover(goal["topic"]): continue
             if goal.get("attempts", 0) >= int(self.config.get("learning_max_attempts", 3)): continue
             result=self.learn_from_internet(goal["topic"])
-            if result.get("review"):
+            review_row = result.get("review")
+            if review_row:
+                proposal_id = review_row.get("proposal_id") if isinstance(review_row, dict) else None
                 self.sync_chatgpt_learning_reviews()
-                review_result = self.process_one_chatgpt_learning_review()
+                review_result = self.process_one_chatgpt_learning_review(proposal_id=proposal_id)
                 result["online_review"] = review_result
-                state = "human_pending" if review_result.get("ok") and review_result.get("learn") is True else (
-                    "rejected" if review_result.get("ok") and review_result.get("learn") is False else "awaiting_review"
-                )
+                if proposal_id and review_result.get("proposal_id") != proposal_id:
+                    state = "awaiting_review"
+                else:
+                    state = "human_pending" if review_result.get("ok") and review_result.get("learn") is True else (
+                        "rejected" if review_result.get("ok") and review_result.get("learn") is False else "awaiting_review"
+                    )
                 self.self_directed_learning.update_outcome(goal["goal_id"], state)
             else:
                 self.self_directed_learning.update_outcome(goal["goal_id"], "needs_evidence")
@@ -484,10 +489,10 @@ class IranRuntime:
         })
         return status
 
-    def process_one_chatgpt_learning_review(self):
-        """Run exactly one ChatGPT validation request through the dedicated worker."""
+    def process_one_chatgpt_learning_review(self, proposal_id=None):
+        """Review one queued candidate, optionally targeting its durable proposal ID."""
         self.sync_chatgpt_learning_reviews()
-        result = self.chatgpt_review_worker.process_one()
+        result = self.chatgpt_review_worker.process_one(proposal_id=proposal_id)
         if result.get("reason") == "reviewed" and result.get("learn") is False:
             self.learning_gate.decide(result.get("proposal_id"), "rejected")
         return result
@@ -496,9 +501,9 @@ class IranRuntime:
         """Status for the external multi-model reviewer used by online learning."""
         return self.chatgpt_review_status()
 
-    def process_one_online_learning_review(self):
+    def process_one_online_learning_review(self, proposal_id=None):
         """Review one queued learning candidate, then hand accepted items to the human gate."""
-        return self.process_one_chatgpt_learning_review()
+        return self.process_one_chatgpt_learning_review(proposal_id=proposal_id)
 
     def submit_chatgpt_learning_review(self, proposal_id, review_text):
         """Store a review note only; human approval remains a separate gate."""
