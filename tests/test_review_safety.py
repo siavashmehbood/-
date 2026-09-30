@@ -149,6 +149,11 @@ def test_worker_recovers_cooldown_from_backup(runtime):
 def test_learning_tick_auto_reviews_online_candidate_then_waits_for_human(runtime):
     holder = {}
     states = []
+    unrelated = runtime.learning_gate.request(
+        "memory.add_lesson",
+        {"goal": "older fixture", "lesson": "must not be consumed by this goal", "confidence": .9},
+    )
+    reviewed_ids = []
 
     runtime.self_directed_learning.prioritize = lambda limit: [{
         "goal": {
@@ -187,6 +192,8 @@ def test_learning_tick_auto_reviews_online_candidate_then_waits_for_human(runtim
     assert result["online_review"]["learn"] is True
     assert ("online-goal-1", "human_pending") in states
     assert runtime.learning_gate.get(proposal_id)["status"] == "pending"
+    assert reviewed_ids == [proposal_id]
+    assert runtime.learning_gate.get(unrelated["proposal_id"])["status"] == "pending"
     pending = runtime.human_learning_pending()
     assert pending and pending[0]["proposal_id"] == proposal_id
     assert runtime.memory.lesson_search("online review fixture", limit=5) == []  # no durable lesson before human approval
