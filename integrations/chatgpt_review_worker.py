@@ -136,12 +136,12 @@ class ChatGPTReviewWorker:
         with self._lock, file_lock(self.root / "data" / "review_worker.lock"):
             now = self.clock()
             if self.manager is not None and not self.manager.internet.status()["enabled"]:
-                candidate = self._candidate(self._load_rows())
+                candidate = self._candidate(self._load_rows(), proposal_id)
                 return self._waiting((candidate or {}).get("proposal_id"), "internet_off")
             try:
                 state = self._load_state()
             except StateCorruptionError:
-                candidate = self._candidate(self._load_rows())
+                candidate = self._candidate(self._load_rows(), proposal_id)
                 return self._waiting((candidate or {}).get("proposal_id"), "worker_state_corrupt")
             next_allowed = self._parse_iso(state.get("next_allowed_at"))
             if next_allowed and next_allowed > now:
