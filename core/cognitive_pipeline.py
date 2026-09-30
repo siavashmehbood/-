@@ -193,7 +193,11 @@ class CognitivePipeline:
 
         # Deterministic conversation-control routes must win over generic
         # correction and memory retrieval.
-        asks_capital = "پایتخت ایران" in low or ("تهران" in low and "پایتخت" in low)
+        capital_query = low.rstrip("؟?!.")
+        asks_capital = (
+            capital_query in {"پایتخت ایران", "پایتخت ایران چیه", "پایتخت ایران چیست"}
+            or ("تهران" in low and "پایتخت" in low)
+        )
         if asks_capital:
             activate_topic("ایران")
             e.state.references["latest"] = "پایتخت ایران"
