@@ -77,7 +77,13 @@ class ReferenceIntelligence:
             (5, ("بحث پنجم", "مورد پنجم", "موضوع پنجم", "پنجمی", "پنجمیش")),
         )
         for index, markers in ordinals:
-            if any(marker in t for marker in markers):
+            if any(
+                re.search(
+                    rf"(?<![آ-یA-Za-z0-9‌]){re.escape(marker)}(?![آ-یA-Za-z0-9‌])",
+                    t,
+                )
+                for marker in markers
+            ):
                 return index
         return 0
 

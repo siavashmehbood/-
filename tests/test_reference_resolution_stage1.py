@@ -1,4 +1,5 @@
 from core.dialogue import ConversationState, QuestionAnalyzer, ReferenceResolverStage1
+from core.reference_intelligence import ReferenceIntelligence
 
 
 def state_with_topics():
@@ -91,3 +92,11 @@ def test_topic_index_rejects_invalid_and_non_positive_positions():
     assert s.topic_by_index(4) == ""
     assert s.topic_by_index("invalid") == ""
     assert s.topic_by_index(None) == ""
+
+
+def test_ordinal_detection_does_not_match_inside_other_words():
+    analyzer = QuestionAnalyzer()
+
+    for text in ("اولویت پروژه چیست؟", "بازی دومینو چیست؟"):
+        assert ReferenceIntelligence.ordinal_index(text) == 0
+        assert analyzer.analyze(text)["question_type"] == "what"
