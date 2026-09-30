@@ -420,9 +420,14 @@ class ChatWindow(QMainWindow):
             pending = int(status.get("pending", 0) or 0)
             human_pending = int(status.get("human_pending", 0) or 0)
             waiting = int(status.get("waiting", 0) or 0)
-            self.chatgpt_pending.setText(
-                f"درخواست‌های بازبینی ناظر: {pending:,} | بازبینی انسانی: {human_pending:,}"
-            )
+            if status.get("state") == "ERROR":
+                self.chatgpt_pending.setText(
+                    f"ناظر: خطا در داده‌های ذخیره‌شده | {status.get('last_error', 'نامشخص')}"
+                )
+            else:
+                self.chatgpt_pending.setText(
+                    f"درخواست‌های بازبینی ناظر: {pending:,} | بازبینی انسانی: {human_pending:,}"
+                )
             providers = status.get("providers", [])
             provider_text = ", ".join(
                 f"{row.get('provider', 'ناظر')}: {row.get('state', 'نامشخص')}"
