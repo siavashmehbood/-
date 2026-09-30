@@ -9,6 +9,11 @@ import json
 import re
 from datetime import datetime
 
+from core.chain_reasoner import ChainReasoner
+from core.reference_intelligence import ReferenceIntelligence
+
+_REFERENCE_INTELLIGENCE = ReferenceIntelligence()
+
 
 REF_MARKERS = (
     "این", "اون", "آن", "همین", "همون", "همونو", "قبلی", "قبلیش",
@@ -267,6 +272,15 @@ class QuestionAnalyzer:
 
 class ReferenceResolver:
     def resolve(self, text, state, history=None):
+        try:
+            result = _REFERENCE_INTELLIGENCE.resolve(text, state, history)
+            state.references["reference_trace"] = result.to_dict()
+            if result.ambiguous:
+                return ""
+            if result.candidate:
+                return result.candidate
+        except Exception:
+            pass
         t=bare(text); history=history or []
         ordinal_reference = bool(re.search(r'(اول|دوم|سوم|چهارم|پنجم|آخر)', t))
         if is_follow_up(t) and not ordinal_reference and state.last_assistant_answer and substantive(state.last_assistant_answer):
@@ -341,31 +355,35 @@ class AnswerVerifier:
     def verify(self, context, answer, plan):
         text = clean(answer)
         reasons, missing, unsupported = [], [], []
+        low = text.lower()
         if not text:
             reasons.append("empty_answer")
-        if plan.question_units and context.question_type != "follow_up":
+        honest = any(x in low for x in ("اطلاعات کافی ندارم", "نمی‌خواهم حدس", "شاهد کافی", "unknown", "نامشخص"))
+        if plan.question_units and not honest:
             for unit in plan.question_units:
-                key = set(words(unit)) - {"چرا", "چطور", "چگونه", "چی", "است", "هست", "و", "برای"}
+                key = set(words(unit)) - {"چرا", "چطور", "چگونه", "چی", "است", "هست", "و", "برای", "من"}
                 if key and not (set(words(text)) & key):
+                    if context.relevant_knowledge and any(
+                        str(f.get("object", f.get("value", ""))) in text
+                        for f in context.relevant_knowledge
+                    ):
+                        continue
                     missing.append(unit)
         if context.question_type in {"why", "how"} and text.startswith("برداشت"):
             reasons.append("too_generic")
-        if context.uncertainty >= .82 and not any(x in text.lower() for x in ("نمی", "اطلاعات", "نامشخص", "کافی", "unknown")):
+        if context.uncertainty >= .82 and not honest:
             reasons.append("uncertainty_not_expressed")
-        if context.relevant_knowledge:
-            for fact in context.relevant_knowledge:
-                obj = str(fact.get("object", fact.get("value", "")))
-                if obj and obj not in text and plan.answer_type == "DIRECT_FACT":
-                    reasons.append("evidence_not_used")
+        if context.relevant_knowledge and not honest:
+            objects = [str(f.get("object", f.get("value", ""))) for f in context.relevant_knowledge]
+            if not any(obj and obj in text for obj in objects):
+                reasons.append("evidence_not_used")
         score = max(0.0, 1.0 - .18 * len(missing) - .25 * len(reasons))
         if not text:
             status = "CLARIFY"
-        elif unsupported:
-            status = "REPAIR"
+        elif honest and context.uncertainty >= .7:
+            status = "PASS"
         elif missing or reasons:
             status = "REPAIR"
-        elif context.uncertainty >= .82 and not self._honest(text):
-            status = "UNKNOWN"
         else:
             status = "PASS"
         return Verification(status, reasons, missing, unsupported, round(score, 3))
@@ -378,19 +396,31 @@ class AnswerVerifier:
 
 class AnswerRepair:
     def repair(self, context, answer, verification, plan):
+        steps = set(plan.steps or [])
+        if ("avoid_recent_failed_pattern" in steps
+                and verification.status == "PASS"
+                and context.uncertainty >= .70
+                and not context.relevant_knowledge):
+            return "UNKNOWN: اطلاعات محلی کافی برای پاسخ مطمئن ندارم؛ نمی‌خواهم همان الگوی قبلیِ نامطمئن را تکرار کنم."
         if verification.status == "CLARIFY":
-            return "برای پاسخ دقیق، فقط یک مورد را مشخص کن: منظورت دقیقاً کدام موضوع است؟"
-        if "evidence_not_used" in verification.reasons and context.relevant_knowledge:
+            repaired = "برای پاسخ دقیق، فقط یک مورد را مشخص کن: منظورت دقیقاً کدام موضوع است؟"
+        elif "evidence_not_used" in verification.reasons and context.relevant_knowledge:
             fact = context.relevant_knowledge[0]
             obj = str(fact.get("object", fact.get("value", "")))
-            return f"پاسخ مستقیم: {obj}."
-        if "too_generic" in verification.reasons and context.question_type == "why":
-            if context.reasoning.get("hypotheses"):
-                return "دلیل قطعی ندارم؛ مهم‌ترین علت‌های محتمل این‌ها هستند: " + "، ".join(context.reasoning["hypotheses"][:3]) + "."
-        if verification.missing_units:
+            repaired = f"پاسخ مستقیم: {obj}."
+        elif "too_generic" in verification.reasons and context.question_type == "why" and context.reasoning.get("hypotheses"):
+            repaired = "دلیل قطعی ندارم؛ مهم‌ترین علت‌های محتمل این‌ها هستند: " + "، ".join(context.reasoning["hypotheses"][:3]) + "."
+        elif verification.missing_units:
             missing = verification.missing_units
-            return answer.rstrip() + "\n\nبخش باقی‌مانده سؤال: «" + "» و «".join(missing) + "». برای این بخش شواهد کافی ندارم."
-        return answer
+            repaired = answer.rstrip() + "\n\nبخش باقی‌مانده سؤال: «" + "» و «".join(missing) + "». برای این بخش شواهد کافی ندارم."
+        else:
+            repaired = answer
+        if ("preserve_conversation_context" in steps
+                and context.question_type == "follow_up"
+                and context.current_topic
+                and context.current_topic not in str(repaired)):
+            return f"با توجه به موضوع قبلی «{context.current_topic}»، {str(repaired).lstrip()}"
+        return repaired
 
 
 class LocalDialogueEngine:
@@ -405,6 +435,12 @@ class LocalDialogueEngine:
         self.verifier = AnswerVerifier()
         self.repair = AnswerRepair()
         self.turn_traces = []
+        self.chain_reasoner = ChainReasoner(
+            getattr(runtime, "knowledge", None),
+            getattr(runtime, "memory", None),
+            Path(runtime.root) / "data" / "reasoning_episodes.json",
+        )
+        self.last_chain_result = None
 
     def _parse(self, text):
         try:
@@ -416,9 +452,14 @@ class LocalDialogueEngine:
 
     def _memory(self, text):
         try:
-            return self.runtime.memory.working_context(text, 12)
+            rows = self.runtime.memory.working_context(text, 12)
         except Exception:
             return []
+        query = clean(text)
+        return [
+            row for row in rows
+            if clean(row[1] if isinstance(row, (tuple, list)) and len(row) > 1 else str(row)) != query
+        ]
 
     def _knowledge(self, text, parsed):
         graph = getattr(self.runtime, "knowledge", None)
@@ -443,6 +484,10 @@ class LocalDialogueEngine:
             candidates.append({"subject":"پایتون", "predicate":"تعریف", "object":"یک زبان برنامه‌نویسی سطح‌بالا و چندمنظوره است.", "confidence":.97, "source":"verified_local_seed"})
         if "django" in low:
             candidates.append({"subject":"Django", "predicate":"تعریف", "object":"یک چارچوب وب پایتونی است.", "confidence":.97, "source":"verified_local_seed"})
+        if any(x in low for x in ("مرکز سیاسی کشور ایران", "مرکز سیاسی ایران")):
+            candidates.append({"subject":"ایران", "predicate":"پایتخت", "object":"تهران", "confidence":.99, "source":"verified_local_seed"})
+        if any(x in low for x in ("هفته چند روز", "تعداد روزهای هفته", "هفته چند روز دارد")):
+            candidates.append({"subject":"هفته", "predicate":"تعداد روز", "object":"هفت", "confidence":.99, "source":"verified_local_seed"})
         return candidates[:8]
 
     def _user_facts(self):
@@ -683,32 +728,6 @@ def _state_update_v2(self, user_text, answer="", answer_type="", parsed=None, co
 ConversationState.update = _state_update_v2
 
 
-def _verify_v2(self, context, answer, plan):
-    text = clean(answer); reasons=[]; missing=[]; unsupported=[]
-    low=text.lower()
-    if not text: reasons.append("empty_answer")
-    honest = any(x in low for x in ("اطلاعات کافی ندارم", "نمی‌خواهم حدس", "شاهد کافی", "unknown", "نامشخص"))
-    if plan.question_units and not honest:
-        for unit in plan.question_units:
-            key=set(words(unit)) - {"چرا","چطور","چگونه","چی","است","هست","و","برای","من"}
-            if key and not (set(words(text)) & key):
-                if context.relevant_knowledge and any(str(f.get("object",f.get("value",""))) in text for f in context.relevant_knowledge):
-                    continue
-                missing.append(unit)
-    if context.question_type in {"why","how"} and text.startswith("برداشت"): reasons.append("too_generic")
-    if context.uncertainty >= .82 and not honest: reasons.append("uncertainty_not_expressed")
-    if context.relevant_knowledge and not honest:
-        objects=[str(f.get("object",f.get("value",""))) for f in context.relevant_knowledge]
-        if not any(o and o in text for o in objects): reasons.append("evidence_not_used")
-    score=max(0.,1.-.18*len(missing)-.25*len(reasons))
-    if not text: status="CLARIFY"
-    elif honest and context.uncertainty >= .7: status="PASS"
-    elif missing or reasons: status="REPAIR"
-    else: status="PASS"
-    return Verification(status,reasons,missing,unsupported,round(score,3))
-AnswerVerifier.verify = _verify_v2
-
-
 def _analyze_v2(self, text, parsed=None):
     t=clean(text); p=parsed or {}; low=bare(t).lower()
     units=list(p.get("question_units") or [])
@@ -778,28 +797,6 @@ LocalDialogueEngine._direct_answer = _direct_answer_v2
 
 
 # v0.40b: contextual recommendations inherit the nearest meaningful technical topic.
-def _resolve_v2(self, text, state, history=None):
-    t=bare(text); low=t.lower(); history=history or []
-    if "موضوع قبلی" in t or "روش قبلی" in t or "حرف قبلی" in t:
-        return state.topic_stack[-1] if state.topic_stack else state.current_topic
-    if "بحث اول" in t:return state.topic_by_index(1)
-    if "بحث دوم" in t:return state.topic_by_index(2)
-    if "برای پروژه" in low or "برای پروژه‌م" in low:
-        for candidate in reversed(state.topic_stack+[state.current_topic]):
-            c=clean(candidate)
-            if c and not any(x in c for x in ("آب و هوا","سلام","موضوع قبلی","این قسمت")):
-                if any(x in c.lower() for x in ("پایتون","python","django","حافظه","پروژه","کد")):
-                    return c
-    if is_follow_up(t) or any(self._has_marker(t,m) for m in REF_MARKERS):
-        if state.current_topic and substantive(state.current_topic):return state.current_topic
-        if state.active_goal and substantive(state.active_goal):return state.active_goal
-        for item in reversed(history):
-            content=self._content(item)
-            if substantive(content) and not is_follow_up(content):return content
-    return ""
-ReferenceResolver.resolve=_resolve_v2
-
-
 def _analyze_v3(self, text, parsed=None):
     t=clean(text); p=parsed or {}; low=bare(t).lower()
     units=[]
@@ -869,18 +866,6 @@ def _state_update_v4(self,user_text,answer="",answer_type="",parsed=None,confide
     return _prev_state_update_v3(self,user_text,answer,answer_type,parsed,confidence,reference)
 ConversationState.update=_state_update_v4
 
-_prev_resolve_v2=ReferenceResolver.resolve
-def _resolve_v3(self,text,state,history=None):
-    t=bare(text)
-    if "این قسمت" in t:
-        return state.current_topic or state.active_goal or (self._content(history[-1]) if history else "")
-    return _prev_resolve_v2(self,text,state,history)
-ReferenceResolver.resolve=_resolve_v3
-
-
-# v0.40d: explicit conversation-memory questions use the persisted dialogue state.
-_prev_direct_v2=_LocalDialogue_direct_base
-
 def _direct_answer_v3(self, context):
     low=bare(context.user_message).lower()
     if any(x in low for x in ("من چی گفتم", "من چه گفتم", "یادت هست من", "حرف قبلی من")):
@@ -933,18 +918,6 @@ ConversationState.update=_state_update_v5
 _LocalDialogue_handle_base=LocalDialogueEngine.handle
 
 
-_prev_knowledge = LocalDialogueEngine._knowledge
-
-def _knowledge_v2(self,text,parsed):
-    rows=_prev_knowledge(self,text,parsed); low=bare(text).lower()
-    if any(x in low for x in ("مرکز سیاسی کشور ایران","مرکز سیاسی ایران")):
-        rows.append({'subject':'ایران','predicate':'پایتخت','object':'تهران','confidence':.99,'source':'verified_local_seed'})
-    if any(x in low for x in ("هفته چند روز","تعداد روزهای هفته","هفته چند روز دارد")):
-        rows.append({'subject':'هفته','predicate':'تعداد روز','object':'هفت','confidence':.99,'source':'verified_local_seed'})
-    return rows[:8]
-LocalDialogueEngine._knowledge=_knowledge_v2
-
-_prev_direct_v4=LocalDialogueEngine._direct_answer
 def _direct_answer_v5(self,context):
     low=bare(context.user_message).lower()
     if any(x in low for x in ("چطور", "چگونه", "چه جوری", "چجوری")) and not context.relevant_knowledge:
@@ -973,23 +946,6 @@ LocalDialogueEngine._direct_answer=_direct_answer_v6
 _DIALOGUE_BASE_HANDLE = LocalDialogueEngine.handle
 
 
-# v0.52: symbolic chain reasoning becomes a first-class answer source.
-# Retrieval alone never reaches the user; only confidence-qualified inference does.
-from core.chain_reasoner import ChainReasoner
-
-_DIALOGUE_CHAIN_INIT = LocalDialogueEngine.__init__
-def _chain_init(self, runtime):
-    _DIALOGUE_CHAIN_INIT(self, runtime)
-    self.chain_reasoner = ChainReasoner(
-        getattr(runtime, 'knowledge', None),
-        getattr(runtime, 'memory', None),
-        Path(runtime.root) / 'data' / 'reasoning_episodes.json',
-    )
-    self.last_chain_result = None
-LocalDialogueEngine.__init__ = _chain_init
-
-
-_PREV_MEMORY_CHAIN = LocalDialogueEngine._memory
 
 def _memory_chain_context(self, text):
     rows = _PREV_MEMORY_CHAIN(self, text)
@@ -1001,7 +957,6 @@ def _memory_chain_context(self, text):
             continue
         out.append(row)
     return out
-LocalDialogueEngine._memory = _memory_chain_context
 
 
 # Canonical dialogue entry point. All natural-language turns use one pipeline.
@@ -1045,26 +1000,6 @@ class ReferenceResolverStage1:
 ReferenceResolver=ReferenceResolverStage1
 
 
-# v0.41: deterministic reference intelligence v2 is the canonical resolver layer.
-from core.reference_intelligence import ReferenceIntelligence
-_reference_intelligence_v2 = ReferenceIntelligence()
-_reference_resolve_legacy = ReferenceResolver.resolve
-
-def _reference_resolve_v2(self, text, state, history=None):
-    try:
-        result = _reference_intelligence_v2.resolve(text, state, history)
-        state.references["reference_trace"] = result.to_dict()
-        if result.ambiguous:
-            return ""
-        if result.candidate:
-            return result.candidate
-    except Exception:
-        pass
-    return _reference_resolve_legacy(self, text, state, history)
-
-ReferenceResolver.resolve = _reference_resolve_v2
-
-
 # v0.41b: deterministic multi-intent answer assembly for compound Persian questions.
 _dialogue_direct_answer_legacy = LocalDialogueEngine._direct_answer
 
@@ -1092,7 +1027,6 @@ def _direct_answer_v41b(self, context):
 LocalDialogueEngine._direct_answer = _direct_answer_v41b
 
 # v0.41-learning: make learned dialogue policy affect the actual response path.
-_PREV_REPAIR_LEARNING = AnswerRepair.repair
 def _repair_learning(self, context, answer, verification, plan):
     steps = set(plan.steps or [])
     if "avoid_recent_failed_pattern" in steps and verification.status == "PASS" and context.uncertainty >= .70 and not context.relevant_knowledge:
@@ -1102,4 +1036,3 @@ def _repair_learning(self, context, answer, verification, plan):
         if context.current_topic not in str(repaired):
             return f"با توجه به موضوع قبلی «{context.current_topic}»، {str(repaired).lstrip()}"
     return repaired
-AnswerRepair.repair = _repair_learning
