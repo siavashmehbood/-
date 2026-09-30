@@ -432,7 +432,7 @@ class IranRuntime:
         return self.root / "data" / "chatgpt_reviews.json"
 
     def sync_chatgpt_learning_reviews(self, limit=5000):
-        """Mirror pending learning proposals into the local review queue only.
+        """Mirror pending proposals and reconcile durable terminal decisions.
 
         This method never calls ChatGPT. It is safe for startup, counters, and
         GUI refreshes; external validation belongs exclusively to the worker.
@@ -442,6 +442,21 @@ class IranRuntime:
         created = 0
         with json_transaction(path, []) as rows:
             existing = {str(r.get("proposal_id")): r for r in rows if r.get("proposal_id")}
+
+            # Reconcile terminal decisions after a crash between the review
+            # record and Learning Gate writes. Neither side may resurrect or
+            # hide a terminal reviewer/human decision.
+            for pid, row in existing.items():
+                proposal = self.learning_gate.get(pid)
+                if not proposal:
+                    continue
+                gate_status = proposal.get("status")
+                if gate_status in {"approved", "rejected"}:
+                    row["status"] = gate_status
+                    if (row.get("review_status") == "reviewed"
+                            and row.get("chatgpt_decision") == "learn"):
+                        row["human_decision"] = gate_status
+
             for proposal in proposals:
                 pid = proposal["proposal_id"]
                 if pid in existing:
@@ -450,6 +465,10 @@ class IranRuntime:
                     row["source"] = "learning_gate"
                     row.setdefault("payload", proposal.get("payload", {}))
                     row.setdefault("kind", proposal.get("kind"))
+                    if (row.get("review_status") == "reviewed"
+                            and row.get("chatgpt_decision") == "reject"
+                            and row.get("status") == "rejected"):
+                        self.learning_gate.decide(pid, "rejected")
                     continue
                 rows.append({
                     "id": "learning_" + pid, "proposal_id": pid,
