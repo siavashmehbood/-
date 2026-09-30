@@ -124,7 +124,25 @@ class CognitivePipeline:
             state.remembered_constraints.append("آفلاین"); changed = True
         if "بدون api" in low and "بدون API" not in state.remembered_constraints:
             state.remembered_constraints.append("بدون API"); changed = True
-        m = re.match(r"^موضوع\\s+اصلی\\s+ما\\s+(.+?)\\s+است[.!؟?]*$", clean(text))
+        goal_statement = re.match(
+            r"^هدف(?:\s+پروژه)?\s+دانا\s+(.+?)\s+(?:است|هست|بود)[.!]*$",
+            clean(text),
+        )
+        if goal_statement:
+            goal = clean(goal_statement.group(1)).strip(" ،,:؛")
+            if goal and goal not in {"چی", "چه"}:
+                state.topic_goals["دانا"] = goal
+                changed = True
+        goal_correction = re.match(
+            r"^نه[،,\s]+هدفش\s+.+?\s+نبود[،,\s]+(.+?)(?:\s+(?:است|هست|بود))?[.!]*$",
+            clean(text),
+        )
+        if goal_correction:
+            goal = clean(goal_correction.group(1)).strip(" ،,:؛")
+            if goal:
+                state.topic_goals["دانا"] = goal
+                changed = True
+        m = re.match(r"^موضوع\s+اصلی\s+ما\s+(.+?)\s+است[.!؟?]*$", clean(text))
         if m:
             topic = clean(m.group(1)).strip(" ،,:؛")
             if topic:
