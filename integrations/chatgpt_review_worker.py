@@ -92,6 +92,7 @@ class ChatGPTReviewWorker:
         atomic_write_json(self.state_path, state)
 
     def status(self):
+        has_state = self.state_path.exists() or self.state_path.with_suffix(self.state_path.suffix + ".bak").exists()
         try:
             state = self._load_state()
         except StateCorruptionError:
@@ -100,6 +101,7 @@ class ChatGPTReviewWorker:
         now = self.clock()
         next_allowed = self._parse_iso(state.get("next_allowed_at"))
         return {
+            "state": "READY" if has_state else "UNINITIALIZED",
             "next_allowed_at": state.get("next_allowed_at"),
             "backoff_seconds": int(state.get("backoff_seconds") or 15),
             "last_request_at": state.get("last_request_at"),
