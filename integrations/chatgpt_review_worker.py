@@ -96,8 +96,9 @@ class ChatGPTReviewWorker:
             "cooldown_seconds": max(0, int(next_allowed - now)) if next_allowed and next_allowed > now else 0,
         }
 
-    def _candidate(self, rows):
+    def _candidate(self, rows, proposal_id=None):
         return next((row for row in rows if row.get("source") == "learning_gate"
+                      and (proposal_id is None or str(row.get("proposal_id")) == str(proposal_id))
                       and row.get("review_status", "not_reviewed") == "not_reviewed"
                       and row.get("status", "pending") in {"pending", "WAITING_FOR_REVIEWER"}), None)
 
@@ -130,8 +131,8 @@ class ChatGPTReviewWorker:
                     row["failure_reason"] = reason
         return {"ok":False, "reason":reason, "state":"WAITING_FOR_REVIEWER", "status":self.status()}
 
-    def process_one(self):
-        """Validate one candidate, or return a durable cooldown/no-candidate result."""
+    def process_one(self, proposal_id=None):
+        """Validate one candidate, optionally targeting one learning proposal."""
         with self._lock, file_lock(self.root / "data" / "review_worker.lock"):
             now = self.clock()
             if self.manager is not None and not self.manager.internet.status()["enabled"]:
@@ -146,9 +147,10 @@ class ChatGPTReviewWorker:
             if next_allowed and next_allowed > now:
                 return {"ok": False, "reason": "cooldown", "status": self.status()}
             rows = self._load_rows()
-            row = self._candidate(rows)
+            row = self._candidate(rows, proposal_id)
             if row is None:
-                return {"ok": True, "reason": "no_candidate", "status": self.status()}
+                return {"ok": True, "reason": "no_candidate", "proposal_id": proposal_id,
+                        "status": self.status()}
             last_request = self._parse_iso(state.get("last_request_at"))
             if last_request and now - last_request < self.MIN_INTERVAL:
                 wait_until = last_request + self.MIN_INTERVAL
