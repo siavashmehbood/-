@@ -132,7 +132,7 @@ class CognitivePipeline:
         if goal_statement:
             goal = clean(goal_statement.group(1)).strip(" ،,:؛")
             if goal and goal not in {"چی", "چه"}:
-                state.topic_goals["دانا"] = goal
+                state.set_topic_goal("دانا", goal)
                 changed = True
         goal_correction = re.match(
             r"^نه[،,\s]+هدفش\s+.+?\s+نبود[،,\s]+(.+?)(?:\s+(?:است|هست|بود))?[.!]*$",
@@ -141,7 +141,7 @@ class CognitivePipeline:
         if goal_correction:
             goal = clean(goal_correction.group(1)).strip(" ،,:؛")
             if goal:
-                state.topic_goals["دانا"] = goal
+                state.set_topic_goal("دانا", goal)
                 changed = True
         m = re.match(r"^موضوع\s+اصلی\s+ما\s+(.+?)\s+است[.!؟?]*$", clean(text))
         if m:
@@ -174,6 +174,28 @@ class CognitivePipeline:
             self._emit("user_model_update", {"extracted": extracted, "count": len(extracted), "source": "canonical_pipeline"})
 
         low = text.lower()
+
+        # Goal versions are read-only history queries; the latest accepted goal
+        # remains effective while older versions stay available across restart.
+        goal_versions = e.state.goal_versions("دانا")
+        asks_first_goal = bool(
+            re.search(r"نسخه(?:ٔ|‌)?\s*اول\s+هدف|هدف.*نسخه(?:ٔ|‌)?\s*اول", low)
+        )
+        asks_latest_goal = "نسخه جدید" in low and ("هدف" in low or "برگرد" in low)
+        if asks_first_goal:
+            answer = (
+                f"نسخه اول هدف «دانا»: «{goal_versions[0]}»."
+                if goal_versions
+                else "نسخه‌ای برای هدف «دانا» در حافظه ثبت نشده است."
+            )
+            return self._persist_answer(text, answer, "MEMORY_RECALL", .99)
+        if asks_latest_goal:
+            answer = (
+                f"نسخه جدید هدف «دانا»: «{goal_versions[-1]}»."
+                if goal_versions
+                else "نسخه‌ای برای هدف «دانا» در حافظه ثبت نشده است."
+            )
+            return self._persist_answer(text, answer, "MEMORY_RECALL", .99)
 
         # Outcome-backed self-correction is part of the canonical turn, before generic correction handling.
         previous_question = getattr(e.state, "last_user_message", "")

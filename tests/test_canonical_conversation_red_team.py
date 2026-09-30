@@ -1,6 +1,8 @@
+import json
 import shutil
 from pathlib import Path
 
+from core.dialogue import ConversationState
 from runtime.app import IranRuntime
 
 
@@ -14,13 +16,20 @@ def test_project_goal_correction_survives_canonical_pipeline_and_restart(tmp_pat
 
         runtime.handle("نه، هدفش فروش کتاب نبود، آموزش بود")
         assert runtime.dialogue.state.topic_goals["دانا"] == "آموزش"
+        assert runtime.dialogue.state.goal_versions("دانا") == ["فروش کتاب", "آموزش"]
         assert "آموزش" in runtime.handle("هدف دانا چی بود؟")
+        assert "فروش کتاب" in runtime.handle("نه، منظورم نسخه اول هدف بود")
+        assert "آموزش" in runtime.handle("به نسخه جدید برگرد")
+        assert runtime.dialogue.state.topic_goals["دانا"] == "آموزش"
     finally:
         runtime.close()
 
     restored = IranRuntime(tmp_path)
     try:
         assert restored.dialogue.state.topic_goals["دانا"] == "آموزش"
+        assert restored.dialogue.state.goal_versions("دانا") == ["فروش کتاب", "آموزش"]
+        assert "فروش کتاب" in restored.handle("نسخه اول هدف چی بود؟")
+        assert "آموزش" in restored.handle("به نسخه جدید برگرد")
         assert "آموزش" in restored.handle("هدف دانا چی بود؟")
     finally:
         restored.close()
@@ -55,3 +64,15 @@ def test_specific_history_queries_survive_the_canonical_pipeline_and_restart(tmp
         assert "ایران" in projects
     finally:
         restored.close()
+
+def test_legacy_goal_state_migrates_to_version_history(tmp_path):
+    state_path = tmp_path / "conversation_state.json"
+    state_path.write_text(
+        json.dumps({"topic_goals": {"دانا": "آموزش"}}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+    state = ConversationState.load(state_path)
+
+    assert state.topic_goals["دانا"] == "آموزش"
+    assert state.goal_versions("دانا") == ["آموزش"]
