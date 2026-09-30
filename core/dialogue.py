@@ -976,6 +976,30 @@ def _canonical_pipeline_handle(self, text):
 LocalDialogueEngine.handle = _canonical_pipeline_handle
 
 
+# Compatibility resolver retained for its direct public tests; the runtime uses ReferenceResolver.
+class ReferenceResolverStage1:
+    def resolve(self, text, state, history=None):
+        t = bare(text)
+        previous = "موضوع قبلی"
+        if previous in t or "بحث قبلی" in t:
+            return state.topic_stack[-1] if state.topic_stack else state.current_topic
+        if "همون قبلی" in t:
+            return state.references.get("latest_topic", "") or (state.topic_stack[-1] if state.topic_stack else state.current_topic)
+        if any(x in t for x in ("بحث اول", "مورد اول", "اولی")):
+            return state.topic_by_index(1)
+        if any(x in t for x in ("بحث دوم", "مورد دوم", "دومی")):
+            return state.topic_by_index(2)
+        if any(x in t for x in ("موضوع فعلی", "همین موضوع")):
+            return state.current_topic or state.active_goal
+        if is_follow_up(t) or any(self._has_marker(t, m) for m in REF_MARKERS):
+            return state.current_topic or state.references.get("latest", "") or state.active_goal
+        return ""
+
+    @staticmethod
+    def _has_marker(text, marker):
+        return bool(re.search(rf"(?<![آ-یA-Za-z0-9‌]){re.escape(marker)}(?![آ-یA-Za-z0-9‌])", text))
+
+
 # v0.41b: deterministic multi-intent answer assembly for compound Persian questions.
 _dialogue_direct_answer_legacy = LocalDialogueEngine._direct_answer
 
