@@ -3,6 +3,8 @@ name: IRAN Baseline
 on:
   push:
     branches: [master]
+  pull_request:
+    branches: [master]
   workflow_dispatch:
 
 jobs:
@@ -31,7 +33,7 @@ jobs:
       - name: Runtime evaluation
         run: python evaluation/runtime_suite.py
       - name: CLI smoke
-        run: printf '/health\n/exit\n' | python main.py
+        run: printf '/health\\n/exit\\n' | python main.py
 
 
   live-reviewer-acceptance:
