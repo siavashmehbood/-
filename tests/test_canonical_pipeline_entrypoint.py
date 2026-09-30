@@ -2,7 +2,7 @@ import re
 from pathlib import Path
 from types import SimpleNamespace
 
-from core.dialogue import LocalDialogueEngine
+from core.dialogue import LocalDialogueEngine, QuestionAnalyzer
 
 
 def test_dialogue_handler_delegates_once_to_the_canonical_pipeline():
@@ -43,3 +43,15 @@ def test_dialogue_and_pipeline_have_one_execution_owner():
         "AnswerRepair.repair =",
     )
     assert not any(binding in dialogue_source for binding in patch_bindings)
+
+
+def test_question_analysis_is_owned_by_its_class_and_keeps_compound_questions():
+    source = Path("core/dialogue.py").read_text(encoding="utf-8")
+    assert not re.search(r"(?m)^QuestionAnalyzer\\.analyze\\s*=", source)
+
+    result = QuestionAnalyzer().analyze("پایتون چیه و چرا محبوب است؟")
+    assert result["question_type"] == "why"
+    assert len(result["question_units"]) == 2
+
+    correction = QuestionAnalyzer().analyze("نه، منظورم Django است")
+    assert correction["question_type"] == "correction"
