@@ -918,6 +918,9 @@ ConversationState.update=_state_update_v5
 _LocalDialogue_handle_base=LocalDialogueEngine.handle
 
 
+_prev_direct_v4 = _direct_answer_v4
+
+
 def _direct_answer_v5(self,context):
     low=bare(context.user_message).lower()
     if any(x in low for x in ("چطور", "چگونه", "چه جوری", "چجوری")) and not context.relevant_knowledge:
@@ -971,33 +974,6 @@ def _canonical_pipeline_handle(self, text):
     return pipeline.run(text)
 
 LocalDialogueEngine.handle = _canonical_pipeline_handle
-
-
-# REFERENCE_RESOLUTION_STAGE_1
-
-
-class ReferenceResolverStage1:
-    def resolve(self, text, state, history=None):
-        t=bare(text); history=history or []
-        def fa(*n): return ''.join(map(chr,n))
-        prev=fa(1605,1608,1590,1608,1593,32,1602,1576,1604,1740)
-        if prev in t or fa(1576,1581,1579,32,1602,1576,1604,1740) in t:
-            return state.topic_stack[-1] if state.topic_stack else state.current_topic
-        if 'همون قبلی' in t:
-            return state.references.get('latest_topic', '') or (state.topic_stack[-1] if state.topic_stack else state.current_topic)
-        if any(x in t for x in ('بحث اول', 'مورد اول', 'اولی')):
-            return state.topic_by_index(1)
-        if any(x in t for x in ('بحث دوم', 'مورد دوم', 'دومی')):
-            return state.topic_by_index(2)
-        if any(x in t for x in ('موضوع فعلی', 'همین موضوع')):
-            return state.current_topic or state.active_goal
-        if any(x in t for x in (fa(1605,1608,1590,1608,1593,32,1601,1593,1604,1740),fa(1607,1605,1740,1606,32,1605,1608,1590,1608,1593))): return state.current_topic or state.active_goal
-        if is_follow_up(t) or any(self._has_marker(t,m) for m in REF_MARKERS):
-            return state.current_topic or state.references.get('latest','') or state.active_goal
-        return ''
-    @staticmethod
-    def _has_marker(text,marker): return bool(re.search(rf'(?<![آ-یA-Za-z0-9‌]){re.escape(marker)}(?![آ-یA-Za-z0-9‌])',text))
-ReferenceResolver=ReferenceResolverStage1
 
 
 # v0.41b: deterministic multi-intent answer assembly for compound Persian questions.
