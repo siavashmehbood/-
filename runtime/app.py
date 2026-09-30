@@ -655,8 +655,11 @@ class IranRuntime:
 
     @serialized
     def reject_learning(self, proposal_id):
+        proposal=self.learning_gate.get(proposal_id)
+        if proposal is None: return {"ok":False,"reason":"proposal_not_found"}
+        if proposal.get("status") != "pending":
+            return {"ok":False,"reason":"proposal_not_pending","proposal":proposal}
         result=self.learning_gate.decide(proposal_id,"rejected")
-        if result is None: return {"ok":False,"reason":"proposal_not_found"}
         self._set_human_review_status(proposal_id, "rejected")
         self.events.emit("learning_rejected",{"proposal_id":proposal_id,"kind":result.get("kind")})
         return {"ok":True,"proposal":result}
