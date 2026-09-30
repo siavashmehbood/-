@@ -22,6 +22,9 @@ def test_reviewer_approval_alone_does_not_apply_learning_after_restart(tmp_path)
     reviewed_ids = []
 
     try:
+        # The worker requires the product's internet-learning switch to be on,
+        # but its deterministic transport below makes no network request.
+        runtime.internet_access.enable()
         runtime.sync_chatgpt_learning_reviews()
         runtime.chatgpt_review_worker.transport = lambda row: (
             reviewed_ids.append(row["proposal_id"])
