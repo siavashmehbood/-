@@ -113,6 +113,7 @@ class ChatGPTReviewPipelineTests(unittest.TestCase):
     def test_targeted_review_does_not_consume_an_older_unrelated_candidate(self):
         root, runtime, gate = self.make_runtime()
         earlier = self.add_candidate(gate, "unrelated older candidate")
+        runtime.sync_chatgpt_learning_reviews()
         target = self.add_candidate(gate, "targeted online goal")
         seen = []
         runtime.chatgpt_review_worker = ChatGPTReviewWorker(
