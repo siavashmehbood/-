@@ -16,7 +16,14 @@ class ReasoningPlanTrace:
     steps: list[dict] = field(default_factory=list)
     confidence: float = 0.0
     uncertainty: float = 1.0
+    verifier_state: str = "PASS"
     status: str = "UNRESOLVED"
+
+    def __post_init__(self):
+        if hasattr(self, "contradictions") and self.contradictions:
+            self.verifier_state = ("REPAIR" if any("تعارض" in str(x) for x in self.contradictions) else "CLARIFY")
+        else:
+            self.verifier_state = "PASS"
     replan_required: bool = False
 
 
