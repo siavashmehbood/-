@@ -10,7 +10,7 @@ def test_cross_module():
         mem = Memory(os.path.join(d,"db"))
         mem.add_semantic_fact("معماری شناختی ایران","نوع","موضوع")
         s = ConversationState(); s.current_topic = "معماری شناختی ایران"; s.topic_stack = ["حافظه فارسی"]
-        res = ReferenceIntelligence().resolve("همون قبلی", s)
+        res = ReferenceIntelligence().resolve("همون قبلی رو ادامه بده", s)
         trace = ReasoningPlanTrace(goal="بهبود حافظه", intent="plan", contradictions=["تعارض"])
         assert res.candidate == "معماری شناختی ایران"
         assert len(mem.semantic_search("معماری")) >= 1
