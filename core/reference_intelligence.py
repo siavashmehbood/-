@@ -39,6 +39,16 @@ class ReferenceIntelligence:
         t = self._clean(text)
         history = history or []
         trigger = self._trigger(t)
+        ordinal = self._ordinal_index(t)
+        if ordinal:
+            value = state.topic_by_index(ordinal)
+            if value:
+                candidate = ReferenceCandidate(value, "topic_index", f"ordinal topic {ordinal}", 1.0, 0, 1.0)
+                return ReferenceResolution(candidate=value, confidence=0.99, candidates=[asdict(candidate)], trigger=trigger)
+        latest = self._clean(getattr(state, "references", {}).get("latest", ""))
+        if latest and latest.lower() in t.lower():
+            candidate = ReferenceCandidate(latest, "explicit_latest_reference", "explicit mention", 1.0, 0, 1.0)
+            return ReferenceResolution(candidate=latest, confidence=0.99, candidates=[asdict(candidate)], trigger=trigger)
         candidates = self._candidates(t, state, history, tracker)
         if not candidates:
             return ReferenceResolution(trigger=trigger, candidates=[])
@@ -55,6 +65,21 @@ class ReferenceIntelligence:
             candidates=[asdict(x) for x in ranked[:5]],
             trigger=trigger,
         )
+
+    @staticmethod
+    def _ordinal_index(text):
+        t = str(text or "")
+        ordinals = (
+            (1, ("بحث اول", "مورد اول", "موضوع اول", "اولی", "اولیش", "اولین مورد")),
+            (2, ("بحث دوم", "مورد دوم", "موضوع دوم", "دومی", "دومیش")),
+            (3, ("بحث سوم", "مورد سوم", "موضوع سوم", "سومی", "سومیش")),
+            (4, ("بحث چهارم", "مورد چهارم", "موضوع چهارم", "چهارمی", "چهارمیش")),
+            (5, ("بحث پنجم", "مورد پنجم", "موضوع پنجم", "پنجمی", "پنجمیش")),
+        )
+        for index, markers in ordinals:
+            if any(marker in t for marker in markers):
+                return index
+        return 0
 
     def _candidates(self, text, state, history, tracker):
         rows = []
@@ -92,8 +117,10 @@ class ReferenceIntelligence:
                 add(content, "history", "recent conversation", max(.32, .62 - i * .05), i + 1, .05)
         return self._boost_by_trigger(rows, text, current, previous)
     def _boost_by_trigger(self, rows, text, current, previous):
-        explicit_previous = any(x in text for x in ("موضوع قبلی", "بحث قبلی", "بخش قبلی", "قبلیش"))
-        colloquial_same = any(x in text for x in ("همون قبلی", "اون قبلی"))
+        continuation = any(x in text for x in ("ادامه بده", "ادامه‌ش بده", "ادامه اش بده"))
+        colloquial_previous = any(x in text for x in ("همون قبلی", "اون قبلی"))
+        explicit_previous = any(x in text for x in ("موضوع قبلی", "بحث قبلی", "بخش قبلی", "قبلیش")) or (colloquial_previous and not continuation)
+        colloquial_same = colloquial_previous and continuation
         if explicit_previous:
             for row in rows:
                 norm = self._clean(row.value)
