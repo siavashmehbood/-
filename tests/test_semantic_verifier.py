@@ -150,3 +150,21 @@ def test_persian_decimal_matches_ascii_evidence():
     evidence = [{'subject': 'نمونه', 'predicate': 'مقدار', 'object': '12.5'}]
     result = SemanticVerifier().verify('مقدار نمونه چیست؟', '۱۲٫۵', evidence=evidence)
     assert result.accepted and result.evidence_status == 'SUPPORTED'
+
+def test_ordinal_reference_aliases_align_without_hiding_position_mismatch():
+    verifier = SemanticVerifier()
+
+    assert verifier.verify(
+        "اولین مورد چی بود؟",
+        "موضوع 1 ثبت‌شده: پایتون.",
+    ).accepted
+    assert verifier.verify(
+        "چهارمیش چی بود؟",
+        "موضوع 4 ثبت‌شده: یادگیری.",
+    ).accepted
+    wrong = verifier.verify(
+        "اولین مورد چی بود؟",
+        "موضوع 2 ثبت‌شده: Django.",
+    )
+    assert not wrong.accepted
+    assert "unrelated_answer" in wrong.reasons

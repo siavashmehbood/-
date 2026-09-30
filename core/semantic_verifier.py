@@ -26,11 +26,34 @@ class SemanticVerifier:
         'creator':'سازنده', 'iran':'ایران', 'پایتون':'python',
     }
 
+    ORDINAL_REFERENCES = (
+        (1, ("اولین مورد", "موضوع اول", "بحث اول", "مورد اول", "اولیش", "اولی")),
+        (2, ("موضوع دوم", "بحث دوم", "مورد دوم", "دومیش", "دومی")),
+        (3, ("موضوع سوم", "بحث سوم", "مورد سوم", "سومیش", "سومی")),
+        (4, ("موضوع چهارم", "بحث چهارم", "مورد چهارم", "چهارمیش", "چهارمی")),
+        (5, ("موضوع پنجم", "بحث پنجم", "مورد پنجم", "پنجمیش", "پنجمی")),
+    )
+
     @classmethod
     def tokens(cls, text):
         normalized = str(text or "").lower().replace('ي', 'ی').replace('ك', 'ک')
         normalized = re.sub(r'مرکز\s+سیاسی(?:\s+کشور)?', 'پایتخت', normalized)
         normalized = normalized.translate(str.maketrans('۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩٫−', '01234567890123456789.-'))
+        # Normalize natural ordinal references and rendered numbered answers to
+        # one atomic token. This aligns «چهارمیش» with «موضوع 4» without
+        # allowing a response about position 2 to validate position 1.
+        for index, markers in cls.ORDINAL_REFERENCES:
+            for marker in markers:
+                normalized = re.sub(
+                    rf'(?<!\w){re.escape(marker)}(?!\w)',
+                    f' topic_position_{index} ',
+                    normalized,
+                )
+        normalized = re.sub(
+            r'(?<!\w)(?:موضوع|بحث|مورد)\s+([1-5])(?!\w)',
+            lambda match: f' topic_position_{match.group(1)} ',
+            normalized,
+        )
         # Keep signed decimals atomic: a bag of digit fragments loses value
         # order and sign, and discarding one-character tokens loses 0..9.
         words = re.findall(r"-?\d+(?:\.\d+)?|[\wآ-ی]+", normalized)
