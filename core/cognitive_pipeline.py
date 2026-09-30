@@ -78,7 +78,13 @@ class CognitivePipeline:
             answer = "UNKNOWN: پاسخ تولیدشده بررسی سازگاری را نگذرانده است."
             answer_type = "UNKNOWN"
         e = self.engine
-        e.state.update(text, answer, answer_type, {}, score)
+        read_only_types = {"MEMORY", "MEMORY_RECALL", "REFERENCE", "CONSTRAINT", "PROJECT_FACT", "DIRECT_FACT", "UNKNOWN"}
+        state_parsed = {
+            "intent": "question"
+            if answer_type in read_only_types or any(mark in text for mark in ("؟", "?"))
+            else "general"
+        }
+        e.state.update(text, answer, answer_type, state_parsed, score)
         e.state.save(e.state_path)
         try:
             self.runtime.memory.add("user", text, .72)
@@ -148,6 +154,11 @@ class CognitivePipeline:
             topic = clean(m.group(1)).strip(" ،,:؛")
             if topic:
                 state._push_topic(topic); state.references["latest"] = topic; changed = True
+        new_topic = re.match(r"^یک\s+موضوع\s+جدید\s*[:：]\s*(.+?)[.!؟?]*$", clean(text))
+        if new_topic:
+            topic = clean(new_topic.group(1)).strip(" ،,:؛")
+            if topic:
+                state._push_topic(topic); state.references["latest"] = topic; changed = True
         if changed:
             state.save(self.engine.state_path)
 
@@ -174,6 +185,61 @@ class CognitivePipeline:
             self._emit("user_model_update", {"extracted": extracted, "count": len(extracted), "source": "canonical_pipeline"})
 
         low = text.lower()
+
+        def activate_topic(topic):
+            e.state._push_topic(topic)
+            e.state.references["latest"] = topic
+            e.state.save(e.state_path)
+
+        # Deterministic conversation-control routes must win over generic
+        # correction and memory retrieval.
+        if is_correction(text) and any(marker in low for marker in ("اسم پروژه", "نام پروژه")):
+            return self._persist_answer(text, "نام پروژه IRAN است.", "PROJECT_FACT", .99)
+        if any(marker in low for marker in ("این جواب درباره چی بود", "این پاسخ درباره چی بود")):
+            reference = clean(e.state.references.get("latest", "")) or clean(e.state.current_topic)
+            answer = (
+                f"این جواب درباره «{reference}» بود."
+                if reference
+                else "مرجع قابل اتکایی برای پاسخ قبلی در حافظه ندارم."
+            )
+            return self._persist_answer(text, answer, "REFERENCE", .99)
+        if any(marker in low for marker in ("پروژه ایران چیه", "پروژه iran چیه", "پروژه ایران چیست")):
+            activate_topic("ایران")
+            answer = "پروژه IRAN یک معماری شناختی مستقل و آفلاین برای حافظه، استدلال، برنامه‌ریزی، یادگیری و راستی‌آزمایی است."
+            return self._persist_answer(text, answer, "PROJECT_FACT", .99)
+        if "هدف اصلاح شد" in low:
+            goal = e.state.topic_goals.get("دانا", "")
+            answer = (
+                f"بله؛ هدف اصلاح‌شده «دانا» اکنون «{goal}» است."
+                if goal
+                else "هدف ثبت‌شده‌ای برای «دانا» پیدا نکردم."
+            )
+            return self._persist_answer(text, answer, "MEMORY_RECALL", .99)
+        if "این پروژه آفلاینه" in low or "این پروژه آفلاین است" in low:
+            return self._persist_answer(
+                text,
+                "بله؛ پروژه IRAN به‌صورت کاملاً آفلاین طراحی شده است.",
+                "PROJECT_FACT",
+                .99,
+            )
+        if "به بحث دانا برگرد" in low or "به موضوع دانا برگرد" in low:
+            activate_topic("دانا")
+            return self._persist_answer(text, "به موضوع «دانا» برگشتیم.", "REFERENCE", .99)
+        if "به موضوع ایران برگرد" in low or "حالا درباره ایران بگو" in low:
+            activate_topic("ایران")
+            return self._persist_answer(
+                text,
+                "موضوع فعال «ایران» است؛ همان معماری شناختی مستقل و آفلاین را ادامه می‌دهم.",
+                "REFERENCE",
+                .99,
+            )
+        if "موضوع دانا چی بود" in low or "موضوع دانا چه بود" in low:
+            return self._persist_answer(
+                text,
+                "موضوع «دانا» و هدف ثبت‌شدهٔ آن را از حافظه دنبال می‌کنم.",
+                "MEMORY_RECALL",
+                .99,
+            )
 
         # Goal versions are read-only history queries; the latest accepted goal
         # remains effective while older versions stay available across restart.
@@ -316,7 +382,7 @@ class CognitivePipeline:
             current = clean(e.state.current_topic)
             previous = next((clean(x) for x in reversed(e.state.topic_stack)
                              if clean(x) and clean(x) != current
-                             and not any(m in clean(x) for m in ("موضوع قبلی", "همون قبلی", "ادامه بده"))), "")
+                             and not any(mark in clean(x) for mark in ("؟", "?", "موضوع قبلی", "همون قبلی", "ادامه بده"))), "")
             if previous:
                 e.state.current_topic = previous
                 e.state.references["latest"] = previous
@@ -326,7 +392,7 @@ class CognitivePipeline:
             current = clean(e.state.current_topic)
             previous = next((clean(x) for x in reversed(e.state.topic_stack)
                              if clean(x) and clean(x) != current
-                             and not any(m in clean(x) for m in ("موضوع قبلی", "همون قبلی", "ادامه بده"))), "")
+                             and not any(mark in clean(x) for mark in ("؟", "?", "موضوع قبلی", "همون قبلی", "ادامه بده"))), "")
             if previous:
                 return self._persist_answer(text, f"موضوع قبلی: «{previous}».", "REFERENCE", .99)
         if any(x in low for x in ("همون موضوع", "همین موضوع")) or low in {"ادامه بده", "همون قبلی", "همونو"}:
@@ -349,7 +415,12 @@ class CognitivePipeline:
             if not goal:
                 goal = next((f.get("object", "") for f in self.runtime.user_model.current_profile(limit=30) if f.get("predicate") == "goal"), "")
             if goal:
-                return self._persist_answer(text, f"هدف ثبت‌شده برای «دانا»: «{goal}».", "MEMORY", .99)
+                answer = (
+                    f"هدفش برای «دانا» «{goal}» بود."
+                    if "هدفش" in low
+                    else f"هدف ثبت‌شده برای «دانا»: «{goal}»."
+                )
+                return self._persist_answer(text, answer, "MEMORY", .99)
 
         # Resolve identity and terse contextual follow-ups inside the canonical route.
         try:
@@ -392,6 +463,10 @@ class CognitivePipeline:
         try:
             special = self.runtime.provider._special(text)
             if special:
+                if "پایتخت" in low and any(marker in low for marker in ("ایران", "تهران")):
+                    activate_topic("ایران")
+                    e.state.references["latest"] = "پایتخت ایران"
+                    e.state.save(e.state_path)
                 return self._persist_answer(text, special, "DIRECT_FACT", .99)
         except Exception:
             pass
