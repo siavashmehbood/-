@@ -35,6 +35,13 @@ class UserModelRuntimeTests(unittest.TestCase):
             self.assertIn('creator', second)
             r2.close()
 
+    def test_leading_no_parses_corrected_identity(self):
+        with tempfile.TemporaryDirectory() as d:
+            r=IranRuntime(self.make_root(d))
+            facts=r.user_model.extract_explicit_facts('نه، من رضا هستم.')
+            self.assertTrue(any(f['predicate']=='name' and f['object']=='رضا' for f in facts))
+            r.close()
+
     def test_unstated_identity_is_not_invented(self):
         question=fa(1605,1606,32,1670,1607,32,1606,1602,1588,1740,32,1583,1585,32,1662,1585,1608,1688,1607,32,1583,1575,1585,1605,63)
         with tempfile.TemporaryDirectory() as d:
