@@ -37,3 +37,16 @@ def test_reference_prefers_structured_current_topic():
     s.references["latest"] = "Django"
     r = ReferenceResolverStage1()
     assert r.resolve("همونو ادامه بده", s, [("user", "موضوع نامرتبط")]) == "حافظه"
+
+def test_legacy_stack_tail_does_not_return_current_topic_as_previous():
+    s = ConversationState(
+        current_topic="Django",
+        topic_stack=["پایتون", "Django"],
+        active_goal="Django",
+    )
+    r = ReferenceResolverStage1()
+
+    assert r.resolve("موضوع قبلی", s) == "پایتون"
+    assert r.resolve("همون قبلی", s) == "پایتون"
+    assert r.resolve("ادامه بده", s) == "Django"
+
