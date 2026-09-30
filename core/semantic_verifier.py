@@ -134,11 +134,21 @@ class SemanticVerifier:
         else:
             reasons.append("low_question_alignment")
         low_a = a.lower()
+        external = r"(?:api|شبکه|سرویس آنلاین|cloud|مدل آماده)"
+        positive_use = bool(
+            re.search(rf"(?:استفاده|اتصال|وابست|نیاز).{{0,24}}{external}", low_a)
+            or re.search(rf"{external}.{{0,24}}(?:استفاده|اتصال|وابست|نیاز)", low_a)
+        )
+        negated_use = bool(
+            re.search(rf"(?:بدون|فاقد|نمی|ندارد|نیست).{{0,16}}{external}", low_a)
+            or re.search(rf"{external}.{{0,16}}(?:نمی|ندارد|نیست)", low_a)
+        )
+        external_dependency_claim = positive_use and not negated_use
         for constraint in constraints:
             c = str(constraint).lower()
-            if c == "آفلاین" and any(x in low_a for x in ("api", "شبکه", "سرویس آنلاین", "cloud")):
+            if c == "آفلاین" and external_dependency_claim:
                 contradictions.append("offline_constraint")
-            if c == "بدون api" and ("api" in low_a or "مدل آماده" in low_a):
+            if c == "بدون api" and external_dependency_claim:
                 contradictions.append("no_api_constraint")
         if contradictions:
             score -= .45

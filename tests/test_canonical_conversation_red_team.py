@@ -35,6 +35,7 @@ def test_specific_history_queries_survive_the_canonical_pipeline_and_restart(tmp
         assert "پروژه دانا" in runtime.handle("موضوع اول چی بود؟")
         assert "معماری شناختی" in runtime.handle("موضوع دوم چی بود؟")
 
+        runtime.handle("گفتم آفلاین باشه")
         runtime.handle("نه، منظورم بدون API بود")
         assert "بدون API" in runtime.handle("الان آخرین اصلاح چی بود؟")
 
