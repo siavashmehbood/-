@@ -85,26 +85,25 @@ def test_full_fifty_turn_persian_conversation_is_ci_enforced(tmp_path):
         runtime.close()
 
     failed = [name for name, passed in checks.items() if not passed]
-    assert not failed, {
-        "failed": failed,
-        "answers": {
-            name: answers[index]
-            for name, index in {
-                "name_recall": 5,
-                "project_identity": 6,
-                "answer_reference": 9,
-                "project_explanation": 11,
-                "goal_recall": 23,
-                "goal_correction": 25,
-                "offline_fact": 28,
-                "constraint_recall": 30,
-                "previous_topic": 34,
-                "latest_correction": 40,
-                "first_goal_version": 44,
-                "latest_goal_version": 45,
-                "project_list": 48,
-                "active_topic": 49,
-            }.items()
-            if name in failed
-        },
+    answer_indexes = {
+        "name_recall": 5,
+        "project_identity": 6,
+        "answer_reference": 9,
+        "project_explanation": 11,
+        "goal_recall": 23,
+        "goal_correction": 25,
+        "offline_fact": 28,
+        "constraint_recall": 30,
+        "previous_topic": 34,
+        "latest_correction": 40,
+        "first_goal_version": 44,
+        "latest_goal_version": 45,
+        "project_list": 48,
+        "active_topic": 49,
     }
+    details = "\n".join(
+        f"{name}: {answers[answer_indexes[name]]}"
+        for name in failed
+        if name in answer_indexes
+    )
+    assert not failed, f"failed={failed}\n{details}"
