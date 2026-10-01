@@ -177,8 +177,9 @@ class IranRuntime:
         self.cognitive_system.bind_legacy_adapters()
         self.orchestrator.verified_executor = self.execute_verified_goal
         # Reconcile durable reviewer/human decisions and rebuild any journal
-        # entries missing after a crash. This performs no external request.
-        self.sync_chatgpt_learning_reviews()
+        # entries missing after a crash. Fresh runtimes retain lazy ledger creation.
+        if self._chatgpt_review_path().exists():
+            self.sync_chatgpt_learning_reviews()
         self._seed_local_knowledge()
         self.events.emit("runtime_ready", {"provider": self.provider.name,
             "version": self.config["version"], "cognitive": True,
