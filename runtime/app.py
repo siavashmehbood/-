@@ -439,18 +439,25 @@ class IranRuntime:
     def _review_decision_journal_path(self):
         return self.root / "data" / "review_decision_journal.json"
 
+    def _review_decision_journal_store(self):
+        journal = getattr(self, "_review_decision_journal_instance", None)
+        path = self._review_decision_journal_path()
+        if journal is None or journal.path != path:
+            journal = ReviewDecisionJournal(path)
+            self._review_decision_journal_instance = journal
+        return journal
+
     def _sync_review_decision_journal(self):
         rows = load_critical_json(self._chatgpt_review_path(), [])
-        return ReviewDecisionJournal(self._review_decision_journal_path()).sync(rows)
+        return self._review_decision_journal_store().sync(rows)
 
     def review_decision_journal_status(self):
         """Strict validation for callers that must fail on audit corruption."""
-        return ReviewDecisionJournal(self._review_decision_journal_path()).status()
-
+        return self._review_decision_journal_store().status()
 
     def review_decision_journal_page(self, limit=50, cursor=None):
         """Read a stable audit page; returned events never authorize learning."""
-        return ReviewDecisionJournal(self._review_decision_journal_path()).page(limit, cursor)
+        return self._review_decision_journal_store().page(limit, cursor)
 
     def review_decision_journal_health(self):
         """Read-only health for dashboards; never authorizes a decision."""

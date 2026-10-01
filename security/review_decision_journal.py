@@ -14,11 +14,53 @@ from persistence import StateCorruptionError, json_transaction, load_critical_js
 
 class ReviewDecisionJournal:
     ZERO_HASH = "0" * 64
+    _UNVALIDATED = object()
     REVIEWER_DECISIONS = {"learn", "reject"}
     HUMAN_DECISIONS = {"approved", "rejected"}
 
     def __init__(self, path):
         self.path = Path(path)
+        self._validated_fingerprint = self._UNVALIDATED
+        self._validated_count = 0
+        self._validated_head = self.ZERO_HASH
+
+
+    @staticmethod
+    def _stat_fingerprint(path):
+        try:
+            stat = path.stat()
+            return (stat.st_dev, stat.st_ino, stat.st_size,
+                    stat.st_mtime_ns, stat.st_ctime_ns)
+        except FileNotFoundError:
+            return None
+
+    def _fingerprint(self):
+        backup = self.path.with_suffix(self.path.suffix + ".bak")
+        return (self._stat_fingerprint(self.path),
+                self._stat_fingerprint(backup))
+
+    def _load_stable(self):
+        for _ in range(3):
+            before = self._fingerprint()
+            events = load_critical_json(self.path, [])
+            after = self._fingerprint()
+            if before == after:
+                return events, after
+        raise StateCorruptionError(
+            "Decision journal changed repeatedly during read: " + str(self.path)
+        )
+
+    def _remember_validation(self, fingerprint, events, head):
+        self._validated_fingerprint = fingerprint
+        self._validated_count = len(events)
+        self._validated_head = head
+
+    def _validated_events(self):
+        events, fingerprint = self._load_stable()
+        if fingerprint != self._validated_fingerprint:
+            head = self._validate(events)
+            self._remember_validation(fingerprint, events, head)
+        return events
 
     @staticmethod
     def _hash(event):
@@ -115,13 +157,13 @@ class ReviewDecisionJournal:
                 previous = event["event_hash"]
                 appended += 1
             count = len(events)
+        self._validated_fingerprint = self._UNVALIDATED
         return {"valid": True, "count": count, "appended": appended, "head_hash": previous}
 
 
     def page(self, limit=50, cursor=None):
         """Return a stable newest-first page after validating the full chain."""
-        events = load_critical_json(self.path, [])
-        self._validate(events)
+        events = self._validated_events()
         limit = max(0, int(limit))
         if cursor is None:
             start = len(events) - 1
@@ -146,8 +188,13 @@ class ReviewDecisionJournal:
         return {"items": items, "next_cursor": next_cursor, "count": len(events)}
 
     def status(self):
-        events = load_critical_json(self.path, [])
+        fingerprint = self._fingerprint()
+        if fingerprint == self._validated_fingerprint:
+            return {"valid": True, "count": self._validated_count,
+                    "head_hash": self._validated_head}
+        events, fingerprint = self._load_stable()
         head = self._validate(events)
+        self._remember_validation(fingerprint, events, head)
         return {"valid": True, "count": len(events), "head_hash": head}
 
 

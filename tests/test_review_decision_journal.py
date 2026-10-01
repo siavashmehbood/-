@@ -2,7 +2,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 from integrations.chatgpt_review_worker import ChatGPTReviewWorker
 from persistence import StateCorruptionError
@@ -178,6 +178,34 @@ class ReviewDecisionJournalTests(unittest.TestCase):
         self.assertEqual(empty["count"], 3)
         with self.assertRaises(ValueError):
             runtime.review_decision_journal_page(limit=1, cursor="unknown")
+
+    def test_unchanged_journal_reuses_checkpoint_and_disk_change_revalidates(self):
+        root, runtime = self.make_runtime()
+        candidate = self.add_candidate(runtime, "checkpoint validation")
+        runtime.chatgpt_review_worker = ChatGPTReviewWorker(
+            root, transport=lambda row: {"learn": True, "reason": "eligible"}
+        )
+        runtime.process_one_chatgpt_learning_review(candidate["proposal_id"])
+        runtime.reject_learning(candidate["proposal_id"])
+        journal = runtime._review_decision_journal_store()
+
+        with patch.object(journal, "_validate", wraps=journal._validate) as validate:
+            runtime.review_decision_journal_status()
+            runtime.review_decision_journal_status()
+            runtime.review_decision_journal_page(limit=1)
+            self.assertEqual(validate.call_count, 1)
+
+            path = root / "data" / "review_decision_journal.json"
+            events = json.loads(path.read_text(encoding="utf-8"))
+            old_hash = events[0]["event_hash"]
+            events[0]["event_hash"] = (
+                ("0" if old_hash[0] != "0" else "1") + old_hash[1:]
+            )
+            path.write_text(json.dumps(events), encoding="utf-8")
+
+            with self.assertRaises(StateCorruptionError):
+                runtime.review_decision_journal_status()
+            self.assertEqual(validate.call_count, 2)
 
 
 if __name__ == "__main__":
