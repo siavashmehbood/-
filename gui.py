@@ -167,6 +167,11 @@ class ChatWindow(QMainWindow):
         ll.addWidget(self.mission_rows)
         self.mission_status = QLabel("مأموریتی ثبت نشده است."); self.mission_status.setObjectName("metric"); self.mission_status.setWordWrap(True)
         ll.addWidget(self.mission_status)
+        ll.addWidget(QLabel("درس‌های در صف یادگیری", objectName="sectionTitle"))
+        self.learning_queue_rows = QListWidget(); self.learning_queue_rows.setObjectName("learningQueueRows"); self.learning_queue_rows.setFixedHeight(180)
+        ll.addWidget(self.learning_queue_rows)
+        self.learning_queue_status = QLabel("صف درس‌ها هنوز بارگذاری نشده است."); self.learning_queue_status.setObjectName("metric"); self.learning_queue_status.setWordWrap(True)
+        ll.addWidget(self.learning_queue_status)
         mission_buttons = QHBoxLayout()
         self.mission_pause_button = QPushButton("توقف مأموریت")
         self.mission_resume_button = QPushButton("ادامه مأموریت")
@@ -594,8 +599,47 @@ class ChatWindow(QMainWindow):
                 f"قواعد یادگرفته‌شده: {len(getattr(self.runtime.learning, 'learned_rules', []) or []):,}"
             )
             self.refresh_missions()
+            self.refresh_learning_queue()
         except Exception as e:
             self.experience_xp.setText(f"یادگیری: خطا در دریافت وضعیت — {e}")
+
+    def refresh_learning_queue(self):
+        try:
+            from persistence import load_critical_json
+            rows = load_critical_json(self.runtime._chatgpt_review_path(), [])
+            lesson_rows = []
+            for row in rows:
+                payload = row.get("payload", {}) or {}
+                if row.get("source") != "learning_candidate":
+                    continue
+                if payload.get("mission_title") not in {"پایتون", "انگلیسی", "فارسی"}:
+                    continue
+                lesson_rows.append(row)
+            self.learning_queue_rows.clear()
+            status_order = {"human_pending": 0, "pending": 1, "waiting_for_reviewer": 1, "approved": 2, "rejected": 3}
+            lesson_rows.sort(key=lambda row: (status_order.get(row.get("status"), 9),
+                                               str((row.get("payload") or {}).get("mission_title", "")),
+                                               int((row.get("payload") or {}).get("sequence", 0) or 0)))
+            labels = {"pending": "منتظر ناظر", "waiting_for_reviewer": "منتظر ناظر",
+                      "human_pending": "منتظر تأیید انسان", "approved": "یادگرفته‌شده",
+                      "rejected": "ردشده"}
+            for row in lesson_rows[:100]:
+                payload = row.get("payload", {}) or {}
+                subject = payload.get("mission_title", "—")
+                title = payload.get("unit_title", payload.get("lesson", "—"))
+                sequence = payload.get("sequence")
+                prefix = f"{int(sequence):02d}. " if isinstance(sequence, (int, float)) else ""
+                state = labels.get(row.get("status"), str(row.get("status", "—")))
+                self.learning_queue_rows.addItem(f"{subject} | {prefix}{title} | {state}")
+            counts = {}
+            for row in lesson_rows:
+                counts[row.get("status", "unknown")] = counts.get(row.get("status", "unknown"), 0) + 1
+            self.learning_queue_status.setText(
+                f"کل درس‌ها: {len(lesson_rows)} | منتظر ناظر: {counts.get('pending', 0) + counts.get('waiting_for_reviewer', 0)} | "
+                f"منتظر تأیید تو: {counts.get('human_pending', 0)} | یادگرفته‌شده: {counts.get('approved', 0)} | ردشده: {counts.get('rejected', 0)}")
+        except Exception as exc:
+            self.learning_queue_rows.clear()
+            self.learning_queue_status.setText(f"خطا در نمایش صف درس‌ها: {type(exc).__name__}")
 
     def refresh_missions(self):
         try:
