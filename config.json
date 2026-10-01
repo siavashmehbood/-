@@ -1,5 +1,5 @@
-﻿{
-  "name": "Ø§ÛŒØ±Ø§Ù†",
+{
+  "name": "ایران",
   "version": "0.54.0",
   "model": {
     "provider": "iran",
@@ -146,4 +146,3 @@
     "zero_budget_credentials_allowed": true
   }
 }
-
