@@ -174,6 +174,11 @@ class ChatWindow(QMainWindow):
         ll.addWidget(self.learning_queue_rows)
         self.learning_queue_status = QLabel("صف درس‌ها هنوز بارگذاری نشده است."); self.learning_queue_status.setObjectName("metric"); self.learning_queue_status.setWordWrap(True)
         ll.addWidget(self.learning_queue_status)
+        ll.addWidget(QLabel("نتیجه‌های ناظر", objectName="sectionTitle"))
+        self.reviewer_result_rows = QListWidget(); self.reviewer_result_rows.setObjectName("reviewerResultRows"); self.reviewer_result_rows.setMinimumHeight(100); self.reviewer_result_rows.setMaximumHeight(150)
+        ll.addWidget(self.reviewer_result_rows)
+        self.reviewer_result_status = QLabel("هنوز نتیجه‌ای از ناظر ثبت نشده است."); self.reviewer_result_status.setObjectName("metric"); self.reviewer_result_status.setWordWrap(True)
+        ll.addWidget(self.reviewer_result_status)
         mission_buttons = QHBoxLayout()
         self.mission_pause_button = QPushButton("توقف مأموریت")
         self.mission_resume_button = QPushButton("ادامه مأموریت")
@@ -602,8 +607,43 @@ class ChatWindow(QMainWindow):
             )
             self.refresh_missions()
             self.refresh_learning_queue()
+            self.refresh_reviewer_results()
         except Exception as e:
             self.experience_xp.setText(f"یادگیری: خطا در دریافت وضعیت — {e}")
+
+    def refresh_reviewer_results(self):
+        try:
+            from persistence import load_critical_json
+            rows = load_critical_json(self.runtime._chatgpt_review_path(), [])
+            reviewed = []
+            for row in rows:
+                payload = row.get("payload", {}) or {}
+                if row.get("source") != "learning_candidate":
+                    continue
+                if row.get("review_status") != "reviewed":
+                    continue
+                reviewed.append(row)
+            reviewed.sort(key=lambda r: str(r.get("reviewed_at", "")), reverse=True)
+            self.reviewer_result_rows.clear()
+            learn_count = reject_count = 0
+            for row in reviewed[:50]:
+                payload = row.get("payload", {}) or {}
+                decision = row.get("chatgpt_decision")
+                if decision == "learn": learn_count += 1
+                elif decision == "reject": reject_count += 1
+                label = "LEARN — منتظر تأیید تو" if row.get("status") == "human_pending" else ("LEARN — تأییدشده" if decision == "learn" else "REJECT — رد ناظر")
+                subject = payload.get("mission_title", payload.get("goal", "—"))
+                title = payload.get("unit_title", payload.get("lesson", "—"))
+                model = row.get("model") or "—"
+                self.reviewer_result_rows.addItem(f"{subject} | {title} | {label} | {model}")
+            status = self.runtime.chatgpt_review_status()
+            error = status.get("last_error") or "ندارد"
+            self.reviewer_result_status.setText(
+                f"نتیجه ناظر: {len(reviewed)} | LEARN: {learn_count} | REJECT: {reject_count} | "
+                f"منتظر تأیید تو: {int(status.get('human_pending', 0) or 0)} | آخرین خطا: {error}")
+        except Exception as exc:
+            self.reviewer_result_rows.clear()
+            self.reviewer_result_status.setText(f"خطا در نمایش نتیجه ناظر: {type(exc).__name__}")
 
     def refresh_learning_queue(self):
         try:
