@@ -106,6 +106,7 @@ class ConversationState:
         if self.current_topic and self.current_topic != topic:
             if self.current_topic not in self.topic_stack:
                 self.topic_stack.append(self.current_topic)
+        self.topic_stack = [value for value in self.topic_stack if value != topic]
         if topic not in self.topic_history:
             self.topic_history.append(topic)
             self.topic_history = self.topic_history[-30:]
@@ -170,8 +171,8 @@ class ConversationState:
         if not self.topic_stack:
             return ""
         current = self.current_topic
-        while self.topic_stack and current and self.topic_stack[-1] == current:
-            self.topic_stack.pop()
+        if current:
+            self.topic_stack = [value for value in self.topic_stack if value != current]
         if not self.topic_stack:
             return ""
         previous = self.topic_stack.pop()
@@ -181,8 +182,11 @@ class ConversationState:
         return previous
 
     def topic_by_index(self, index):
-        all_topics = list(self.topic_stack)
-        if self.current_topic and (not all_topics or all_topics[-1] != self.current_topic):
+        all_topics = [
+            value for value in self.topic_stack
+            if not self.current_topic or value != self.current_topic
+        ]
+        if self.current_topic:
             all_topics.append(self.current_topic)
         try:
             position = int(index)

@@ -116,3 +116,20 @@ def test_restore_previous_topic_skips_legacy_current_tail():
     assert s.restore_previous_topic() == "حافظه"
     assert s.current_topic == "حافظه"
     assert s.topic_stack == ["پایتون", "Django"]
+
+
+def test_revisiting_topic_keeps_stack_unique_and_navigation_reversible():
+    s = ConversationState()
+    s._push_topic("پایتون")
+    s._push_topic("Django")
+    s._push_topic("پایتون")
+
+    assert s.current_topic == "پایتون"
+    assert s.topic_stack == ["Django"]
+    assert s.topic_by_index(1) == "Django"
+    assert s.topic_by_index(2) == "پایتون"
+
+    assert s.restore_previous_topic() == "Django"
+    assert s.topic_stack == ["پایتون"]
+    assert s.restore_previous_topic() == "پایتون"
+    assert s.topic_stack == ["Django"]
