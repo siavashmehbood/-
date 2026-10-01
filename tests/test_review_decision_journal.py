@@ -95,6 +95,42 @@ class ReviewDecisionJournalTests(unittest.TestCase):
         with self.assertRaises(StateCorruptionError):
             restarted.review_decision_journal_status()
 
+    def test_health_is_visible_in_learning_status_and_inspect(self):
+        root, runtime = self.make_runtime()
+        candidate = self.add_candidate(runtime, "visible journal health")
+        runtime.chatgpt_review_worker = ChatGPTReviewWorker(
+            root, transport=lambda row: {"learn": True, "reason": "eligible"}
+        )
+        runtime.process_one_chatgpt_learning_review(candidate["proposal_id"])
+        runtime.reject_learning(candidate["proposal_id"])
+        runtime.effect_learning = Mock()
+        runtime.effect_learning.stats.return_value = {}
+        runtime.effect_learning.state = {}
+        runtime.learning = Mock()
+        runtime.learning.learned_lessons = []
+        runtime.cognitive_system = Mock()
+        runtime.cognitive_system.inspect.return_value = {"version": "test"}
+
+        learning = runtime.learning_status()
+        inspected = runtime.inspect()
+
+        self.assertTrue(learning["review_decision_journal"]["valid"])
+        self.assertEqual(learning["review_decision_journal"]["count"], 2)
+        self.assertEqual(inspected["review_decision_journal"]["count"], 2)
+
+        journal_path = root / "data" / "review_decision_journal.json"
+        events = json.loads(journal_path.read_text(encoding="utf-8"))
+        events[0]["decision"] = "reject"
+        journal_path.write_text(json.dumps(events), encoding="utf-8")
+
+        self.assertFalse(runtime.learning_status()["review_decision_journal"]["valid"])
+        self.assertEqual(
+            runtime.inspect()["review_decision_journal"]["error"],
+            "journal_integrity_error",
+        )
+        with self.assertRaises(StateCorruptionError):
+            runtime.review_decision_journal_status()
+
 
 if __name__ == "__main__":
     unittest.main()
