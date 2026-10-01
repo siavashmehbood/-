@@ -9,7 +9,7 @@ import hashlib
 import json
 from pathlib import Path
 
-from persistence import StateCorruptionError, json_transaction, load_critical_json
+from persistence import StateCorruptionError, json_transaction
 
 
 class ReviewDecisionJournal:
@@ -23,6 +23,7 @@ class ReviewDecisionJournal:
         self._validated_fingerprint = self._UNVALIDATED
         self._validated_count = 0
         self._validated_head = self.ZERO_HASH
+        self._validated_source = "empty"
 
 
     @staticmethod
@@ -39,27 +40,47 @@ class ReviewDecisionJournal:
         return (self._stat_fingerprint(self.path),
                 self._stat_fingerprint(backup))
 
+    def _load_with_source(self):
+        backup = self.path.with_suffix(self.path.suffix + ".bak")
+        present = False
+        for source, candidate in (("primary", self.path), ("backup", backup)):
+            if not candidate.exists():
+                continue
+            present = True
+            try:
+                events = json.loads(candidate.read_text(encoding="utf-8"))
+            except (OSError, ValueError, UnicodeError):
+                continue
+            if isinstance(events, list):
+                return events, source
+        if present:
+            raise StateCorruptionError(
+                "Unreadable durable state: " + str(self.path)
+            )
+        return [], "empty"
+
     def _load_stable(self):
         for _ in range(3):
             before = self._fingerprint()
-            events = load_critical_json(self.path, [])
+            events, source = self._load_with_source()
             after = self._fingerprint()
             if before == after:
-                return events, after
+                return events, after, source
         raise StateCorruptionError(
             "Decision journal changed repeatedly during read: " + str(self.path)
         )
 
-    def _remember_validation(self, fingerprint, events, head):
+    def _remember_validation(self, fingerprint, events, head, source):
         self._validated_fingerprint = fingerprint
         self._validated_count = len(events)
         self._validated_head = head
+        self._validated_source = source
 
     def _validated_events(self):
-        events, fingerprint = self._load_stable()
+        events, fingerprint, source = self._load_stable()
         if fingerprint != self._validated_fingerprint:
             head = self._validate(events)
-            self._remember_validation(fingerprint, events, head)
+            self._remember_validation(fingerprint, events, head, source)
         return events
 
     @staticmethod
@@ -187,15 +208,27 @@ class ReviewDecisionJournal:
         )
         return {"items": items, "next_cursor": next_cursor, "count": len(events)}
 
+    @staticmethod
+    def _status_payload(count, head, source):
+        return {
+            "valid": True,
+            "count": count,
+            "head_hash": head,
+            "source": source,
+            "recovered_from_backup": source == "backup",
+        }
+
     def status(self):
         fingerprint = self._fingerprint()
         if fingerprint == self._validated_fingerprint:
-            return {"valid": True, "count": self._validated_count,
-                    "head_hash": self._validated_head}
-        events, fingerprint = self._load_stable()
+            return self._status_payload(
+                self._validated_count, self._validated_head,
+                self._validated_source,
+            )
+        events, fingerprint, source = self._load_stable()
         head = self._validate(events)
-        self._remember_validation(fingerprint, events, head)
-        return {"valid": True, "count": len(events), "head_hash": head}
+        self._remember_validation(fingerprint, events, head, source)
+        return self._status_payload(len(events), head, source)
 
 
 __all__ = ["ReviewDecisionJournal"]
