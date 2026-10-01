@@ -37,7 +37,7 @@ class SymbolicExpansionTests(unittest.TestCase):
             self.assertTrue(pending)
             for proposal in list(pending):
                 mark_chatgpt_correct(runtime, proposal["proposal_id"], "تأیید آزمون: بازخورد مثبت و اثر آن معتبر است.")
-                runtime.approve_learning(proposal["proposal_id"])
+                runtime.approve_learning(proposal["proposal_id"], human_confirmed=True, source='test_human')
             self.assertGreaterEqual(runtime.learning.stats()['experiences'], 1)
             self.assertIn('learning_update', [item['event'] for item in runtime.events.recent(50)])
             runtime.close()

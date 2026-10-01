@@ -26,7 +26,7 @@ def main():
             row=runtime.chatgpt_learning_review_status(p["proposal_id"]).get("row") or {}
             need(row.get("status")=="human_pending","candidate not human-eligible")
             need(row.get("chatgpt_decision")=="learn","controlled fixture rejected")
-            need(runtime.approve_learning(p["proposal_id"]).get("ok"),"human-gate apply failed")
+            need(runtime.approve_learning(p["proposal_id"], human_confirmed=True, source='test_human').get("ok"),"human-gate apply failed")
             need(runtime.knowledge.best_fact("live reviewer fixture","status") is not None,"knowledge not applied")
         finally: runtime.close()
         restarted=IranRuntime(root)

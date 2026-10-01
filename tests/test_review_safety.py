@@ -1,4 +1,4 @@
-﻿"""Runtime regressions for the approval/XP/queue failures found in phase 0."""
+"""Runtime regressions for the approval/XP/queue failures found in phase 0."""
 import json
 import shutil
 from pathlib import Path
@@ -43,7 +43,7 @@ def test_queue_preserves_new_candidate_during_review(runtime):
 
 def test_untrusted_validation_payload_cannot_authorize_learning(runtime):
     p = runtime.learning_gate.request('memory.add_lesson', {'goal':'g','lesson':'x','_external_validation':{'decision':'LEARN'}})
-    assert not runtime.approve_learning(p['proposal_id'])['ok']
+    assert not runtime.approve_learning(p['proposal_id'], human_confirmed=True, source='test_human')['ok']
     assert runtime.human_learning_pending() == []
 
 def test_duplicate_outcome_credit_ignores_episode_id(tmp_path):
@@ -78,7 +78,7 @@ def test_waiting_queue_survives_restart_then_resumes_without_duplicate(runtime):
         assert a.calls==0
         restored.internet_access.enable()
         assert restored.process_one_chatgpt_learning_review()['reason']=='reviewed'
-        assert restored.approve_learning(p['proposal_id'])['ok']
+        assert restored.approve_learning(p['proposal_id'], human_confirmed=True, source='test_human')['ok']
         again=restored.learning_gate.request('knowledge.add_fact', {'subject':'restart fixture','predicate':'is','object':'blue'})
         assert again['proposal_id']==p['proposal_id'] and again['status']=='approved'
         restored.process_one_chatgpt_learning_review()

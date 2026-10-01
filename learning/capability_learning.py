@@ -225,7 +225,7 @@ class CapabilityLearningEngine:
         if candidate is None:
             return {"ok": False, "reason": "candidate_not_ready"}
         if not auto:
-            review = self.runtime.learning_gate.request(
+            review = self.runtime.queue_learning_candidate(
                 "capability_learning.candidate", candidate,
                 "بازبینی یادگیری مهارت از دانش اینترنتی")
             return {"ok": True, "status": "gated", "review": review or candidate}
@@ -278,7 +278,7 @@ class CapabilityLearningEngine:
             self.state["transfers"] += 1
             skill["transfer_episodes"] = 2
             payload = {k:skill[k] for k in ("name", "description", "domain", "goal_patterns", "procedure", "preconditions", "required_capabilities", "risk", "confidence", "skill_id")}
-            proposal = self.runtime.learning_gate.request("skills.upsert", payload, "Verified capability: " + candidate["topic"])
+            proposal = self.runtime.queue_learning_candidate("skills.upsert", payload, "Verified capability: " + candidate["topic"])
             if proposal is not None:
                 self.state["last"] = {"topic": candidate["topic"], "status": "pending_approval"}
                 self._save()

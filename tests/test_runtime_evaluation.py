@@ -73,7 +73,7 @@ def test_runtime_abstains_on_conflicting_approved_facts(tmp_path):
     r=IranRuntime(tmp_path)
     p=r.learning_gate.request('knowledge.add_fact',{'subject':'ایران','predicate':'پایتخت','object':'شیراز','source':'conflicting_fixture'})
     mark_chatgpt_correct(r,p['proposal_id'],'fixture only')
-    assert r.approve_learning(p['proposal_id'])['ok']
+    assert r.approve_learning(p['proposal_id'], human_confirmed=True, source='test_human')['ok']
     answer=r.handle('پایتخت ایران کجاست؟')
     assert answer.startswith('UNKNOWN:')
     assert r.cognitive_system.last_trace.evidence_status=='CONFLICTING'
@@ -102,16 +102,16 @@ def test_explicit_knowledge_correction_requires_both_reviews_and_survives_restar
     r=IranRuntime(tmp_path)
     competing=r.knowledge.add_fact('ایران','پایتخت','شیراز',source='fixture')
     mark_chatgpt_correct(r,competing['proposal_id'],'fixture only')
-    assert r.approve_learning(competing['proposal_id'])['ok']
+    assert r.approve_learning(competing['proposal_id'], human_confirmed=True, source='test_human')['ok']
     correction=r.knowledge.contradict('ایران','پایتخت','تهران',source='correction_fixture')
     assert correction['kind']=='knowledge.contradict'
-    assert not r.approve_learning(correction['proposal_id'])['ok']
+    assert not r.approve_learning(correction['proposal_id'], human_confirmed=True, source='test_human')['ok']
     assert r.handle('پایتخت ایران کجاست؟').startswith('UNKNOWN:')
     mark_chatgpt_correct(r,correction['proposal_id'],'fixture only')
     assert r.handle('پایتخت ایران کجاست؟').startswith('UNKNOWN:')
-    assert r.approve_learning(correction['proposal_id'])['ok']
+    assert r.approve_learning(correction['proposal_id'], human_confirmed=True, source='test_human')['ok']
     assert 'تهران' in r.handle('پایتخت ایران کجاست؟')
-    assert not r.approve_learning(correction['proposal_id'])['ok']
+    assert not r.approve_learning(correction['proposal_id'], human_confirmed=True, source='test_human')['ok']
     assert r.effect_learning.stats()['xp']==0
     r.close()
     r=IranRuntime(tmp_path)
@@ -128,7 +128,7 @@ def test_approved_corroboration_retains_both_sources_without_duplicate_fact(tmp_
     for source in ('reference_a','reference_b'):
         p=r.knowledge.add_fact('ایران','پایتخت','تهران',source=source)
         mark_chatgpt_correct(r,p['proposal_id'],'fixture only')
-        assert r.approve_learning(p['proposal_id'])['ok']
+        assert r.approve_learning(p['proposal_id'], human_confirmed=True, source='test_human')['ok']
     rows=[f for f in r.knowledge.facts if f['subject']=='ایران' and f['predicate']=='پایتخت']
     assert len(rows)==1
     assert {'reference_a','reference_b'} <= {x['source'] for x in rows[0]['source_observations']}
@@ -212,7 +212,7 @@ def test_reviewed_numeric_evidence_survives_restart_and_rejects_wrong_value(tmp_
         proposal = r.learning_gate.request('knowledge.add_fact', {
             'subject': 'نمونه', 'predicate': 'مقدار', 'object': '-12.5', 'source': 'numeric_fixture'})
         mark_chatgpt_correct(r, proposal['proposal_id'], 'test fixture only')
-        assert r.approve_learning(proposal['proposal_id'])['ok']
+        assert r.approve_learning(proposal['proposal_id'], human_confirmed=True, source='test_human')['ok']
     finally:
         r.close()
     r = IranRuntime(tmp_path)

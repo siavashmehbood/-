@@ -49,7 +49,7 @@ def test_human_decision_wait_does_not_block_gui(tmp_path, monkeypatch):
             locked.set(); time.sleep(.25)
     holder=threading.Thread(target=hold_runtime); holder.start(); assert locked.wait(1)
     results=[]; ticks=[]; timer=QTimer(); timer.timeout.connect(lambda:ticks.append(time.monotonic()));timer.start(10)
-    assert window._start_job('decision:'+p['proposal_id'], lambda:window.runtime.approve_learning(p['proposal_id']),results.append)
+    assert window._start_job('decision:'+p['proposal_id'], lambda:window.runtime.approve_learning(p['proposal_id'], human_confirmed=True, source='test_human'),results.append)
     until=time.monotonic()+2
     while time.monotonic()<until and window._jobs:
         app.processEvents();time.sleep(.002)

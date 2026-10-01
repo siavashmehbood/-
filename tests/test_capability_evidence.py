@@ -56,9 +56,9 @@ def test_real_artifact_requires_reviews_and_reuses_after_restart(tmp_path):
     assert result['pending_approval'] and result['transfer_verified']
     pid=result['proposal']['proposal_id'];sid=result['skill']['skill_id']
     assert not any(row.get('skill_id')==sid for row in r.skills.skills)
-    assert not r.approve_learning(pid)['ok']
+    assert not r.approve_learning(pid, human_confirmed=True, source='test_human')['ok']
     mark_chatgpt_correct(r,pid,'fixture only')
-    assert r.approve_learning(pid)['ok']
+    assert r.approve_learning(pid, human_confirmed=True, source='test_human')['ok']
     r.close()
     r=IranRuntime(tmp_path)
     skill=next(row for row in r.skills.skills if row['skill_id']==sid)

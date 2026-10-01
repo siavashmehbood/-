@@ -62,7 +62,7 @@ def test_online_claim_needs_review_and_human_then_is_reused(tmp_path):
     p=r.learning_gate.request('trusted_knowledge.bootstrap',bundle)
     assert r.knowledge.query('ستاره نوا')==[]
     mark_chatgpt_correct(r,p['proposal_id'],'fixture corroborated')
-    assert r.approve_learning(p['proposal_id'])['ok']
+    assert r.approve_learning(p['proposal_id'], human_confirmed=True, source='test_human')['ok']
     assert r.effect_learning.stats()['xp']==0
     answer=r.handle('ستاره نوا چیست؟')
     assert claim in answer
@@ -100,7 +100,7 @@ def test_runtime_claim_reuse_records_retrieval_without_promoting_goal(tmp_path):
     bundle=r.trusted_knowledge.build('ستاره نوا',evidence)
     p=r.learning_gate.request('trusted_knowledge.bootstrap',bundle)
     mark_chatgpt_correct(r,p['proposal_id'],'fixture')
-    assert r.approve_learning(p['proposal_id'])['ok']
+    assert r.approve_learning(p['proposal_id'], human_confirmed=True, source='test_human')['ok']
     assert claim in r.handle('ستاره نوا چیست؟')
     current=next(g for g in r.self_directed_learning.goals if g.goal_id==goal['goal_id'])
     assert current.stage=='foundation'

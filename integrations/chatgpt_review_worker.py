@@ -110,7 +110,7 @@ class ChatGPTReviewWorker:
         }
         candidates = [
             (index, row) for index, row in enumerate(rows)
-            if row.get("source") == "learning_gate"
+            if row.get("source") in {"learning_gate", "learning_candidate"}
             and row.get("review_status", "not_reviewed") == "not_reviewed"
             and row.get("status", "pending") in {"pending", "WAITING_FOR_REVIEWER"}
         ]

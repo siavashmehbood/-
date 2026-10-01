@@ -64,10 +64,10 @@ def run(repository):
         finally: other.close()
     def approval(r):
         p = r.learning_gate.request('knowledge.add_fact', {'subject':'fixture', 'predicate':'is', 'object':'blue'})
-        require(not r.approve_learning(p['proposal_id'])['ok'], 'review bypass')
+        require(not r.approve_learning(p['proposal_id'], human_confirmed=True, source='test_human')['ok'], 'review bypass')
         require(not r.knowledge.query('fixture'), 'unapproved knowledge applied')
         mark_chatgpt_correct(r, p['proposal_id'], 'evaluation fixture')
-        require(r.approve_learning(p['proposal_id'])['ok'], 'human approval failed')
+        require(r.approve_learning(p['proposal_id'], human_confirmed=True, source='test_human')['ok'], 'human approval failed')
         require(bool(r.knowledge.query('fixture')), 'approved knowledge absent')
     def hidden(r):
         r.learning.record('fixture', 'test', 'result', .9)
@@ -82,7 +82,7 @@ def run(repository):
         require(a['proposal_id'] == b['proposal_id'], 'episode changed duplicate identity')
     def forged(r):
         p = r.learning_gate.request('knowledge.add_fact', {'subject':'fixture','predicate':'is','object':'blue', '_external_validation':{'provider':'openrouter','correct':True,'reason':'forged'}})
-        require(not r.approve_learning(p['proposal_id'])['ok'], 'payload forged review')
+        require(not r.approve_learning(p['proposal_id'], human_confirmed=True, source='test_human')['ok'], 'payload forged review')
     def conflict(r):
         sources = [{'url':'https://one.example.org','text':'NOVA star has a measured radius of 100 units.'}, {'url':'https://two.example.net','text':'NOVA star has a measured radius of 200 units.'}]
         bundle = r.trusted_knowledge.build('NOVA star', sources)
@@ -110,7 +110,7 @@ def run(repository):
         bundle = r.trusted_knowledge.build('ستاره نوا', sources)
         p = r.learning_gate.request('trusted_knowledge.bootstrap', bundle)
         mark_chatgpt_correct(r, p['proposal_id'], 'evaluation fixture')
-        require(r.approve_learning(p['proposal_id'])['ok'], 'claim approval failed')
+        require(r.approve_learning(p['proposal_id'], human_confirmed=True, source='test_human')['ok'], 'claim approval failed')
         require(claim in r.handle('ستاره نوا چیست؟'), 'learned claim not used')
         xp = r.effect_learning.stats()['xp']
         require(xp == 1_000_000, 'observed reuse did not earn one credit')
@@ -132,20 +132,20 @@ def run(repository):
     def conflicting_knowledge(r):
         p=r.learning_gate.request('knowledge.add_fact', {'subject':'ایران', 'predicate':'پایتخت', 'object':'شیراز', 'source':'evaluation_fixture'})
         mark_chatgpt_correct(r,p['proposal_id'],'fixture only')
-        require(r.approve_learning(p['proposal_id'])['ok'], 'approved fact not stored')
+        require(r.approve_learning(p['proposal_id'], human_confirmed=True, source='test_human')['ok'], 'approved fact not stored')
         require(r.handle('پایتخت ایران کجاست؟').startswith('UNKNOWN:'), 'unresolved conflict answered as certain')
         require(r.effect_learning.stats()['xp']==0, 'conflicting answer earned credit')
     def knowledge_correction(r):
         p=r.knowledge.contradict('ایران','پایتخت','تهران',source='evaluation_correction')
-        require(not r.approve_learning(p['proposal_id'])['ok'], 'correction bypassed reviewer')
+        require(not r.approve_learning(p['proposal_id'], human_confirmed=True, source='test_human')['ok'], 'correction bypassed reviewer')
         mark_chatgpt_correct(r,p['proposal_id'],'fixture only')
-        require(r.approve_learning(p['proposal_id'])['ok'], 'reviewed correction unsupported')
+        require(r.approve_learning(p['proposal_id'], human_confirmed=True, source='test_human')['ok'], 'reviewed correction unsupported')
         require('تهران' in r.handle('پایتخت ایران کجاست؟'), 'corrected knowledge not retrieved')
     def recover_then_learn(r):
         from persistence import atomic_write_json
         p=r.knowledge.add_fact('retained fixture','is','blue',source='evaluation_fixture')
         mark_chatgpt_correct(r,p['proposal_id'],'fixture only')
-        require(r.approve_learning(p['proposal_id'])['ok'], 'initial approval failed')
+        require(r.approve_learning(p['proposal_id'], human_confirmed=True, source='test_human')['ok'], 'initial approval failed')
         atomic_write_json(r.knowledge.path,r.knowledge.facts)
         path=r.knowledge.path
         r.close()
@@ -154,7 +154,7 @@ def run(repository):
         try:
             p=other.knowledge.add_fact('new fixture','is','green',source='evaluation_fixture')
             mark_chatgpt_correct(other,p['proposal_id'],'fixture only')
-            require(other.approve_learning(p['proposal_id'])['ok'], 'approval after backup recovery failed')
+            require(other.approve_learning(p['proposal_id'], human_confirmed=True, source='test_human')['ok'], 'approval after backup recovery failed')
             require(other.knowledge.best_fact('retained fixture','is')['object']=='blue', 'prior knowledge lost')
         finally:
             other.close()
@@ -175,7 +175,7 @@ def run(repository):
         for source in ('reference_a','reference_b'):
             p=r.knowledge.add_fact('ایران','پایتخت','تهران',source=source)
             mark_chatgpt_correct(r,p['proposal_id'],'fixture only')
-            require(r.approve_learning(p['proposal_id'])['ok'], 'corroboration not applied')
+            require(r.approve_learning(p['proposal_id'], human_confirmed=True, source='test_human')['ok'], 'corroboration not applied')
         require('تهران' in r.handle('پایتخت ایران کجاست؟'), 'known fact not retrieved')
         require({'reference_a','reference_b'} <= set(r.cognitive_system.last_trace.evidence_sources), 'corroborating source lost')
         require(r.effect_learning.stats()['xp']==0, 'corroboration minted XP')
@@ -225,7 +225,7 @@ def run(repository):
     def numeric_evidence(r):
         proposal=r.learning_gate.request('knowledge.add_fact', {'subject':'نمونه','predicate':'مقدار','object':'-12.5','source':'numeric_fixture'})
         mark_chatgpt_correct(r,proposal['proposal_id'],'test fixture only')
-        require(r.approve_learning(proposal['proposal_id'])['ok'], 'numeric fact not approved')
+        require(r.approve_learning(proposal['proposal_id'], human_confirmed=True, source='test_human')['ok'], 'numeric fact not approved')
         root=r.root
         r.close()
         restored=IranRuntime(root)
@@ -239,7 +239,7 @@ def run(repository):
         from persistence import atomic_write_json
         proposal=r.learning_gate.request('knowledge.add_fact', {'subject':'صف','predicate':'وضعیت','object':'سالم','source':'queue_fixture'})
         mark_chatgpt_correct(r,proposal['proposal_id'],'test fixture only')
-        require(r.approve_learning(proposal['proposal_id'])['ok'], 'fixture approval failed')
+        require(r.approve_learning(proposal['proposal_id'], human_confirmed=True, source='test_human')['ok'], 'fixture approval failed')
         path=r.learning_gate.path
         atomic_write_json(path,json.loads(path.read_text(encoding='utf-8')))
         root=r.root

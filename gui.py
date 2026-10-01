@@ -313,7 +313,8 @@ class ChatWindow(QMainWindow):
             )
             if answer != QMessageBox.StandardButton.Yes:
                 return
-            self._start_job("approve_all", lambda: self.runtime.approve_all_learning(max(5000, pending)),
+            self._start_job("approve_all", lambda: self.runtime.approve_all_learning(
+                                max(5000, pending), human_confirmed=True, source="gui_bulk"),
                             lambda result: self.status.setText(f"یادگیری‌های تأییدشده: {result.get('approved', 0)}"))
         except Exception as e:
             QMessageBox.warning(self, "خطا", str(e))
@@ -407,7 +408,8 @@ class ChatWindow(QMainWindow):
                 if tabs.count() == 0: d.accept()
             def do_approve(checked=False, proposal_id=pid, approve=approve, reject=reject, finish=finish_decision):
                 if self._start_job("decision:" + proposal_id,
-                                   lambda: self.runtime.approve_learning(proposal_id), finish):
+                                   lambda: self.runtime.approve_learning(
+                                       proposal_id, human_confirmed=True, source="gui"), finish):
                     approve.setEnabled(False); reject.setEnabled(False)
             def do_reject(checked=False, proposal_id=pid, approve=approve, reject=reject, finish=finish_decision):
                 if self._start_job("decision:" + proposal_id,

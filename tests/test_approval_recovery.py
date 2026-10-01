@@ -28,7 +28,7 @@ def test_interrupted_approval_rolls_back_and_can_be_retried(tmp_path, monkeypatc
     else:
         monkeypatch.setattr(r, '_set_human_review_status', lambda *a: (_ for _ in ()).throw(RuntimeError('interrupted')))
     with pytest.raises(RuntimeError):
-        r.approve_learning(pid)
+        r.approve_learning(pid, human_confirmed=True, source='test_human')
     with pytest.raises(RuntimeError, match='restart required'):
         r.handle('hello')
     r.close()
@@ -36,7 +36,7 @@ def test_interrupted_approval_rolls_back_and_can_be_retried(tmp_path, monkeypatc
     assert restored.learning_gate.get(pid)['status'] == 'pending'
     assert restored.memory.conn.execute('select count(*) from semantic_facts where subject=?', ('recovery fixture',)).fetchone()[0] == 0
     assert restored.chatgpt_learning_review_status(pid)['reviewed']
-    assert restored.approve_learning(pid)['ok']
+    assert restored.approve_learning(pid, human_confirmed=True, source='test_human')['ok']
     assert restored.learning_gate.get(pid)['status'] == 'approved'
     assert restored.memory.conn.execute('select count(*) from semantic_facts where subject=?', ('recovery fixture',)).fetchone()[0] == 1
     restored.close()
@@ -52,7 +52,7 @@ def test_recovery_keeps_unrelated_review_queue_rows(tmp_path, monkeypatch):
             rows.append({'proposal_id': 'concurrent-candidate', 'status': 'pending'})
         raise RuntimeError('interrupted')
     monkeypatch.setattr(r.learning_gate, 'decide', fail)
-    with pytest.raises(RuntimeError): r.approve_learning(p['proposal_id'])
+    with pytest.raises(RuntimeError): r.approve_learning(p['proposal_id'], human_confirmed=True, source='test_human')
     r.close()
     restored = IranRuntime(tmp_path)
     assert not restored.knowledge.query('fixture')
@@ -72,14 +72,14 @@ def test_process_exit_after_gate_commit_is_recovered(tmp_path):
 from runtime.app import IranRuntime
 r = IranRuntime(sys.argv[1])
 r._set_human_review_status = lambda *args: os._exit(23)
-r.approve_learning(sys.argv[2])
+r.approve_learning(sys.argv[2], human_confirmed=True, source='test_human')
 '''
     child = subprocess.run([sys.executable, '-c', code, str(tmp_path), p['proposal_id']], cwd=Path(__file__).parents[1], timeout=20, capture_output=True)
     assert child.returncode == 23, child.stderr.decode()
     restored = IranRuntime(tmp_path)
     assert restored.learning_gate.get(p['proposal_id'])['status'] == 'pending'
     assert not restored.knowledge.query('crash fixture')
-    assert restored.approve_learning(p['proposal_id'])['ok']
+    assert restored.approve_learning(p['proposal_id'], human_confirmed=True, source='test_human')['ok']
     assert restored.knowledge.query('crash fixture')
     restored.close()
 
@@ -91,7 +91,7 @@ def test_human_approval_does_not_approve_sibling_outcome(tmp_path):
         p = r.learning_gate.request('outcome.record', {'goal': 'fixture', 'action': action, 'result': 'observed', 'episode_id': 'shared', 'verified': True, 'score': .9})
         ids.append(p['proposal_id'])
         mark_chatgpt_correct(r, ids[-1], 'fixture')
-    assert r.approve_learning(ids[0])['ok']
+    assert r.approve_learning(ids[0], human_confirmed=True, source='test_human')['ok']
     assert r.learning_gate.get(ids[1])['status'] == 'pending'
     assert all(x['action'] != 'second' for x in r.outcome_learning.records)
     r.close()
@@ -101,17 +101,17 @@ def test_interrupted_correction_restores_unresolved_evidence(tmp_path, monkeypat
     r=runtime(tmp_path)
     p=r.knowledge.add_fact('ایران','پایتخت','شیراز',source='fixture')
     mark_chatgpt_correct(r,p['proposal_id'],'fixture only')
-    assert r.approve_learning(p['proposal_id'])['ok']
+    assert r.approve_learning(p['proposal_id'], human_confirmed=True, source='test_human')['ok']
     p=r.knowledge.contradict('ایران','پایتخت','تهران',source='correction_fixture')
     mark_chatgpt_correct(r,p['proposal_id'],'fixture only')
     monkeypatch.setattr(r.learning_gate,'decide',lambda *a: (_ for _ in ()).throw(RuntimeError('interrupted')))
     with pytest.raises(RuntimeError,match='interrupted'):
-        r.approve_learning(p['proposal_id'])
+        r.approve_learning(p['proposal_id'], human_confirmed=True, source='test_human')
     r.close()
     r=IranRuntime(tmp_path)
     assert r.learning_gate.get(p['proposal_id'])['status']=='pending'
     assert r.handle('پایتخت ایران کجاست؟').startswith('UNKNOWN:')
-    assert r.approve_learning(p['proposal_id'])['ok']
+    assert r.approve_learning(p['proposal_id'], human_confirmed=True, source='test_human')['ok']
     assert 'تهران' in r.handle('پایتخت ایران کجاست؟')
     r.close()
 
@@ -121,7 +121,7 @@ def test_approval_after_backup_recovery_retains_prior_knowledge(tmp_path):
     r=runtime(tmp_path)
     p=r.knowledge.add_fact('retained fixture','is','blue',source='fixture')
     mark_chatgpt_correct(r,p['proposal_id'],'fixture only')
-    assert r.approve_learning(p['proposal_id'])['ok']
+    assert r.approve_learning(p['proposal_id'], human_confirmed=True, source='test_human')['ok']
     atomic_write_json(r.knowledge.path,r.knowledge.facts)
     path=r.knowledge.path
     r.close()
@@ -129,7 +129,7 @@ def test_approval_after_backup_recovery_retains_prior_knowledge(tmp_path):
     r=IranRuntime(tmp_path)
     p=r.knowledge.add_fact('new fixture','is','green',source='fixture')
     mark_chatgpt_correct(r,p['proposal_id'],'fixture only')
-    assert r.approve_learning(p['proposal_id'])['ok']
+    assert r.approve_learning(p['proposal_id'], human_confirmed=True, source='test_human')['ok']
     assert r.knowledge.best_fact('retained fixture','is')['object']=='blue'
     assert r.knowledge.best_fact('new fixture','is')['object']=='green'
     r.close()

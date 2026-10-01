@@ -257,9 +257,9 @@ class InternetLearningEngine:
         result["assessment"] = assessment
         # Invalid/conflicting/duplicate evidence stays diagnostic, not reviewer spam.
         if proposal.get("status") == "ready_for_review" and assessment["learn"]:
-            gated = self.runtime.learning_gate.request("trusted_knowledge.bootstrap", proposal,
+            candidate = self.runtime.queue_learning_candidate("trusted_knowledge.bootstrap", proposal,
                 f"بازبینی یادگیری اینترنتی درباره «{topic}»")
-            result["review"] = gated or proposal
+            result["review"] = candidate or proposal
         else:
             result["reason"] = "evidence_not_ready" if proposal.get("issues") else assessment["reason"]
         result["corroborated"] = safe

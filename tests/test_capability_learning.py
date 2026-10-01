@@ -49,6 +49,10 @@ class FakeRuntime:
         self._n=0
     def create_task(self, description):
         self._n += 1; tid=f"task-{self._n}"; self.tasks.rows[tid]='ready'; return {"task_id":tid}
+    def queue_learning_candidate(self, kind, payload, summary=''):
+        self._n += 1
+        return {"proposal_id":f"candidate-{self._n}", "kind":kind, "payload":payload,
+                "summary":summary, "status":"pending", "source":"learning_candidate"}
 
 
 class CapabilityLearningTests(unittest.TestCase):
@@ -67,8 +71,9 @@ class CapabilityLearningTests(unittest.TestCase):
         result=self.engine.learn_from_proposal(self.proposal())
         self.assertTrue(result["ok"])
         self.assertTrue(result["transfer_verified"])
-        self.assertEqual(len(self.runtime.skills.rows), 1)
-        self.assertEqual(self.engine.status()["skills_promoted"], 1)
+        self.assertTrue(result["pending_approval"])
+        self.assertEqual(len(self.runtime.skills.rows), 0)
+        self.assertEqual(self.engine.status()["skills_promoted"], 0)
 
     def test_untrusted_proposal_does_not_execute(self):
         result=self.engine.learn_from_proposal({"topic":"x","confidence":.2,"agreements":[]})
@@ -93,9 +98,11 @@ class CapabilityLearningTests(unittest.TestCase):
         self.assertEqual(self.runtime.actions.calls, [])
 
     def test_state_persists(self):
-        proposal=self.proposal(); self.engine.learn_from_proposal(proposal)
+        proposal=self.proposal(); result=self.engine.learn_from_proposal(proposal)
+        self.assertTrue(result["pending_approval"])
         other=CapabilityLearningEngine(self.runtime)
-        self.assertEqual(other.status()["skills_promoted"], 1)
+        self.assertEqual(other.status()["transfers"], 1)
+        self.assertEqual(other.status()["skills_promoted"], 0)
 
     def test_generic_claim_experiment_does_not_require_topic_template(self):
         proposal={"topic":"novel capability domain","confidence":.8,
