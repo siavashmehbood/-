@@ -138,9 +138,13 @@ class LearningGate:
         if not cursor: raise ValueError('cursor must be a proposal id')
         return cursor
 
-    def _page(self,limit,cursor=None,status=None):
+    def _page(self,limit,cursor=None,status=None,proposal_ids=None):
         limit=self._normalize_limit(limit)
         cursor=self._normalize_cursor(cursor)
+        if isinstance(proposal_ids,(str,bytes)): proposal_ids=[proposal_ids]
+        allowed=None if proposal_ids is None else {
+            str(proposal_id) for proposal_id in proposal_ids if proposal_id is not None
+        }
         if limit == 0:
             return {'items':[],'next_cursor':None,'has_more':False}
         with self._lock, self._process_lock():
@@ -157,6 +161,7 @@ class LearningGate:
             for index in range(start,-1,-1):
                 row=self._rows[index]
                 if status is not None and row.get('status') != status: continue
+                if allowed is not None and str(row.get('proposal_id')) not in allowed: continue
                 if len(result) >= limit:
                     has_more=True
                     break
@@ -167,8 +172,8 @@ class LearningGate:
                 'has_more':has_more,
             }
 
-    def pending_page(self,limit=50,cursor=None):
-        return self._page(limit,cursor,status='pending')
+    def pending_page(self,limit=50,cursor=None,proposal_ids=None):
+        return self._page(limit,cursor,status='pending',proposal_ids=proposal_ids)
 
     def history_page(self,limit=200,cursor=None):
         return self._page(limit,cursor)
