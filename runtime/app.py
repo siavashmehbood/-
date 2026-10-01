@@ -447,6 +447,11 @@ class IranRuntime:
         """Strict validation for callers that must fail on audit corruption."""
         return ReviewDecisionJournal(self._review_decision_journal_path()).status()
 
+
+    def review_decision_journal_page(self, limit=50, cursor=None):
+        """Read a stable audit page; returned events never authorize learning."""
+        return ReviewDecisionJournal(self._review_decision_journal_path()).page(limit, cursor)
+
     def review_decision_journal_health(self):
         """Read-only health for dashboards; never authorizes a decision."""
         try:
