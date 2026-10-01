@@ -61,7 +61,8 @@ class LocalEnvironmentMonitor:
             # mistake its own writes for external project changes.
             if relative.parts and relative.parts[0] in {"logs", ".vscode", ".pytest_cache", ".mypy_cache", ".ruff_cache"}:
                 continue
-            if relative.parts and relative.parts[0] == "data" and relative.name in {
+            if relative.parts and relative.parts[0] == "data" and (
+                relative.name.endswith((".bak", ".lock")) or relative.name in {
                 ".iran_gui.lock", "learning_proposals.json.lock", "autonomy_journal.json",
                 "experiences.json", "learned_rules.json", "goals.json", "learning_goals.json",
                 "capability_learning.json", "chatgpt_reviews.json", "conversation_state.json", "learning_proposals.json",
@@ -70,8 +71,10 @@ class LocalEnvironmentMonitor:
                 "internet_learning.json", "iran.db", "knowledge.json", "knowledge.json.bak",
                 "trusted_knowledge.json", "trusted_knowledge.json.bak", "tasks.json.bak",
                 "experiences.json.backup-20260918-dedupe", "learning_proposals.json.bak",
-                "learning_proposals.json.backup-20260918-dedupe", "learning_proposals.json.backup-before-dedupe"
-            }:
+                "learning_proposals.json.backup-20260918-dedupe", "learning_proposals.json.backup-before-dedupe",
+                "reviewer_health.json", "chatgpt_review_state.json", "approval_checkpoint.json",
+                "autonomous_goal_state.json", "input_events.json", "input_fabric.json"
+            }):
                 continue
             try:
                 stat = path.stat()

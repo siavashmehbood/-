@@ -159,6 +159,16 @@ def test_learning_tick_auto_reviews_online_candidate_then_waits_for_human(runtim
         }
     }]
     runtime.internet_learning.discover = lambda topic: [{"url": "https://example.org"}]
+    # The new architecture requires human authorization of the self-directed
+    # goal before any evidence-gathering/online learning can begin.
+    goal_request = runtime.learning_gate.request(
+        "learning.goal_request",
+        {"goal_id":"online-goal-1", "goal_topic":"online review fixture",
+         "domain":"test", "objective":"learn online review fixture",
+         "source":"self_directed_autonomous"},
+        "authorized fixture",
+    )
+    runtime.learning_gate.decide(goal_request["proposal_id"], "approved")
 
     def fake_learn(topic):
         proposal = runtime.learning_gate.request(
