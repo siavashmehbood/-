@@ -13,3 +13,4 @@ def test_integrated_persian_cognition():
         m = Memory(os.path.join(d,"t.db"))
         m.add("x", text)
         assert len(m.search("حافظه")) >= 1
+        m.close()

@@ -30,3 +30,4 @@ def test_e2e():
         assert len(sem) >= 1, f"A3 semantic FAIL: {len(sem)}"
         assert all("\u200c" not in str(x) for x in state2.corrections), "norm FAIL"
         assert state2.current_topic == state.current_topic, "persistence FAIL"
+        mem.close()

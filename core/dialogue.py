@@ -627,10 +627,9 @@ class LocalDialogueEngine:
                 self.runtime.learning.update_from_feedback(
                     user_text, user_text, context.intent, "dialogue"
                 )
-            self.runtime.learning.record(
-                user_text, "respond", answer, verification.score,
-                context.intent, "conversation", "dialogue"
-            )
+            # Routine dialogue is an observation, not durable learning.
+            # Only explicit corrections/reusable evidence are routed to the
+            # learning gate by the dedicated feedback/input paths.
         except Exception:
             pass
 

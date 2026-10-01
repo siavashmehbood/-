@@ -97,9 +97,27 @@ class ChatGPTReviewWorker:
         }
 
     def _candidate(self, rows):
-        return next((row for row in rows if row.get("source") == "learning_gate"
-                      and row.get("review_status", "not_reviewed") == "not_reviewed"
-                      and row.get("status", "pending") in {"pending", "WAITING_FOR_REVIEWER"}), None)
+        # Review durable knowledge/evidence before low-value planning requests.
+        # Within the same class keep FIFO order to avoid starvation.
+        priorities = {
+            "knowledge.contradict": 100, "trusted_knowledge.bootstrap": 95,
+            "knowledge.add_fact": 90, "memory.add_semantic_fact": 85,
+            "outcome.record": 80, "procedural.upsert": 75,
+            "procedural.record_outcome": 74, "skills.upsert": 73,
+            "skills.promote_composition": 72, "skills.execution_outcome": 71,
+            "memory.add_lesson": 70, "learning.record_experience": 60,
+            "user_model.record_facts": 50, "learning.goal_request": 10,
+        }
+        candidates = [
+            (index, row) for index, row in enumerate(rows)
+            if row.get("source") == "learning_gate"
+            and row.get("review_status", "not_reviewed") == "not_reviewed"
+            and row.get("status", "pending") in {"pending", "WAITING_FOR_REVIEWER"}
+        ]
+        if not candidates:
+            return None
+        _, row = max(candidates, key=lambda item: (priorities.get(item[1].get("kind"), 40), -item[0]))
+        return row
 
     def _windows_user_env(self, name):
         if os.name != "nt":
@@ -193,7 +211,9 @@ class ChatGPTReviewWorker:
             }, ensure_ascii=False)
             row["review_status"] = "reviewed"
             row["chatgpt_decision"] = "learn" if result["learn"] else "reject"
-            row["status"] = "human_pending" if result["learn"] else "rejected"
+            # Reviewer advice is evidence, not the final authority. Every reviewed
+            # candidate goes to the human gate, including suggested rejections.
+            row["status"] = "human_pending"
             row["reviewed_at"] = datetime.fromtimestamp(now, timezone.utc).isoformat(timespec="seconds")
             with json_transaction(self.reviews_path, []) as current:
                 target = next((r for r in current if r.get("proposal_id") == row.get("proposal_id")), None)

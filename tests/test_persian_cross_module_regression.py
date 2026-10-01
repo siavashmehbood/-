@@ -15,3 +15,4 @@ def test_cross_module():
         assert res.candidate == "معماری شناختی ایران"
         assert len(mem.semantic_search("معماری")) >= 1
         assert hasattr(trace, "verifier_state")
+        mem.close()

@@ -50,16 +50,17 @@ class ChatGPTReviewPipelineTests(unittest.TestCase):
         self.assertEqual(review["chatgpt_decision"], "learn")
         self.assertEqual(runtime.human_learning_pending(10)[0]["proposal_id"], candidate["proposal_id"])
 
-    def test_learn_false_rejects_without_human_queue(self):
+    def test_learn_false_is_advisory_and_routes_to_human_pending(self):
         root, runtime, gate = self.make_runtime()
         candidate = self.add_candidate(gate)
         runtime.chatgpt_review_worker = ChatGPTReviewWorker(root, transport=lambda row: {"learn": False, "reason": "insufficient"})
         result = runtime.process_one_chatgpt_learning_review()
         self.assertTrue(result["ok"])
-        self.assertEqual(gate.get(candidate["proposal_id"])["status"], "rejected")
+        self.assertEqual(gate.get(candidate["proposal_id"])["status"], "pending")
         review = runtime.chatgpt_learning_review_status(candidate["proposal_id"])["row"]
-        self.assertEqual(review["status"], "rejected")
-        self.assertEqual(runtime.human_learning_pending(10), [])
+        self.assertEqual(review["status"], "human_pending")
+        self.assertEqual(review["chatgpt_decision"], "reject")
+        self.assertEqual(runtime.human_learning_pending(10)[0]["proposal_id"], candidate["proposal_id"])
 
     def test_human_reject_updates_review_without_learning(self):
         root, runtime, gate = self.make_runtime()

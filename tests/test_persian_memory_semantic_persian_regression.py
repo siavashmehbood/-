@@ -9,3 +9,4 @@ def test_semantic_search_persian_zwnj():
         res = m.semantic_search("حافظه فارسی")
         assert len(res) >= 1
         assert "\u200c" not in res[0]["subject"]
+        m.close()

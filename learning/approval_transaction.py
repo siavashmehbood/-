@@ -4,7 +4,7 @@ One runtime owns a data directory. The runtime mutation lock prevents chat and
 maintenance from changing learned stores while this short checkpoint is active.
 Reviewer queue updates stay independent and are merged by proposal identity.
 """
-from contextlib import contextmanager
+from contextlib import contextmanager, closing
 from functools import wraps
 from pathlib import Path
 import json
@@ -34,8 +34,10 @@ def recover(root):
         state = load_critical_json(journal, {})
         if state.get('status') == 'prepared':
             # Restore SQLite through its backup API, including WAL databases.
-            with sqlite3.connect(root / 'data/approval_memory.sqlite') as source:
-                with sqlite3.connect(root / state['memory']) as target:
+            # contextlib.closing is required here: sqlite3.Connection.__exit__
+            # commits/rolls back but does not close the OS file handle on Windows.
+            with closing(sqlite3.connect(root / 'data/approval_memory.sqlite')) as source:
+                with closing(sqlite3.connect(root / state['memory'])) as target:
                     source.backup(target)
             for name, value in state['files'].items():
                 path = root / name
@@ -82,7 +84,7 @@ def approval_checkpoint(runtime, proposal_ids):
         path = Path(path)
         rows[str(path.relative_to(root))] = [r for r in load_critical_json(path, [])
                                             if r.get('proposal_id') in proposal_ids]
-    with sqlite3.connect(root / 'data/approval_memory.sqlite') as target:
+    with closing(sqlite3.connect(root / 'data/approval_memory.sqlite')) as target:
         runtime.memory.conn.backup(target)
     state = {'status': 'prepared', 'memory': runtime.config['memory']['db'],
              'files': files, 'rows': rows}

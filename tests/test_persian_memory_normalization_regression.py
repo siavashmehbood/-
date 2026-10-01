@@ -9,3 +9,4 @@ def test_memory_norm_strips_zwnj():
         mem.add("test", "حافظه\u200cاش")
         res = mem.search("حافظه")
         assert len(res) >= 1, "ZWNJ broke memory retrieval"
+        mem.close()

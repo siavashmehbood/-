@@ -385,9 +385,7 @@ class IranRuntime:
                 self.sync_chatgpt_learning_reviews()
                 review_result = self.process_one_chatgpt_learning_review()
                 result["online_review"] = review_result
-                state = "human_pending" if review_result.get("ok") and review_result.get("learn") is True else (
-                    "rejected" if review_result.get("ok") and review_result.get("learn") is False else "awaiting_review"
-                )
+                state = "human_pending" if review_result.get("ok") and review_result.get("reason") == "reviewed" else "awaiting_review"
                 self.self_directed_learning.update_outcome(goal["goal_id"], state)
             else:
                 self.self_directed_learning.update_outcome(goal["goal_id"], "needs_evidence")
@@ -488,8 +486,8 @@ class IranRuntime:
         """Run exactly one ChatGPT validation request through the dedicated worker."""
         self.sync_chatgpt_learning_reviews()
         result = self.chatgpt_review_worker.process_one()
-        if result.get("reason") == "reviewed" and result.get("learn") is False:
-            self.learning_gate.decide(result.get("proposal_id"), "rejected")
+        # External review is advisory. Final approval/rejection always belongs
+        # to the human gate, so reviewer rejection must not mutate the gate.
         return result
 
     def online_learning_review_status(self):
@@ -518,12 +516,12 @@ class IranRuntime:
         return self.learning_gate.pending(limit)
 
     def human_learning_pending(self, limit=50):
-        """Return only candidates ChatGPT marked correct and routed to the human gate."""
+        """Return reviewed candidates awaiting the authoritative human decision."""
         reviews = {r.get("proposal_id"): r for r in load_critical_json(self._chatgpt_review_path(), [])}
         result = []
         for proposal in self.learning_gate.pending(100000):
             review = reviews.get(proposal.get("proposal_id"), {})
-            if review.get("review_status") == "reviewed" and review.get("chatgpt_decision") == "learn" and review.get("status") == "human_pending":
+            if review.get("review_status") == "reviewed" and review.get("status") == "human_pending":
                 result.append(proposal)
                 if len(result) >= int(limit): break
         return result
@@ -573,16 +571,14 @@ class IranRuntime:
                     "message":"ابتدا این درخواست باید توسط ChatGPT بررسی و نتیجه بازبینی ثبت شود.",
                     "proposal":proposal}
         decision = review.get("row", {}).get("chatgpt_decision")
-        if decision != "learn":
+        if decision not in {"learn", "reject"}:
             try:
                 parsed = json.loads(str(review.get("review", "")))
                 decision = "learn" if parsed.get("learn") is True else "reject"
             except Exception:
-                decision = None
-        if decision != "learn":
-            return {"ok":False,"reason":"chatgpt_rejected_learning",
-                    "message":"ChatGPT این مورد را برای یادگیری تأیید نکرده است.",
-                    "proposal":proposal,"review":review.get("review", "")}
+                decision = "unknown"
+        # A reviewed rejection is a warning for the human reviewer, not a veto.
+        # The explicit approve action below is the authoritative final decision.
         kind=proposal.get("kind"); p=proposal.get("payload") or {}
         with self.learning_gate.bypass():
             if kind == "knowledge.add_fact": result=self.knowledge.add_fact(p["subject"],p["predicate"],p["object"],p.get("confidence",1.0),p.get("source","approved"))
@@ -623,7 +619,8 @@ class IranRuntime:
         decision=self.learning_gate.decide(proposal_id,"approved")
         self._set_human_review_status(proposal_id, "approved")
         self.events.emit("learning_approved",{"proposal_id":proposal_id,"kind":kind})
-        return {"ok":True,"proposal":decision,"result":result}
+        return {"ok":True,"proposal":decision,"result":result,
+                "reviewer_decision":review.get("row", {}).get("chatgpt_decision", "unknown")}
 
     def _set_human_review_status(self, proposal_id, status):
         with json_transaction(self._chatgpt_review_path(), []) as rows:

@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 import pytest
+import providers.reviewer as reviewer_module
 from providers.reviewer import ProviderManager, ReviewerProvider, ReviewFailure, decision
 from security.internet_access import InternetAccessManager
 
@@ -172,6 +173,8 @@ def test_structurally_corrupt_health_never_sends_request(tmp_path, entry):
 
 def test_openrouter_dynamic_free_pool_requires_key(monkeypatch):
     monkeypatch.delenv('OPENROUTER_API_KEY', raising=False)
+    original = reviewer_module.env_value
+    monkeypatch.setattr(reviewer_module, 'env_value', lambda name: '' if name == 'OPENROUTER_API_KEY' else original(name))
     p=ReviewerProvider('openrouter', {'enabled':True, 'dynamic_free_models':True})
     assert p.availability()==('UNAVAILABLE','api_key_missing')
 

@@ -33,12 +33,9 @@ class CanonicalLoopTests(unittest.TestCase):
             self.assertIn('memory', snapshot)
             self.assertIn('learning', snapshot)
             self.assertIn('prediction', snapshot)
-            pending = runtime.learning_pending()
-            self.assertGreaterEqual(len(pending), 1)
-            for proposal in list(pending):
-                mark_chatgpt_correct(runtime, proposal["proposal_id"], "تأیید آزمون: شواهد و نتیجه برای ثبت این تجربه کافی است.")
-                runtime.approve_learning(proposal["proposal_id"])
-            self.assertGreaterEqual(runtime.learning.stats()['experiences'], 1)
+            # A routine conversation is observation, not durable learning.
+            self.assertEqual(runtime.learning_pending(), [])
+            self.assertEqual(runtime.learning.stats()['experiences'], 0)
             self.assertGreaterEqual(snapshot['world']['observations'], 1)
             runtime.close()
 

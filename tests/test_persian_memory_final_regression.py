@@ -7,3 +7,4 @@ def test_memory_persian_normalized_search():
         m = Memory(os.path.join(d,"db"))
         m.add("t", "حافظه\u200cاش")
         assert len(m.search("حافظه")) >= 1
+        m.close()
