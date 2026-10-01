@@ -222,6 +222,7 @@ class ChatGPTReviewWorker:
                     return {"ok": False, "reason": "candidate_changed"}
                 target.pop("failure_reason", None)
                 target.update(row)
+                target.pop("failure_reason", None)
             state["next_allowed_at"] = self._iso(now + self.MIN_INTERVAL)
             state["backoff_seconds"] = 15
             state["last_success_at"] = self._iso(now)
