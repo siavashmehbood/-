@@ -117,6 +117,34 @@ class ReviewDecisionJournal:
             count = len(events)
         return {"valid": True, "count": count, "appended": appended, "head_hash": previous}
 
+
+    def page(self, limit=50, cursor=None):
+        """Return a stable newest-first page after validating the full chain."""
+        events = load_critical_json(self.path, [])
+        self._validate(events)
+        limit = max(0, int(limit))
+        if cursor is None:
+            start = len(events) - 1
+        else:
+            cursor = str(cursor)
+            start = next(
+                (index - 1 for index, event in enumerate(events)
+                 if event.get("event_hash") == cursor),
+                None,
+            )
+            if start is None:
+                raise ValueError("unknown decision journal cursor")
+        if limit == 0 or start < 0:
+            return {"items": [], "next_cursor": None, "count": len(events)}
+        stop = max(-1, start - limit)
+        items = [dict(events[index]) for index in range(start, stop, -1)]
+        next_cursor = (
+            items[-1]["event_hash"]
+            if items and int(items[-1]["sequence"]) > 1
+            else None
+        )
+        return {"items": items, "next_cursor": next_cursor, "count": len(events)}
+
     def status(self):
         events = load_critical_json(self.path, [])
         head = self._validate(events)

@@ -131,6 +131,54 @@ class ReviewDecisionJournalTests(unittest.TestCase):
         with self.assertRaises(StateCorruptionError):
             runtime.review_decision_journal_status()
 
+    def test_journal_pages_are_stable_newest_first_and_fail_closed(self):
+        root, runtime = self.make_runtime()
+        candidate = self.add_candidate(runtime, "paged journal")
+        runtime.chatgpt_review_worker = ChatGPTReviewWorker(
+            root, transport=lambda row: {"learn": True, "reason": "eligible"}
+        )
+        runtime.process_one_chatgpt_learning_review(candidate["proposal_id"])
+        runtime.reject_learning(candidate["proposal_id"])
+
+        first = runtime.review_decision_journal_page(limit=1)
+        self.assertEqual([event["sequence"] for event in first["items"]], [2])
+        self.assertIsNotNone(first["next_cursor"])
+
+        review_rows = json.loads(
+            (root / "data" / "chatgpt_reviews.json").read_text(encoding="utf-8")
+        )
+        review_rows.append({
+            "proposal_id": "later-proposal",
+            "review_status": "reviewed",
+            "chatgpt_decision": "reject",
+            "status": "rejected",
+            "reviewed_at": "2030-01-01T00:00:00+00:00",
+            "provider": "fixture",
+            "model": "free-fixture",
+        })
+        runtime._sync_review_decision_journal = Mock(
+            return_value={"valid": True}
+        )
+        from security.review_decision_journal import ReviewDecisionJournal
+        ReviewDecisionJournal(
+            root / "data" / "review_decision_journal.json"
+        ).sync(review_rows)
+
+        second = runtime.review_decision_journal_page(
+            limit=1, cursor=first["next_cursor"]
+        )
+        newest = runtime.review_decision_journal_page(limit=2)
+        empty = runtime.review_decision_journal_page(limit=0)
+
+        self.assertEqual([event["sequence"] for event in second["items"]], [1])
+        self.assertIsNone(second["next_cursor"])
+        self.assertEqual([event["sequence"] for event in newest["items"]], [3, 2])
+        self.assertEqual(empty["items"], [])
+        self.assertIsNone(empty["next_cursor"])
+        self.assertEqual(empty["count"], 3)
+        with self.assertRaises(ValueError):
+            runtime.review_decision_journal_page(limit=1, cursor="unknown")
+
 
 if __name__ == "__main__":
     unittest.main()
