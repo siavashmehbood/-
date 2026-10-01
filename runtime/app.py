@@ -1,6 +1,6 @@
 """Canonical local runtime for the IRAN cognitive architecture."""
 from pathlib import Path
-from persistence import json_transaction, file_lock, load_json_with_backup, load_critical_json, acquire_runtime_ownership
+from persistence import json_transaction, file_lock, load_json_with_backup, load_critical_json, acquire_runtime_ownership, StateCorruptionError
 import json
 import hashlib
 import threading
@@ -444,8 +444,16 @@ class IranRuntime:
         return ReviewDecisionJournal(self._review_decision_journal_path()).sync(rows)
 
     def review_decision_journal_status(self):
-        """Validate and summarize the observational decision audit chain."""
+        """Strict validation for callers that must fail on audit corruption."""
         return ReviewDecisionJournal(self._review_decision_journal_path()).status()
+
+    def review_decision_journal_health(self):
+        """Read-only health for dashboards; never authorizes a decision."""
+        try:
+            return self.review_decision_journal_status()
+        except StateCorruptionError:
+            return {"valid": False, "count": None, "head_hash": None,
+                    "error": "journal_integrity_error"}
 
     def sync_chatgpt_learning_reviews(self, limit=5000, proposal_ids=None):
         """Mirror pending proposals and reconcile durable terminal decisions.
@@ -618,6 +626,7 @@ class IranRuntime:
             "improvement_cases": len(improvements),
             "improved_cases": sum(x > 0 for x in improvements),
             "mean_improvement": round(sum(improvements) / len(improvements), 3) if improvements else 0.0,
+            "review_decision_journal": self.review_decision_journal_health(),
         })
         return status
 
@@ -1121,7 +1130,9 @@ class IranRuntime:
         return self.cognitive_system.architecture_contract()
 
     def inspect(self):
-        return self.cognitive_system.inspect()
+        snapshot = dict(self.cognitive_system.inspect())
+        snapshot["review_decision_journal"] = self.review_decision_journal_health()
+        return snapshot
     def _handle_command(self, text):
         import shlex
         parts = shlex.split(text)
