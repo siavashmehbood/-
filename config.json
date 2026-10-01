@@ -65,7 +65,7 @@
         },
         "dynamic_free_models": true,
         "free_model_limit": 25,
-        "model_attempts": 16,
+        "model_attempts": 4,
         "free_models_ttl": 900
       },
       "gemini": {
