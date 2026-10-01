@@ -100,3 +100,19 @@ def test_ordinal_detection_does_not_match_inside_other_words():
     for text in ("اولویت پروژه چیست؟", "بازی دومینو چیست؟"):
         assert ReferenceIntelligence.ordinal_index(text) == 0
         assert analyzer.analyze(text)["question_type"] == "what"
+
+
+def test_restore_previous_topic_skips_legacy_current_tail():
+    s = ConversationState(
+        current_topic="حافظه",
+        topic_stack=["پایتون", "Django", "حافظه"],
+        active_goal="حافظه",
+    )
+
+    assert s.restore_previous_topic() == "Django"
+    assert s.current_topic == "Django"
+    assert s.topic_stack == ["پایتون", "حافظه"]
+
+    assert s.restore_previous_topic() == "حافظه"
+    assert s.current_topic == "حافظه"
+    assert s.topic_stack == ["پایتون", "Django"]

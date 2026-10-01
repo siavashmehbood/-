@@ -169,8 +169,12 @@ class ConversationState:
     def restore_previous_topic(self):
         if not self.topic_stack:
             return ""
-        previous = self.topic_stack.pop()
         current = self.current_topic
+        while self.topic_stack and current and self.topic_stack[-1] == current:
+            self.topic_stack.pop()
+        if not self.topic_stack:
+            return ""
+        previous = self.topic_stack.pop()
         if current and current != previous:
             self.topic_stack.append(current)
         self.current_topic = previous
