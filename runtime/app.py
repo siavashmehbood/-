@@ -58,6 +58,7 @@ from runtime.task_runtime import TaskRuntime, TaskStatus
 from runtime.conversation_router import ConversationRouter
 from security.policy import SecurityPolicy
 from security.learning_gate import LearningGate
+from security.review_decision_journal import ReviewDecisionJournal
 from security.internet_access import InternetAccessManager
 from tools.builtin import build_registry
 from self.evaluator import Evaluator
@@ -175,6 +176,9 @@ class IranRuntime:
         self.cognitive_system = _CognitiveSystem(self)
         self.cognitive_system.bind_legacy_adapters()
         self.orchestrator.verified_executor = self.execute_verified_goal
+        # Reconcile durable reviewer/human decisions and rebuild any journal
+        # entries missing after a crash. This performs no external request.
+        self.sync_chatgpt_learning_reviews()
         self._seed_local_knowledge()
         self.events.emit("runtime_ready", {"provider": self.provider.name,
             "version": self.config["version"], "cognitive": True,
@@ -431,6 +435,17 @@ class IranRuntime:
     def _chatgpt_review_path(self):
         return self.root / "data" / "chatgpt_reviews.json"
 
+    def _review_decision_journal_path(self):
+        return self.root / "data" / "review_decision_journal.json"
+
+    def _sync_review_decision_journal(self):
+        rows = load_critical_json(self._chatgpt_review_path(), [])
+        return ReviewDecisionJournal(self._review_decision_journal_path()).sync(rows)
+
+    def review_decision_journal_status(self):
+        """Validate and summarize the observational decision audit chain."""
+        return ReviewDecisionJournal(self._review_decision_journal_path()).status()
+
     def sync_chatgpt_learning_reviews(self, limit=5000, proposal_ids=None):
         """Mirror pending proposals and reconcile durable terminal decisions.
 
@@ -468,6 +483,7 @@ class IranRuntime:
                     if (row.get("review_status") == "reviewed"
                             and row.get("chatgpt_decision") == "learn"):
                         row["human_decision"] = gate_status
+                        row.setdefault("human_decided_at", proposal.get("updated_at", ""))
 
             for proposal in proposals:
                 pid = proposal["proposal_id"]
@@ -493,6 +509,7 @@ class IranRuntime:
                 created += 1
             total = len(rows)
             waiting = sum(r.get("review_status", "not_reviewed") == "not_reviewed" for r in rows)
+        self._sync_review_decision_journal()
         return {"created": created, "total": total, "not_reviewed": waiting, "reviewed": total-waiting}
 
     def chatgpt_learning_review_status(self, proposal_id):
@@ -527,6 +544,8 @@ class IranRuntime:
         result = self.chatgpt_review_worker.process_one(proposal_id=proposal_id)
         if result.get("reason") == "reviewed" and result.get("learn") is False:
             self.learning_gate.decide(result.get("proposal_id"), "rejected")
+        if result.get("reason") == "reviewed":
+            self._sync_review_decision_journal()
         return result
 
     def online_learning_review_status(self):
@@ -677,14 +696,18 @@ class IranRuntime:
         return {"ok":True,"proposal":decision,"result":result}
 
     def _set_human_review_status(self, proposal_id, status):
+        updated = False
         with json_transaction(self._chatgpt_review_path(), []) as rows:
             for row in rows:
                 if str(row.get("proposal_id")) == str(proposal_id):
                     row["human_decision"] = status
                     row["status"] = status
                     row["human_decided_at"] = __import__("datetime").datetime.now().isoformat(timespec="seconds")
-                    return True
-        return False
+                    updated = True
+                    break
+        if updated:
+            self._sync_review_decision_journal()
+        return updated
 
     @serialized
     def approve_all_learning(self, limit=5000):
