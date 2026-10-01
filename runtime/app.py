@@ -659,6 +659,7 @@ class IranRuntime:
                     return True
         return False
 
+    @serialized
     def approve_all_learning(self, limit=5000):
         rows=self.learning_gate.pending(limit)
         results=[]
@@ -672,19 +673,40 @@ class IranRuntime:
                 skipped.append({"proposal_id":row.get("proposal_id"),"reason":str(exc)})
         return {"ok":True,"approved":len(results),"skipped":skipped,"remaining":self.learning_gate.stats().get("pending",0)}
 
-    @serialized
-    def reject_learning(self, proposal_id):
+    def _reject_learning(self, proposal_id, sync_reviews=True):
         proposal=self.learning_gate.get(proposal_id)
         if proposal is None: return {"ok":False,"reason":"proposal_not_found"}
         if proposal.get("status") != "pending":
             return {"ok":False,"reason":"proposal_not_pending","proposal":proposal}
         # Ensure direct human rejection has a durable reviewer-ledger row.
         # If queue state is corrupt, fail closed before changing the gate.
-        self.sync_chatgpt_learning_reviews()
+        if sync_reviews:
+            self.sync_chatgpt_learning_reviews()
         result=self.learning_gate.decide(proposal_id,"rejected")
         self._set_human_review_status(proposal_id, "rejected")
         self.events.emit("learning_rejected",{"proposal_id":proposal_id,"kind":result.get("kind")})
         return {"ok":True,"proposal":result}
+
+    @serialized
+    def reject_learning(self, proposal_id):
+        return self._reject_learning(proposal_id, sync_reviews=True)
+
+    @serialized
+    def reject_all_learning(self, limit=5000):
+        limit=max(0,int(limit))
+        rows=self.learning_gate.pending(limit)
+        if rows:
+            self.sync_chatgpt_learning_reviews(limit=max(5000,limit))
+        results=[]
+        skipped=[]
+        for row in rows:
+            try:
+                result=self._reject_learning(row.get("proposal_id"),sync_reviews=False)
+                if result.get("ok"): results.append(result)
+                else: skipped.append({"proposal_id":row.get("proposal_id"),"reason":result.get("reason")})
+            except Exception as exc:
+                skipped.append({"proposal_id":row.get("proposal_id"),"reason":str(exc)})
+        return {"ok":True,"rejected":len(results),"skipped":skipped,"remaining":self.learning_gate.stats().get("pending",0)}
 
     def health(self):
         return self.brain.health()
