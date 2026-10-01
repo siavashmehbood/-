@@ -135,6 +135,30 @@ class LearningGateTests(unittest.TestCase):
         finally:
             memory.close()
 
+    def test_non_positive_limits_are_empty_and_windows_are_newest_first(self):
+        root,gate,memory,knowledge,learning=self.make()
+        try:
+            proposals=[
+                gate.request('knowledge.add_fact',{'subject':f's-{index}'},f'row {index}')
+                for index in range(3)
+            ]
+            self.assertEqual(gate.pending(0),[])
+            self.assertEqual(gate.pending(-1),[])
+            self.assertEqual(gate.history(0),[])
+            self.assertEqual(gate.history(-1),[])
+            self.assertEqual(
+                [row['proposal_id'] for row in gate.pending(2)],
+                [proposals[2]['proposal_id'],proposals[1]['proposal_id']],
+            )
+            self.assertEqual(
+                [row['proposal_id'] for row in gate.history(2)],
+                [proposals[2]['proposal_id'],proposals[1]['proposal_id']],
+            )
+            with self.assertRaisesRegex(ValueError,'limit must be an integer'):
+                gate.pending('invalid')
+        finally:
+            memory.close()
+
 
 if __name__=='__main__':
     unittest.main()
