@@ -261,3 +261,56 @@ def test_simultaneous_approve_and_reject_leave_one_consistent_terminal_decision(
     learned=bool(runtime.knowledge.query('approval race fixture'))
     assert learned is (gate_status=='approved')
 
+def test_bulk_rejection_syncs_once_and_keeps_every_ledger_consistent(runtime,monkeypatch):
+    proposals=[
+        runtime.learning_gate.request(
+            'knowledge.add_fact',
+            {'subject':f'bulk reject {index}','predicate':'is','object':'unsafe'},
+        )
+        for index in range(3)
+    ]
+    original=runtime.sync_chatgpt_learning_reviews
+    calls=[]
+
+    def counted_sync(*args,**kwargs):
+        calls.append((args,kwargs))
+        return original(*args,**kwargs)
+
+    monkeypatch.setattr(runtime,'sync_chatgpt_learning_reviews',counted_sync)
+    result=runtime.reject_all_learning(100)
+
+    assert result['ok']
+    assert result['rejected']==3
+    assert result['skipped']==[]
+    assert result['remaining']==0
+    assert len(calls)==1
+    for proposal in proposals:
+        proposal_id=proposal['proposal_id']
+        assert runtime.learning_gate.get(proposal_id)['status']=='rejected'
+        row=runtime.chatgpt_learning_review_status(proposal_id)['row']
+        assert row['status']=='rejected'
+        assert row['human_decision']=='rejected'
+
+
+def test_bulk_approval_applies_only_reviewer_approved_candidates(runtime):
+    from tests.chatgpt_test_helper import mark_chatgpt_correct
+
+    proposals=[
+        runtime.knowledge.add_fact(f'bulk approval {index}','is','safe',source='fixture')
+        for index in range(3)
+    ]
+    for proposal in proposals[:2]:
+        mark_chatgpt_correct(runtime,proposal['proposal_id'],'bulk fixture')
+
+    result=runtime.approve_all_learning(100)
+
+    assert result['ok']
+    assert result['approved']==2
+    assert result['remaining']==1
+    assert {row['proposal_id'] for row in result['skipped']}=={proposals[2]['proposal_id']}
+    assert result['skipped'][0]['reason']=='chatgpt_review_required'
+    assert runtime.learning_gate.get(proposals[2]['proposal_id'])['status']=='pending'
+    assert runtime.knowledge.query('bulk approval 2')==[]
+    assert runtime.knowledge.query('bulk approval 0')
+    assert runtime.knowledge.query('bulk approval 1')
+
