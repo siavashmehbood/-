@@ -84,5 +84,39 @@ class LearningGateTests(unittest.TestCase):
             memory.close()
 
 
+    def test_proposal_payloads_are_detached_from_callers_and_readers(self):
+        root,gate,memory,knowledge,learning=self.make()
+        try:
+            expected={'subject':'safe','nested':{'object':'original'},'items':['one']}
+            payload={'subject':'safe','nested':{'object':'original'},'items':['one']}
+            proposal=gate.request('knowledge.add_fact',payload,'snapshot')
+            proposal_id=proposal['proposal_id']
+
+            payload['nested']['object']='mutated input'
+            payload['items'].append('input')
+            proposal['payload']['nested']['object']='mutated response'
+            proposal['payload']['items'].append('response')
+            pending=gate.pending()
+            pending[0]['payload']['items'].append('pending response')
+
+            stored=gate.get(proposal_id)
+            self.assertEqual(stored['payload'],expected)
+            stored['payload']['nested']['object']='mutated get'
+            self.assertEqual(gate.get(proposal_id)['payload'],expected)
+            duplicate=gate.request('knowledge.add_fact',expected,'snapshot')
+            self.assertEqual(duplicate['proposal_id'],proposal_id)
+        finally:
+            memory.close()
+
+    def test_request_rejects_non_mapping_payload(self):
+        root,gate,memory,knowledge,learning=self.make()
+        try:
+            with self.assertRaises(TypeError):
+                gate.request('knowledge.add_fact',['not','a','mapping'])
+            self.assertEqual(gate.stats()['total'],0)
+        finally:
+            memory.close()
+
+
 if __name__=='__main__':
     unittest.main()
