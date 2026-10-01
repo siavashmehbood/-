@@ -387,3 +387,36 @@ def test_dynamic_pool_status_is_local_and_reports_ready_cooling(monkeypatch, tmp
     health=m.health()[0]
     assert health['model_pool']['known_count']==3
     assert health['model_pool']['cooling_down_count']==1
+
+
+def test_local_proxy_outage_does_not_poison_model_health(monkeypatch):
+    p=ReviewerProvider('openrouter', {
+        'enabled':True, 'dynamic_free_models':True, 'free_model_limit':25,
+        'model_attempts':4, 'free_models_ttl':900,
+    }, clock=lambda:1000)
+    monkeypatch.setenv('OPENROUTER_API_KEY','test-key')
+    monkeypatch.setattr(reviewer_module, 'local_proxy_status', lambda timeout=0.6: (False, 'http://127.0.0.1:10808'))
+    with pytest.raises(ReviewFailure) as exc:
+        p.review_models()
+    assert exc.value.reason == 'proxy_unavailable'
+    assert p.model_health_snapshot() == {}
+
+
+def test_provider_manager_uses_short_cooldown_for_proxy_flap(tmp_path, monkeypatch):
+    internet=InternetAccessManager(tmp_path/'internet.json'); internet.enable()
+    p=ReviewerProvider('openrouter', {
+        'enabled':True, 'dynamic_free_models':True, 'free_model_limit':25,
+        'model_attempts':4, 'free_models_ttl':900, 'cooldown':60,
+    }, clock=lambda:1000)
+    monkeypatch.setenv('OPENROUTER_API_KEY','test-key')
+    monkeypatch.setattr(reviewer_module, 'local_proxy_status', lambda timeout=0.6: (False, 'http://127.0.0.1:10808'))
+    m=ProviderManager(tmp_path, {
+        'reviewers': {'providers': {}},
+        'external_access': {'credential_free_only':False, 'zero_budget_credentials_allowed':True},
+    }, internet, [p], clock=lambda:1000)
+    result=m.review({'claim':'x'})
+    assert result['state']=='WAITING_FOR_REVIEWER'
+    assert result['reason']=='proxy_unavailable'
+    state=json.loads((tmp_path/'data'/'reviewer_health.json').read_text())['openrouter']
+    assert state['next_allowed'] == 1005
+    assert state['models'] == {}
