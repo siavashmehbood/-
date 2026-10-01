@@ -401,3 +401,38 @@ def test_human_review_pages_have_no_hidden_cap_or_cursor_duplicates(runtime):
     assert runtime.human_learning_pending_page(0)=={
         'items':[],'next_cursor':None,'has_more':False
     }
+
+
+def test_targeted_review_operations_mirror_candidates_outside_refresh_window(runtime):
+    proposals=[
+        runtime.learning_gate.request(
+            'memory.add_lesson',{'goal':f'targeted {index}','lesson':'safe'}
+        )
+        for index in range(4)
+    ]
+    runtime.sync_chatgpt_learning_reviews(limit=1)
+    rows=json.loads(runtime._chatgpt_review_path().read_text(encoding='utf-8'))
+    assert {row['proposal_id'] for row in rows}=={proposals[3]['proposal_id']}
+
+    note=runtime.submit_chatgpt_learning_review(
+        proposals[0]['proposal_id'],'targeted note'
+    )
+    assert note['ok']
+
+    runtime.chatgpt_review_worker.transport=lambda row:{
+        'learn':False,'reason':'targeted reject fixture'
+    }
+    reviewed=runtime.process_one_chatgpt_learning_review(proposals[1]['proposal_id'])
+    assert reviewed['ok'] and reviewed['learn'] is False
+    rejected=runtime.reject_learning(proposals[2]['proposal_id'])
+    assert rejected['ok']
+
+    rows=json.loads(runtime._chatgpt_review_path().read_text(encoding='utf-8'))
+    by_id={row['proposal_id']:row for row in rows}
+    assert set(by_id)=={proposal['proposal_id'] for proposal in proposals}
+    assert by_id[proposals[0]['proposal_id']]['review_note']=='targeted note'
+    assert by_id[proposals[1]['proposal_id']]['status']=='rejected'
+    assert by_id[proposals[2]['proposal_id']]['human_decision']=='rejected'
+    assert runtime.learning_gate.get(proposals[0]['proposal_id'])['status']=='pending'
+    assert runtime.learning_gate.get(proposals[1]['proposal_id'])['status']=='rejected'
+    assert runtime.learning_gate.get(proposals[2]['proposal_id'])['status']=='rejected'

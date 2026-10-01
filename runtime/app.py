@@ -431,14 +431,26 @@ class IranRuntime:
     def _chatgpt_review_path(self):
         return self.root / "data" / "chatgpt_reviews.json"
 
-    def sync_chatgpt_learning_reviews(self, limit=5000):
+    def sync_chatgpt_learning_reviews(self, limit=5000, proposal_ids=None):
         """Mirror pending proposals and reconcile durable terminal decisions.
 
-        This method never calls ChatGPT. It is safe for startup, counters, and
-        GUI refreshes; external validation belongs exclusively to the worker.
+        Targeted callers pass proposal IDs so an old candidate cannot be
+        hidden by the bounded newest-first refresh window. This method never
+        calls ChatGPT; external validation belongs exclusively to the worker.
         """
         path = self._chatgpt_review_path()
-        proposals = self.learning_gate.pending(limit)
+        if proposal_ids is None:
+            proposals = self.learning_gate.pending(limit)
+        else:
+            proposals = []
+            seen = set()
+            for proposal_id in proposal_ids:
+                proposal_id = str(proposal_id)
+                if proposal_id in seen: continue
+                seen.add(proposal_id)
+                proposal = self.learning_gate.get(proposal_id)
+                if proposal and proposal.get("status") == "pending":
+                    proposals.append(proposal)
         created = 0
         with json_transaction(path, []) as rows:
             existing = {str(r.get("proposal_id")): r for r in rows if r.get("proposal_id")}
@@ -510,7 +522,8 @@ class IranRuntime:
 
     def process_one_chatgpt_learning_review(self, proposal_id=None):
         """Review one queued candidate, optionally targeting its durable proposal ID."""
-        self.sync_chatgpt_learning_reviews()
+        target_ids = [proposal_id] if proposal_id is not None else None
+        self.sync_chatgpt_learning_reviews(proposal_ids=target_ids)
         result = self.chatgpt_review_worker.process_one(proposal_id=proposal_id)
         if result.get("reason") == "reviewed" and result.get("learn") is False:
             self.learning_gate.decide(result.get("proposal_id"), "rejected")
@@ -529,7 +542,7 @@ class IranRuntime:
         review_text = str(review_text or "").strip()
         if not review_text:
             return {"ok": False, "reason": "empty_review"}
-        self.sync_chatgpt_learning_reviews()
+        self.sync_chatgpt_learning_reviews(proposal_ids=[proposal_id])
         with json_transaction(self._chatgpt_review_path(), []) as rows:
             for row in rows:
                 if str(row.get("proposal_id")) == str(proposal_id):
@@ -696,7 +709,7 @@ class IranRuntime:
         # Ensure direct human rejection has a durable reviewer-ledger row.
         # If queue state is corrupt, fail closed before changing the gate.
         if sync_reviews:
-            self.sync_chatgpt_learning_reviews()
+            self.sync_chatgpt_learning_reviews(proposal_ids=[proposal_id])
         result=self.learning_gate.decide(proposal_id,"rejected")
         self._set_human_review_status(proposal_id, "rejected")
         self.events.emit("learning_rejected",{"proposal_id":proposal_id,"kind":result.get("kind")})
@@ -711,7 +724,9 @@ class IranRuntime:
         limit=max(0,int(limit))
         rows=self.learning_gate.pending(limit)
         if rows:
-            self.sync_chatgpt_learning_reviews(limit=max(5000,limit))
+            self.sync_chatgpt_learning_reviews(
+                proposal_ids=[row.get("proposal_id") for row in rows]
+            )
         results=[]
         skipped=[]
         for row in rows:
