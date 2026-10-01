@@ -541,6 +541,10 @@ class IranRuntime:
         """Return the durable pending proposals for internal learning workflows."""
         return self.learning_gate.pending(limit)
 
+    def learning_pending_page(self, limit=50, cursor=None):
+        """Return a stable newest-first page without deleting audit history."""
+        return self.learning_gate.pending_page(limit,cursor)
+
     def human_learning_pending(self, limit=50):
         """Return only candidates ChatGPT marked correct and routed to the human gate."""
         limit=max(0,int(limit))
@@ -555,6 +559,10 @@ class IranRuntime:
         return result
     def learning_history(self, limit=200):
         return self.learning_gate.history(limit)
+
+    def learning_history_page(self, limit=200, cursor=None):
+        """Return an audit-preserving stable page of all learning decisions."""
+        return self.learning_gate.history_page(limit,cursor)
 
     def learning_status(self):
         status=dict(self.learning_gate.stats())

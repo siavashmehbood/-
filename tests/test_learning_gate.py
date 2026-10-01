@@ -159,6 +159,58 @@ class LearningGateTests(unittest.TestCase):
         finally:
             memory.close()
 
+    def test_cursor_pages_are_stable_across_new_rows_and_status_changes(self):
+        root,gate,memory,knowledge,learning=self.make()
+        try:
+            proposals=[
+                gate.request('knowledge.add_fact',{'subject':f'page-{index}'},f'row {index}')
+                for index in range(5)
+            ]
+            first=gate.pending_page(2)
+            self.assertTrue(first['has_more'])
+            self.assertEqual(
+                [row['proposal_id'] for row in first['items']],
+                [proposals[4]['proposal_id'],proposals[3]['proposal_id']],
+            )
+
+            newest=gate.request('knowledge.add_fact',{'subject':'newest'},'new row')
+            gate.decide(proposals[3]['proposal_id'],'approved')
+            second=gate.pending_page(2,first['next_cursor'])
+            third=gate.pending_page(2,second['next_cursor'])
+
+            self.assertEqual(
+                [row['proposal_id'] for row in second['items']],
+                [proposals[2]['proposal_id'],proposals[1]['proposal_id']],
+            )
+            self.assertEqual(
+                [row['proposal_id'] for row in third['items']],
+                [proposals[0]['proposal_id']],
+            )
+            self.assertFalse(third['has_more'])
+            paged_ids=[
+                row['proposal_id']
+                for page in (first,second,third)
+                for row in page['items']
+            ]
+            self.assertNotIn(newest['proposal_id'],paged_ids)
+            self.assertEqual(len(paged_ids),len(set(paged_ids)))
+
+            history_first=gate.history_page(3)
+            history_second=gate.history_page(3,history_first['next_cursor'])
+            self.assertFalse(set(
+                row['proposal_id'] for row in history_first['items']
+            ) & set(
+                row['proposal_id'] for row in history_second['items']
+            ))
+            with self.assertRaisesRegex(ValueError,'cursor not found'):
+                gate.pending_page(2,'missing-proposal')
+            self.assertEqual(
+                gate.history_page(0),
+                {'items':[],'next_cursor':None,'has_more':False},
+            )
+        finally:
+            memory.close()
+
 
 if __name__=='__main__':
     unittest.main()

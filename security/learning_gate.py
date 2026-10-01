@@ -131,25 +131,53 @@ class LearningGate:
         except (TypeError,ValueError):
             raise ValueError('limit must be an integer') from None
 
+    @staticmethod
+    def _normalize_cursor(cursor):
+        if cursor is None: return None
+        cursor=str(cursor).strip()
+        if not cursor: raise ValueError('cursor must be a proposal id')
+        return cursor
+
+    def _page(self,limit,cursor=None,status=None):
+        limit=self._normalize_limit(limit)
+        cursor=self._normalize_cursor(cursor)
+        if limit == 0:
+            return {'items':[],'next_cursor':None,'has_more':False}
+        with self._lock, self._process_lock():
+            start=len(self._rows)-1
+            if cursor is not None:
+                for index,row in enumerate(self._rows):
+                    if str(row.get('proposal_id')) == cursor:
+                        start=index-1
+                        break
+                else:
+                    raise ValueError('cursor not found')
+            result=[]
+            has_more=False
+            for index in range(start,-1,-1):
+                row=self._rows[index]
+                if status is not None and row.get('status') != status: continue
+                if len(result) >= limit:
+                    has_more=True
+                    break
+                result.append(self._snapshot(row))
+            return {
+                'items':result,
+                'next_cursor':result[-1].get('proposal_id') if has_more and result else None,
+                'has_more':has_more,
+            }
+
+    def pending_page(self,limit=50,cursor=None):
+        return self._page(limit,cursor,status='pending')
+
+    def history_page(self,limit=200,cursor=None):
+        return self._page(limit,cursor)
+
     def pending(self,limit=50):
-        limit=self._normalize_limit(limit)
-        if limit == 0: return []
-        with self._lock, self._process_lock():
-            result=[]
-            for row in reversed(self._rows):
-                if row.get('status') != 'pending': continue
-                result.append(self._snapshot(row))
-                if len(result) >= limit: break
-            return result
+        return self.pending_page(limit)['items']
+
     def history(self,limit=200):
-        limit=self._normalize_limit(limit)
-        if limit == 0: return []
-        with self._lock, self._process_lock():
-            result=[]
-            for row in reversed(self._rows):
-                result.append(self._snapshot(row))
-                if len(result) >= limit: break
-            return result
+        return self.history_page(limit)['items']
     def get(self,proposal_id):
         with self._lock, self._process_lock():
             row=next((r for r in self._rows if r.get('proposal_id')==str(proposal_id)),None)
