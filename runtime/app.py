@@ -543,9 +543,11 @@ class IranRuntime:
 
     def human_learning_pending(self, limit=50):
         """Return only candidates ChatGPT marked correct and routed to the human gate."""
+        limit=max(0,int(limit))
+        if limit == 0: return []
         reviews = {r.get("proposal_id"): r for r in load_critical_json(self._chatgpt_review_path(), [])}
         result = []
-        for proposal in self.learning_gate.pending(100000):
+        for proposal in self.learning_gate.pending(max(100000,limit)):
             review = reviews.get(proposal.get("proposal_id"), {})
             if review.get("review_status") == "reviewed" and review.get("chatgpt_decision") == "learn" and review.get("status") == "human_pending":
                 result.append(proposal)
@@ -661,6 +663,7 @@ class IranRuntime:
 
     @serialized
     def approve_all_learning(self, limit=5000):
+        limit=max(0,int(limit))
         rows=self.learning_gate.pending(limit)
         results=[]
         skipped=[]

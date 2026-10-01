@@ -124,12 +124,32 @@ class LearningGate:
             row={'proposal_id':proposal_id,'kind':str(kind),'summary':str(summary or kind),'payload':payload,'status':'pending','created_at':now,'updated_at':now}
             self._rows.append(row); self._save(); return self._snapshot(row)
     def _save(self): atomic_write_json(self.path,self._rows)
+    @staticmethod
+    def _normalize_limit(limit):
+        try:
+            return max(0,int(limit))
+        except (TypeError,ValueError):
+            raise ValueError('limit must be an integer') from None
+
     def pending(self,limit=50):
+        limit=self._normalize_limit(limit)
+        if limit == 0: return []
         with self._lock, self._process_lock():
-            return [self._snapshot(r) for r in self._rows if r.get('status')=='pending'][-int(limit):][::-1]
+            result=[]
+            for row in reversed(self._rows):
+                if row.get('status') != 'pending': continue
+                result.append(self._snapshot(row))
+                if len(result) >= limit: break
+            return result
     def history(self,limit=200):
+        limit=self._normalize_limit(limit)
+        if limit == 0: return []
         with self._lock, self._process_lock():
-            return [self._snapshot(r) for r in self._rows[-int(limit):]][::-1]
+            result=[]
+            for row in reversed(self._rows):
+                result.append(self._snapshot(row))
+                if len(result) >= limit: break
+            return result
     def get(self,proposal_id):
         with self._lock, self._process_lock():
             row=next((r for r in self._rows if r.get('proposal_id')==str(proposal_id)),None)

@@ -314,3 +314,26 @@ def test_bulk_approval_applies_only_reviewer_approved_candidates(runtime):
     assert runtime.knowledge.query('bulk approval 0')
     assert runtime.knowledge.query('bulk approval 1')
 
+
+
+def test_zero_limit_bulk_actions_never_decide_a_proposal(runtime):
+    proposals=[]
+    for index in range(2):
+        proposal=runtime.knowledge.add_fact(
+            f'zero limit {index}','is','safe',source='fixture'
+        )
+        mark_chatgpt_correct(runtime,proposal['proposal_id'],'zero limit fixture')
+        proposals.append(proposal)
+
+    assert runtime.human_learning_pending(0)==[]
+    approved=runtime.approve_all_learning(0)
+    rejected=runtime.reject_all_learning(0)
+
+    assert approved['approved']==0
+    assert approved['remaining']==2
+    assert rejected['rejected']==0
+    assert rejected['remaining']==2
+    assert all(
+        runtime.learning_gate.get(row['proposal_id'])['status']=='pending'
+        for row in proposals
+    )
