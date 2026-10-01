@@ -202,6 +202,29 @@ class LearningGateTests(unittest.TestCase):
             ) & set(
                 row['proposal_id'] for row in history_second['items']
             ))
+
+            filtered=gate.pending_page(
+                2,proposal_ids={
+                    proposals[4]['proposal_id'],
+                    proposals[2]['proposal_id'],
+                    proposals[0]['proposal_id'],
+                },
+            )
+            filtered_tail=gate.pending_page(
+                2,filtered['next_cursor'],proposal_ids={
+                    proposals[4]['proposal_id'],
+                    proposals[2]['proposal_id'],
+                    proposals[0]['proposal_id'],
+                },
+            )
+            self.assertEqual(
+                [row['proposal_id'] for row in filtered['items']],
+                [proposals[4]['proposal_id'],proposals[2]['proposal_id']],
+            )
+            self.assertEqual(
+                [row['proposal_id'] for row in filtered_tail['items']],
+                [proposals[0]['proposal_id']],
+            )
             with self.assertRaisesRegex(ValueError,'cursor not found'):
                 gate.pending_page(2,'missing-proposal')
             self.assertEqual(

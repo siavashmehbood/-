@@ -545,18 +545,22 @@ class IranRuntime:
         """Return a stable newest-first page without deleting audit history."""
         return self.learning_gate.pending_page(limit,cursor)
 
+    def human_learning_pending_page(self, limit=50, cursor=None):
+        """Page only reviewer-approved candidates still awaiting human approval."""
+        reviews=load_critical_json(self._chatgpt_review_path(), [])
+        eligible={
+            str(row.get("proposal_id"))
+            for row in reviews
+            if row.get("proposal_id")
+            and row.get("review_status") == "reviewed"
+            and row.get("chatgpt_decision") == "learn"
+            and row.get("status") == "human_pending"
+        }
+        return self.learning_gate.pending_page(limit,cursor,proposal_ids=eligible)
+
     def human_learning_pending(self, limit=50):
         """Return only candidates ChatGPT marked correct and routed to the human gate."""
-        limit=max(0,int(limit))
-        if limit == 0: return []
-        reviews = {r.get("proposal_id"): r for r in load_critical_json(self._chatgpt_review_path(), [])}
-        result = []
-        for proposal in self.learning_gate.pending(max(100000,limit)):
-            review = reviews.get(proposal.get("proposal_id"), {})
-            if review.get("review_status") == "reviewed" and review.get("chatgpt_decision") == "learn" and review.get("status") == "human_pending":
-                result.append(proposal)
-                if len(result) >= int(limit): break
-        return result
+        return self.human_learning_pending_page(limit)['items']
     def learning_history(self, limit=200):
         return self.learning_gate.history(limit)
 

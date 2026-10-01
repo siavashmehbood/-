@@ -363,3 +363,41 @@ def test_runtime_exposes_cursor_pages_without_mutating_learning(runtime):
         runtime.learning_gate.get(row['proposal_id'])['status']=='pending'
         for row in proposals
     )
+
+
+def test_human_review_pages_have_no_hidden_cap_or_cursor_duplicates(runtime):
+    from tests.chatgpt_test_helper import mark_chatgpt_correct
+    proposals=[
+        runtime.learning_gate.request(
+            'memory.add_lesson',{'goal':f'human page {index}','lesson':'safe'}
+        )
+        for index in range(6)
+    ]
+    for index in (0,2,4,5):
+        mark_chatgpt_correct(runtime,proposals[index]['proposal_id'],'human page fixture')
+
+    first=runtime.human_learning_pending_page(2)
+    assert [row['proposal_id'] for row in first['items']]==[
+        proposals[5]['proposal_id'],proposals[4]['proposal_id']
+    ]
+    assert runtime.human_learning_pending(2)==first['items']
+
+    newest=runtime.learning_gate.request(
+        'memory.add_lesson',{'goal':'human page newest','lesson':'safe'}
+    )
+    mark_chatgpt_correct(runtime,newest['proposal_id'],'newest fixture')
+    assert runtime.reject_learning(proposals[4]['proposal_id'])['ok']
+
+    second=runtime.human_learning_pending_page(2,first['next_cursor'])
+    assert [row['proposal_id'] for row in second['items']]==[
+        proposals[2]['proposal_id'],proposals[0]['proposal_id']
+    ]
+    assert newest['proposal_id'] not in {
+        row['proposal_id'] for row in first['items']+second['items']
+    }
+    assert len({
+        row['proposal_id'] for row in first['items']+second['items']
+    })==4
+    assert runtime.human_learning_pending_page(0)=={
+        'items':[],'next_cursor':None,'has_more':False
+    }
