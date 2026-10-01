@@ -74,6 +74,17 @@ class LearningGate:
         finally: self._local.bypass_depth=max(0,int(getattr(self._local,'bypass_depth',1))-1)
     def request(self,kind,payload,summary=''):
         if self.bypassed: return None
+        validator=getattr(self,'external_validator',None)
+        if validator is not None and str(kind).startswith(('learning.','outcome.','memory.','knowledge.','procedural.','skills.','user_model.')):
+            candidate=json.dumps(payload,ensure_ascii=False,sort_keys=True,default=str)
+            try:
+                verdict=validator.validate(candidate, domain=str((payload or {}).get('domain','general')))
+            except Exception as exc:
+                return {'status':'validation_error','reason':'external_validator_error','error':str(exc)[:200]}
+            if str(verdict.get('decision','')).upper() != 'LEARN':
+                return None
+            payload=dict(payload or {})
+            payload['_external_validation']=verdict
         canonical=json.dumps(payload,ensure_ascii=False,sort_keys=True,default=str)
         proposal_id='learn_'+hashlib.sha256((str(kind)+'|'+canonical).encode('utf-8')).hexdigest()[:20]
         with self._lock, self._process_lock():

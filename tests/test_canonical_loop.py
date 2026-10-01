@@ -35,6 +35,7 @@ class CanonicalLoopTests(unittest.TestCase):
             pending = runtime.learning_pending()
             self.assertGreaterEqual(len(pending), 1)
             for proposal in list(pending):
+                runtime.submit_chatgpt_learning_review(proposal["proposal_id"], "test review: evidence and regression checks recorded")
                 runtime.approve_learning(proposal["proposal_id"])
             self.assertGreaterEqual(runtime.learning.stats()['experiences'], 1)
             self.assertGreaterEqual(snapshot['world']['observations'], 1)

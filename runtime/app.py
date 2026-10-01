@@ -68,6 +68,9 @@ class IranRuntime:
         self.config = json.loads((self.root / "config.json").read_text(encoding="utf-8-sig"))
         self.provider = create_provider(self.config)
         self.learning_gate = LearningGate(self.root / "data/learning_proposals.json")
+        if self.config.get("learning_validation",{}).get("enabled",True):
+            from providers.openrouter import OpenRouterProvider
+            self.learning_gate.external_validator = OpenRouterProvider(self.config)
         self.trusted_knowledge = TrustedKnowledgeBootstrap()
         self.self_directed_learning = SelfDirectedLearning(self.root / "data/learning_goals.json")
         # Bootstrap the complete foundational curriculum once, idempotently.
@@ -480,7 +483,9 @@ class IranRuntime:
         proposal=self.learning_gate.get(proposal_id)
         if not proposal: return {"ok":False,"reason":"proposal_not_found"}
         if proposal.get("status") != "pending": return {"ok":False,"reason":"proposal_not_pending","proposal":proposal}
-        review = self.chatgpt_learning_review_status(proposal_id)
+        external = (proposal.get("payload") or {}).get("_external_validation") or {}
+        external_learn = str(external.get("decision", "")).upper() == "LEARN"
+        review = self.chatgpt_learning_review_status(proposal_id) if not external_learn else {"reviewed": True, "source": "openrouter"}
         if not review.get("reviewed"):
             return {"ok":False,"reason":"chatgpt_review_required",
                     "message":"ابتدا این درخواست باید توسط ChatGPT بررسی و نتیجه بازبینی ثبت شود.",

@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (
  QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
  QLabel, QPushButton, QLineEdit, QPlainTextEdit, QTextBrowser,
  QListWidget, QComboBox, QCheckBox, QSplitter, QMessageBox,
- QDialog, QDialogButtonBox, QScrollArea, QFrame, QSizePolicy, QTabWidget
+ QDialog, QDialogButtonBox, QScrollArea, QFrame, QSizePolicy, QTabWidget, QInputDialog
 )
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
@@ -67,10 +67,14 @@ class ChatWindow(QMainWindow):
         self.runtime = IranRuntime(ROOT)
         self.last_answer = ""; self.messages = []; self.busy = False
         self.autonomy_busy = False
+        self.chatgpt_review_busy = False
         self.build(); self.load_session()
         self.autonomy_timer = QTimer(self)
         self.autonomy_timer.timeout.connect(self.run_autonomous_learning)
         self.autonomy_timer.start(7000)
+        self.chatgpt_review_timer = QTimer(self)
+        self.chatgpt_review_timer.timeout.connect(self.run_chatgpt_review_once)
+        self.chatgpt_review_timer.start(1000)
         QTimer.singleShot(1200, self.run_autonomous_learning)
     def build(self):
         root = QWidget(); self.setCentralWidget(root); outer = QVBoxLayout(root)
@@ -118,6 +122,7 @@ class ChatWindow(QMainWindow):
                    ("آزمون بنچمارک", self.run_benchmark), ("بازبینی یادگیری", self.review_pending_learning),
                    ("درس‌های یادگرفته‌شده", self.show_learned_lessons),
                    ("تایید همه یادگیری‌ها", self.approve_all_learning_ui),
+                   ("حذف کامل صف یادگیری", self.clear_all_learning_ui),
                    ("تنظیمات", self.show_settings)]
         for text, fn in buttons:
             b = QPushButton(text); b.clicked.connect(fn); l.addWidget(b)
@@ -155,6 +160,24 @@ class ChatWindow(QMainWindow):
         if self.autocopy.isChecked(): self.copy_response()
     def on_fail(self, text):
         self.add("خطا", text); self.status.setText("خطا"); self.busy = False; self.send.setEnabled(True); self.persist_session()
+
+    def run_chatgpt_review_once(self):
+        """The only GUI-triggered API path: one serialized worker invocation."""
+        if self.chatgpt_review_busy:
+            return
+        self.chatgpt_review_busy = True
+        try:
+            result = self.runtime.process_one_chatgpt_learning_review()
+            reason = result.get("reason") if isinstance(result, dict) else ""
+            if reason == "rate_limited" or reason == "cooldown":
+                self.chatgpt_pending.setText("ChatGPT: در انتظار / Rate Limit — تلاش بعدی: " + str(result.get("status", {}).get("next_allowed_at", "—")))
+            elif reason == "reviewed":
+                self.status.setText("یک Candidate توسط ChatGPT بررسی شد")
+            self.refresh_chatgpt_count()
+        except Exception as exc:
+            self.status.setText(f"ChatGPT: خطا — {type(exc).__name__}")
+        finally:
+            self.chatgpt_review_busy = False
     def _finish_worker(self, *args):
         thread = self.thread
         worker = self.worker
@@ -186,10 +209,52 @@ class ChatWindow(QMainWindow):
         except Exception as e:
             QMessageBox.warning(self, "خطا", str(e))
 
+    def clear_all_learning_ui(self):
+        answer = QMessageBox.question(
+            self, "حذف کامل صف یادگیری",
+            "همه درخواست‌های در انتظار یادگیری و همه درخواست‌های بازبینی ChatGPT حذف شوند؟\n\n"
+            "موارد ردشده حفظ می‌شوند. این کار قابل بازگشت نیست.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            proposals_path = ROOT / "data" / "learning_proposals.json"
+            reviews_path = ROOT / "data" / "chatgpt_reviews.json"
+            removed_pending = 0
+            if proposals_path.exists():
+                try:
+                    rows = json.loads(proposals_path.read_text(encoding="utf-8"))
+                except Exception:
+                    rows = []
+                if not isinstance(rows, list):
+                    rows = []
+                kept = [r for r in rows if str(r.get("status", "")) != "pending"]
+                removed_pending = len(rows) - len(kept)
+                proposals_path.write_text(json.dumps(kept, ensure_ascii=False, indent=2), encoding="utf-8")
+            removed_reviews = 0
+            if reviews_path.exists():
+                try:
+                    rows = json.loads(reviews_path.read_text(encoding="utf-8"))
+                except Exception:
+                    rows = []
+                removed_reviews = len(rows) if isinstance(rows, list) else 0
+                reviews_path.write_text("[]", encoding="utf-8")
+            self.refresh_learning_stats()
+            self.refresh_chatgpt_count()
+            self.refresh_events()
+            QMessageBox.information(
+                self, "صف پاک شد",
+                f"pending حذف‌شده: {removed_pending:,}\nبازبینی‌های ChatGPT حذف‌شده: {removed_reviews:,}\n\nصف برای شروع دوباره آماده است."
+            )
+        except Exception as e:
+            QMessageBox.warning(self, "خطا در پاک‌سازی", str(e))
+
     def review_pending_learning(self):
         """نمایش همه درخواست‌های یادگیری در انتظار تأیید."""
         try:
-            rows = self.runtime.learning_pending(200)
+            rows = self.runtime.human_learning_pending(200)
         except Exception as e:
             QMessageBox.warning(self, "بازبینی یادگیری", f"خطا: {e}")
             return
@@ -216,19 +281,41 @@ class ChatWindow(QMainWindow):
             lesson = str(payload.get("lesson", ""))
             kind = str(row.get("kind", ""))
             proposal_id = str(row.get("proposal_id", ""))
+            review = self.runtime.chatgpt_learning_review_status(proposal_id).get("row", {})
+            try:
+                chatgpt = json.loads(str(review.get("review", "{}")))
+            except Exception:
+                chatgpt = {}
             l.addWidget(QLabel(f"درخواست {index} از {len(rows)} | نوع: {kind} | شناسه: {proposal_id}"))
             box = QPlainTextEdit()
             box.setReadOnly(True)
-            box.setPlainText(f"هدف:\n{goal}\n\nعمل انجام‌شده:\n{action}\n\nنتیجه:\n{result}\n\nدرس استخراج‌شده:\n{lesson}\n\nامتیاز: {payload.get('score', '?')}\nXP این درخواست: 1,000,000")
+            box.setPlainText(
+                f"هدف:\n{goal}\n\nعمل انجام‌شده:\n{action}\n\nنتیجه:\n{result}\n\nدرس استخراج‌شده:\n{lesson}\n\n"
+                f"نظر ChatGPT: {chatgpt.get('answer', '')}\n"
+                f"دلیل ChatGPT: {chatgpt.get('reason', '')}\n"
+                f"اصلاحات پیشنهادی: {chatgpt.get('corrections', [])}\n"
+                f"اعتماد ChatGPT: {chatgpt.get('confidence', '?')}\n"
+                f"وضعیت ChatGPT: {'تأیید شده — منتظر تأیید شما' if review.get('chatgpt_decision') == 'learn' else 'رد شده توسط ChatGPT'}\n"
+                f"زمان بررسی: {review.get('reviewed_at', '—')}\n"
+                f"منبع: {review.get('source', 'learning_gate')}\n\n"
+                f"امتیاز: {payload.get('score', '?')}\nXP این درخواست: 1,000,000"
+            )
             l.addWidget(box, 1)
             buttons = QHBoxLayout()
             copy = QPushButton("کپی درخواست")
             reject = QPushButton("رد کردن")
             approve = QPushButton("تأیید و ثبت ۱,۰۰۰,۰۰۰ XP")
-            buttons.addWidget(copy); buttons.addWidget(reject); buttons.addWidget(approve); l.addLayout(buttons)
+            next_item = QPushButton("مورد بعدی")
+            buttons.addWidget(copy); buttons.addWidget(reject); buttons.addWidget(approve); buttons.addWidget(next_item); l.addLayout(buttons)
             copy.clicked.connect(lambda checked=False, text=box.toPlainText(): (QApplication.clipboard().setText(text), self.status.setText("درخواست کپی شد")))
             pid = proposal_id
             def do_approve(checked=False, proposal_id=pid, page=page):
+                # ChatGPT review is completed upstream through the MCP bridge.
+                # This button is the human approval gate only.
+                status = self.runtime.chatgpt_learning_review_status(proposal_id)
+                if not status.get("reviewed") or status.get("row", {}).get("chatgpt_decision") != "learn":
+                    QMessageBox.warning(d, "نیاز به بررسی ChatGPT", "این مورد هنوز توسط ChatGPT به عنوان درست تأیید نشده است.")
+                    return
                 r = self.runtime.approve_learning(proposal_id)
                 if not r.get("ok"):
                     QMessageBox.warning(d, "تأیید ناموفق", str(r)); return
@@ -247,6 +334,7 @@ class ChatWindow(QMainWindow):
                 if tab_index >= 0: tabs.removeTab(tab_index)
                 if tabs.count() == 0: d.reject()
             approve.clicked.connect(do_approve); reject.clicked.connect(do_reject)
+            next_item.clicked.connect(lambda checked=False, index=index: tabs.setCurrentIndex(min(index, tabs.count() - 1)))
             tabs.addTab(page, f"درخواست {index}")
         close = QPushButton("بستن")
         close.clicked.connect(d.reject)
@@ -290,10 +378,15 @@ class ChatWindow(QMainWindow):
 
     def refresh_chatgpt_count(self):
         try:
-            path = ROOT / "data" / "chatgpt_reviews.json"
-            rows = json.loads(path.read_text(encoding="utf-8")) if path.exists() else []
-            pending = sum(r.get("status", "pending") == "pending" for r in rows)
-            self.chatgpt_pending.setText(f"درخواست‌های بازبینی ChatGPT: {pending:,}")
+            status = self.runtime.chatgpt_review_status()
+            if status.get("cooldown"):
+                self.chatgpt_pending.setText(
+                    f"ChatGPT: در انتظار / Rate Limit | صف: {status.get('pending', 0):,} | تلاش بعدی: {status.get('next_allowed_at', '—')}"
+                )
+            else:
+                self.chatgpt_pending.setText(
+                    f"درخواست‌های بازبینی ChatGPT: {status.get('pending', 0):,} | بازبینی انسانی: {status.get('human_pending', 0):,}"
+                )
         except Exception:
             self.chatgpt_pending.setText("درخواست‌های بازبینی ChatGPT: خطا")
 

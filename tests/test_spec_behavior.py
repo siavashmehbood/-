@@ -65,6 +65,7 @@ class SpecificationBehaviorTests(unittest.TestCase):
             first = runtime.handle('/run first demo --tool bad_tool --expected correct --alternative good_tool')
             self.assertIn('task=success', first)
             for proposal in list(runtime.learning_pending()):
+                runtime.submit_chatgpt_learning_review(proposal["proposal_id"], "test review: evidence and regression checks recorded")
                 runtime.approve_learning(proposal["proposal_id"])
             second = runtime.handle('/run second demo --tool bad_tool --expected correct --alternative good_tool')
             self.assertIn('task=success', second)
