@@ -220,6 +220,7 @@ class ChatGPTReviewWorker:
                 # Do not resurrect a deleted/rejected candidate after an in-flight request.
                 if target is None or target.get("status") not in {"pending", "WAITING_FOR_REVIEWER"}:
                     return {"ok": False, "reason": "candidate_changed"}
+                target.pop("failure_reason", None)
                 target.update(row)
             state["next_allowed_at"] = self._iso(now + self.MIN_INTERVAL)
             state["backoff_seconds"] = 15

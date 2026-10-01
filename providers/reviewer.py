@@ -133,7 +133,7 @@ class ReviewerProvider:
             self.config['min_interval'] = bounded_number(config.get('min_interval', 15), 0, 86400)
             self.config['max_tokens'] = int(bounded_number(config.get('max_tokens', 512), 32, 4096))
             self.free_model_limit = int(bounded_number(config.get('free_model_limit', 25), 1, 50))
-            self.model_attempts = int(bounded_number(config.get('model_attempts', 4), 1, 12))
+            self.model_attempts = int(bounded_number(config.get('model_attempts', 4), 1, 25))
             self.config['free_models_ttl'] = bounded_number(config.get('free_models_ttl', 900), 60, 86400)
         except (ValueError, TypeError, OverflowError):
             self.invalid_config = True
