@@ -1,6 +1,9 @@
 import json
 from unittest.mock import Mock
 
+import pytest
+
+from persistence import StateCorruptionError
 from runtime.app import IranRuntime
 from security.review_decision_journal import ReviewDecisionJournal
 
@@ -97,3 +100,41 @@ def test_backup_recovery_is_visible_in_health_and_inspect(tmp_path):
     assert health["source"] == "backup"
     assert health["recovered_from_backup"] is True
     assert inspected == health
+
+
+@pytest.mark.parametrize(
+    "corruption",
+    ["tampered_primary", "tampered_backup", "unreadable_both"],
+)
+def test_corruption_matrix_fails_closed_without_rewriting_files(
+    tmp_path, corruption
+):
+    path = tmp_path / "review_decision_journal.json"
+    backup = path.with_suffix(path.suffix + ".bak")
+    first = review_row("first")
+    second = review_row("second")
+    journal = ReviewDecisionJournal(path)
+    journal.sync([first])
+    journal.sync([first, second])
+
+    if corruption == "tampered_primary":
+        events = json.loads(path.read_text(encoding="utf-8"))
+        events[0]["decision"] = "reject"
+        path.write_text(json.dumps(events), encoding="utf-8")
+    elif corruption == "tampered_backup":
+        path.write_bytes(b'{"interrupted":')
+        events = json.loads(backup.read_text(encoding="utf-8"))
+        events[0]["decision"] = "reject"
+        backup.write_text(json.dumps(events), encoding="utf-8")
+    else:
+        path.write_bytes(b'{"interrupted":')
+        backup.write_bytes(b'["interrupted"')
+
+    before = (path.read_bytes(), backup.read_bytes())
+    with pytest.raises(StateCorruptionError):
+        journal.status()
+    assert (path.read_bytes(), backup.read_bytes()) == before
+
+    with pytest.raises(StateCorruptionError):
+        journal.sync([first, second])
+    assert (path.read_bytes(), backup.read_bytes()) == before
