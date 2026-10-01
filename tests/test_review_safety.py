@@ -338,3 +338,28 @@ def test_zero_limit_bulk_actions_never_decide_a_proposal(runtime):
         runtime.learning_gate.get(row['proposal_id'])['status']=='pending'
         for row in proposals
     )
+
+
+def test_runtime_exposes_cursor_pages_without_mutating_learning(runtime):
+    proposals=[
+        runtime.learning_gate.request(
+            'memory.add_lesson',{'goal':f'page {index}','lesson':'safe'}
+        )
+        for index in range(3)
+    ]
+
+    first=runtime.learning_pending_page(2)
+    second=runtime.learning_pending_page(2,first['next_cursor'])
+    history=runtime.learning_history_page(2)
+
+    assert [row['proposal_id'] for row in first['items']]==[
+        proposals[2]['proposal_id'],proposals[1]['proposal_id']
+    ]
+    assert [row['proposal_id'] for row in second['items']]==[
+        proposals[0]['proposal_id']
+    ]
+    assert history['items']
+    assert all(
+        runtime.learning_gate.get(row['proposal_id'])['status']=='pending'
+        for row in proposals
+    )
