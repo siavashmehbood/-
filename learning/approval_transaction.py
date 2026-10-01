@@ -68,10 +68,11 @@ def approval_checkpoint(runtime, proposal_ids):
     paths = [runtime.trusted_knowledge_path, runtime.learning.rules_path,
              runtime.learning.lessons_path, runtime.skills.compositions_path]
     for name in ('knowledge', 'learning', 'effect_learning', 'outcome_learning',
-                 'procedural_memory', 'skills', 'self_directed_learning'):
+                 'procedural_memory', 'skills', 'self_directed_learning', 'learning_missions'):
         paths.append(getattr(runtime, name).path)
     files = {}
     dictionary_stores = {Path(runtime.effect_learning.path), Path(runtime.self_directed_learning.path)}
+    dictionary_stores.add(Path(runtime.learning_missions.path))
     for path in set(paths):
         path = Path(path)
         present = path.exists() or path.with_suffix(path.suffix + '.bak').exists()

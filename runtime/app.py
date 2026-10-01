@@ -43,6 +43,7 @@ from memory.consolidation import MemoryConsolidator
 from core.meta_reasoner import MetaReasoner
 from evaluation.regression import RegressionGate
 from learning.self_directed import SelfDirectedLearning
+from learning.missions import LearningMissionManager
 from learning.trusted_knowledge import TrustedKnowledgeBootstrap
 from learning.procedural_memory import ProceduralMemory
 from learning.skill_system import SkillSystem
@@ -89,6 +90,7 @@ class IranRuntime:
         self.chatgpt_review_worker = ChatGPTReviewWorker(self.root)
         self.trusted_knowledge = TrustedKnowledgeBootstrap()
         self.self_directed_learning = SelfDirectedLearning(self.root / "data/learning_goals.json")
+        self.learning_missions = LearningMissionManager(self.root / "data/learning_missions.json")
         # Curriculum goals are generated only by the autonomous learning intake.
         self.trusted_knowledge_path = self.root / "data/trusted_knowledge.json"
         load_critical_json(self.trusted_knowledge_path, [])
@@ -192,10 +194,170 @@ class IranRuntime:
 
     @serialized
     def handle(self, text):
+        mission_intent = self.learning_missions.parse_intent(text)
+        if mission_intent is not None:
+            return self._handle_learning_mission_intent(mission_intent, text)
         # One public ingress: capture the learning signal first, then route cognition.
         self.input_fabric.ingest(text, source="user", input_type="conversation",
                                  provenance={"channel": "runtime.handle"}, create_goal=True)
         return self.cognitive_system.dispatch(text)
+
+    def _handle_learning_mission_intent(self, intent, source_request=""):
+        action, topic = intent.get("action"), intent.get("topic", "")
+        if str(topic).strip().lower() in {"این موضوع", "همین موضوع", "موضوع فعلی", "this topic"}:
+            dialogue_state = getattr(getattr(self, "dialogue", None), "state", None)
+            topic = str(getattr(dialogue_state, "current_topic", "") or "").strip()
+            if not topic:
+                previous = self.learning_missions.find("")
+                topic = previous.get("title", "") if previous else ""
+            if not topic:
+                return "برای افزودن این موضوع، ابتدا موضوع را در گفت‌وگو مشخص کنید."
+        mission = self.learning_missions.find(topic)
+        if action == "create":
+            mission = self.learning_missions.create(
+                topic, intent.get("scope", "full"), source_request,
+                self.self_directed_learning.detect_domain(topic))
+            current = next((u for u in mission.get("units", []) if u.get("unit_id") == mission.get("current_unit")), None)
+            if current and current.get("status") in {"waiting_for_reviewer", "waiting_for_human"}:
+                return self.learning_missions.status_text(mission) + "\nاین درس در انتظار بررسی است و candidate تکراری ساخته نمی‌شود."
+            lesson = self.learning_missions.lesson(mission["mission_id"])
+            if lesson and lesson.get("ok") is not False:
+                return (f"مأموریت «{mission['title']}» ایجاد/بازیابی شد ({intent.get('scope', 'full')}). "
+                        f"برنامهٔ درسی {len(mission['units'])} بخش دارد.\n\n"
+                        f"درس آغازین — {lesson['objective']}\n{lesson['explanation']}\n"
+                        f"تمرین: {lesson['practice'][0]}\nآزمون: {lesson['assessment'][0]}\n"
+                        "پس از انجام تمرین، نتیجه و شواهد واقعی را ارسال کنید تا ارزیابی ثبت شود؛ تا آن زمان هیچ دانشی به مخزن پایدار اضافه نمی‌شود.")
+            return f"مأموریت «{topic}» ایجاد شد؛ پیش‌نیازهای درس فعلی هنوز باید گذرانده شوند."
+        if action == "status":
+            return self.learning_missions.status_text(mission)
+        if not mission:
+            return f"مأموریت «{topic or 'موضوع درخواستی'}» پیدا نشد؛ برای ساخت آن درخواست روشنِ «… را یاد بده» بفرستید."
+        if action == "pause":
+            self.learning_missions.pause(mission["mission_id"])
+            return f"مأموریت «{mission['title']}» متوقف شد؛ نقطهٔ ادامه ذخیره شد."
+        if action == "continue":
+            mission = self.learning_missions.resume(mission["mission_id"])
+            current = next((u for u in mission.get("units", []) if u.get("unit_id") == mission.get("current_unit")), None)
+            if current and current.get("status") in {"waiting_for_reviewer", "waiting_for_human"}:
+                return self.learning_missions.status_text(mission) + "\nاین درس در صف بازبینی/تأیید است؛ درس جدید یا candidate تکراری ایجاد نشد."
+            lesson = self.learning_missions.lesson(mission["mission_id"])
+            if lesson and lesson.get("ok") is False:
+                return f"مأموریت «{mission['title']}» از checkpoint بازیابی شد؛ پیش‌نیاز {lesson['missing']} هنوز کامل نشده است."
+            if lesson:
+                return f"مأموریت «{mission['title']}» از checkpoint ادامه یافت.\n{lesson['explanation']}\nتمرین: {lesson['practice'][0]}"
+            return self.learning_missions.status_text(mission)
+        return "فرمان مأموریت یادگیری شناخته نشد."
+
+    def learning_missions_status(self):
+        """Durable mission dashboard data; safe for GUI refreshes."""
+        return self.learning_missions.list()
+
+    def prepare_mission_lesson(self, mission_id, unit_id=None):
+        lesson = self.learning_missions.lesson(mission_id, unit_id)
+        if lesson and lesson.get("ok") is not False:
+            unit_id = lesson["unit_id"]
+            def apply(mission, state):
+                unit = next((u for u in mission["units"] if u["unit_id"] == unit_id), None)
+                if unit and unit.get("status") in {"planned", "remediation"}:
+                    unit["status"] = "practicing"
+                    mission["status"] = "practicing"
+                    mission["next_action"] = "complete_practice_and_assessment"
+                    mission["resume_checkpoint"] = unit_id
+            self.learning_missions._mutate(mission_id, apply)
+        return lesson
+
+    @staticmethod
+    def _mission_candidate_validation(unit, lesson, evidence):
+        text = " ".join(str(x) for x in (unit.get("title"), unit.get("expected_knowledge"), lesson, evidence)).lower()
+        meta_markers = ("edition was published", "published in 20", "نوبت چاپ", "ویرایش کتاب در", "تاریخ انتشار")
+        if any(marker in text for marker in meta_markers):
+            return False, "metadata_only"
+        target_tokens = set(re.findall(r"[\wآ-ی]+", (unit.get("title", "") + " " + unit.get("expected_knowledge", "")).lower()))
+        evidence_tokens = set(re.findall(r"[\wآ-ی]+", str(evidence).lower()))
+        target_tokens -= {"a", "an", "the", "in", "for", "and", "of", "to", "can", "learner", "explain", "accurately", "check", "study", "focused", "on", "را", "در", "از", "و", "به"}
+        overlap = len(target_tokens & evidence_tokens) / max(1, len(target_tokens))
+        if len(evidence_tokens) < 5 or overlap < .15:
+            return False, "topic_drift"
+        if not str(lesson).strip():
+            return False, "insufficient_learning_value"
+        return True, "accepted"
+
+    @serialized
+    def submit_mission_assessment(self, mission_id, unit_id, score, evidence,
+                                  practice_result="", transfer_success=False,
+                                  weak_concepts=None, lesson_text=None, sources=None):
+        """Persist assessment and, on pass, stage a mission candidate pre-Gate."""
+        mission = self.learning_missions.get(mission_id)
+        if not mission:
+            return {"ok": False, "reason": "mission_not_found"}
+        unit = next((u for u in mission["units"] if u["unit_id"] == unit_id), None)
+        if not unit:
+            return {"ok": False, "reason": "unit_not_found"}
+        lesson = lesson_text or (self.learning_missions.lesson(mission_id, unit_id) or {}).get("explanation", "")
+        valid, reason = self._mission_candidate_validation(unit, lesson, str(evidence))
+        if not valid:
+            return {"ok": False, "reason": reason, "reason_code": reason}
+        outcome = self.learning_missions.record_assessment(
+            mission_id, unit_id, score, evidence, practice_result, transfer_success, weak_concepts)
+        if not outcome or not outcome.get("ok") or outcome.get("remediation"):
+            return outcome or {"ok": False, "reason": "assessment_not_recorded"}
+        assessment = outcome["assessment"]
+        if outcome.get("duplicate"):
+            rows = load_critical_json(self._chatgpt_review_path(), [])
+            existing = next((r for r in rows if (r.get("payload") or {}).get("mission_id") == mission_id
+                             and (r.get("payload") or {}).get("unit_id") == unit_id
+                             and (r.get("payload") or {}).get("assessment_result", {}).get("assessment_id") == assessment.get("assessment_id")), None)
+            if existing:
+                return {**outcome, "candidate": existing, "gate_unchanged": True}
+        prior_evidence = " ".join(str(e.get("evidence", "")) for e in unit.get("evidence_history", []))
+        relevance_score = self.self_directed_learning.relevance(unit["title"], evidence)
+        novelty_score = self.self_directed_learning.novelty(unit["title"], evidence, prior_evidence)
+        domain = mission.get("domain", "general")
+        candidate_type = ("language" if domain in {"english", "persian_literature", "arabic"} else
+                          "skill" if domain in {"programming", "computer_science"} else "lesson")
+        payload = {
+            "goal": mission["title"], "lesson": lesson,
+            "confidence": float(assessment["score"]), "source": "learning_mission_assessment",
+            "domain": mission.get("domain", "general"), "mission_id": mission_id,
+            "mission_title": mission["title"], "unit_id": unit_id,
+            "unit_title": unit["title"], "learning_objective": unit["objectives"][0],
+            "candidate_type": candidate_type, "claim": lesson, "evidence": str(evidence),
+            "sources": list(sources or []), "practice_result": str(practice_result),
+            "assessment_result": assessment, "novelty_score": novelty_score,
+            "relevance_score": relevance_score, "learning_value_score": round((relevance_score + assessment["score"]) / 2, 4),
+            "expected_effect": unit["expected_skill"],
+            "prerequisite_context": unit.get("prerequisites", []),
+            "why_this_should_be_learned": unit["description"],
+        }
+        candidate = self.queue_learning_candidate("memory.add_lesson", payload,
+                                                  f"{mission['title']} — {unit['title']}")
+        self.learning_missions.mark_candidate(mission_id, unit_id, candidate["proposal_id"])
+        return {**outcome, "candidate": candidate, "gate_unchanged": True}
+
+    @serialized
+    def record_mission_effect(self, mission_id, unit_id, verified, score, observation,
+                              transfer_success=False):
+        """Record post-approval transfer evidence and feed its result to Effect Learning."""
+        mission = self.learning_missions.get(mission_id)
+        unit = next((u for u in (mission or {}).get("units", []) if u.get("unit_id") == unit_id), None)
+        if not mission or not unit:
+            return {"ok": False, "reason": "mission_or_unit_not_found"}
+        if unit.get("status") != "mastered" or not unit.get("approved_learning_ids"):
+            return {"ok": False, "reason": "human_approved_learning_required"}
+        verified = bool(verified and transfer_success)
+        result = self.effect_learning.evaluate(
+            mission["title"], "mission_unit_transfer_assessment", str(observation),
+            unit.get("expected_skill", ""),
+            {"verified": verified, "score": float(score), "effect_observed": verified,
+             "source": "mission_transfer_assessment"},
+            strategy="learning_mission", domain=mission.get("domain", "general"),
+            episode_id=f"{mission_id}:{unit_id}", attempt=len(unit.get("effect_history", [])) + 1,
+            allow_credit=False)
+        updated = self.learning_missions.record_effect(mission_id, unit_id, verified, score, observation)
+        self.events.emit("mission_effect_evaluated", {
+            "mission_id": mission_id, "unit_id": unit_id,
+            "verified": verified, "score": float(score), "effect": result.get("effect")})
+        return {"ok": True, "mission": updated, "effect_learning": result}
 
     @serialized
     def ingest_input(self, content, source="system", input_type="other", **kwargs):
@@ -415,7 +577,10 @@ class IranRuntime:
 
     @serialized
     def maintenance_step(self):
-        return {"local":self.autonomous_supervisor_step(), "learning":self.learning_tick()}
+        local = self.autonomous_supervisor_step()
+        learning = self.learning_tick()
+        mission_work = self.learning_missions.next_unit_fair()
+        return {"local": local, "learning": learning, "mission_scheduler": mission_work}
 
     def observe_knowledge_use(self, question, answer):
         """Record actual reuse of an approved claim; feedback alone cannot award XP."""
@@ -535,6 +700,17 @@ class IranRuntime:
         """Run one external validation; only LEARN candidates reach the human queue."""
         self.sync_chatgpt_learning_reviews()
         result = self.chatgpt_review_worker.process_one()
+        if result.get("ok") and result.get("reason") == "reviewed" and result.get("proposal_id"):
+            row = self.chatgpt_learning_review_status(result["proposal_id"]).get("row", {})
+            payload = row.get("payload", {}) or {}
+            if row.get("source") == "learning_candidate" and payload.get("mission_id") and payload.get("unit_id"):
+                try:
+                    review = json.loads(str(row.get("review", "{}")))
+                except (TypeError, ValueError):
+                    review = {}
+                self.learning_missions.mark_review(
+                    payload["mission_id"], payload["unit_id"], result["proposal_id"],
+                    "learn" if result.get("learn") else "reject", review.get("reason", ""), source="reviewer")
         if result.get("ok") and result.get("reason") == "reviewed" and result.get("learn") is False:
             proposal_id = result.get("proposal_id")
             review = self.chatgpt_learning_review_status(proposal_id) if proposal_id else {}
@@ -647,9 +823,16 @@ class IranRuntime:
             gate_id = gate.get("proposal_id")
             if gate.get("status") == "approved":
                 self._set_human_review_status(proposal_id, "approved", gate_id, source)
+                payload = row.get("payload", {}) or {}
+                if payload.get("mission_id") and payload.get("unit_id"):
+                    self.learning_missions.mark_approved(
+                        payload["mission_id"], payload["unit_id"], proposal_id, gate_id,
+                        approval_source=source)
                 return {"ok": True, "proposal": gate, "result": {"already_applied": True},
                         "reviewer_decision": "learn", "candidate_id": proposal_id}
-            with approval_checkpoint(self, {gate_id}):
+            # A staged learning candidate has a different stable ID from the
+            # Gate proposal created only after human approval; checkpoint both.
+            with approval_checkpoint(self, {gate_id, proposal_id}):
                 result = self._approve_learning(gate_id, review_id=proposal_id, human_source=source)
                 if result.get("ok"):
                     result["candidate_id"] = proposal_id
@@ -702,6 +885,12 @@ class IranRuntime:
             else: return {"ok":False,"reason":"unsupported_proposal_kind","kind":kind}
         decision=self.learning_gate.decide(proposal_id,"approved")
         self._set_human_review_status(review_key, "approved", proposal_id, human_source)
+        if p.get("mission_id") and p.get("unit_id"):
+            learned_id = ((result.get("lesson_id") or result.get("id")) if isinstance(result, dict) else result)
+            self.learning_missions.mark_approved(
+                p["mission_id"], p["unit_id"], review_key, proposal_id,
+                learned_id,
+                approval_source=human_source)
         self.events.emit("learning_approved",{"proposal_id":proposal_id,"candidate_id":review_key,"kind":kind,"approval_source":human_source})
         return {"ok":True,"proposal":decision,"result":result,
                 "reviewer_decision":review.get("row", {}).get("chatgpt_decision", "unknown")}
@@ -743,6 +932,10 @@ class IranRuntime:
             if review.get("row", {}).get("status") != "human_pending":
                 return {"ok":False,"reason":"candidate_not_human_pending"}
             self._set_human_review_status(proposal_id, "rejected")
+            payload = review.get("row", {}).get("payload", {}) or {}
+            if payload.get("mission_id") and payload.get("unit_id"):
+                self.learning_missions.mark_review(payload["mission_id"], payload["unit_id"], proposal_id,
+                                                   "reject", "human_rejected", source="human")
             self.events.emit("learning_rejected",{"candidate_id":proposal_id,"kind":review.get("row",{}).get("kind")})
             return {"ok":True,"candidate":review.get("row")}
         result=self.learning_gate.decide(proposal_id,"rejected")

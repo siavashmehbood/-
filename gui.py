@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
 from runtime.app import IranRuntime
+from learning.missions import format_mission_candidate_review
 
 _GUI_LOCK_HANDLE = None
 
@@ -161,6 +162,21 @@ class ChatWindow(QMainWindow):
 
         learning = QWidget(); ll = QVBoxLayout(learning); ll.setSpacing(8)
         ll.addWidget(QLabel("یادگیری و بازبینی", objectName="sectionTitle"))
+        ll.addWidget(QLabel("مأموریت‌های یادگیری", objectName="sectionTitle"))
+        self.mission_rows = QListWidget(); self.mission_rows.setObjectName("learningMissions"); self.mission_rows.setFixedHeight(120)
+        ll.addWidget(self.mission_rows)
+        self.mission_status = QLabel("مأموریتی ثبت نشده است."); self.mission_status.setObjectName("metric"); self.mission_status.setWordWrap(True)
+        ll.addWidget(self.mission_status)
+        mission_buttons = QHBoxLayout()
+        self.mission_pause_button = QPushButton("توقف مأموریت")
+        self.mission_resume_button = QPushButton("ادامه مأموریت")
+        self.mission_lesson_button = QPushButton("درس / ثبت ارزیابی")
+        self.mission_pause_button.clicked.connect(self.pause_selected_mission)
+        self.mission_resume_button.clicked.connect(self.resume_selected_mission)
+        self.mission_lesson_button.clicked.connect(self.assess_selected_mission)
+        mission_buttons.addWidget(self.mission_pause_button); mission_buttons.addWidget(self.mission_resume_button)
+        mission_buttons.addWidget(self.mission_lesson_button)
+        ll.addLayout(mission_buttons)
         self.experience_xp = QLabel("XP تأییدشده: ۰"); self.experience_xp.setWordWrap(True); ll.addWidget(self.experience_xp)
         self.chatgpt_pending = QLabel("درخواست‌های بازبینی ناظر: ۰")
         self.online_review_status = QLabel("ناظر آنلاین: —"); self.duplicate_warning = QLabel("ورودی تکراری: —")
@@ -377,17 +393,17 @@ class ChatWindow(QMainWindow):
             l.addWidget(QLabel(f"درخواست {index} از {len(rows)} | نوع: {kind} | شناسه: {proposal_id}"))
             box = QPlainTextEdit()
             box.setReadOnly(True)
-            box.setPlainText(
-                f"هدف:\n{goal}\n\nعمل انجام‌شده:\n{action}\n\nنتیجه:\n{result}\n\nدرس استخراج‌شده:\n{lesson}\n\n"
-                f"نظر ناظر: {chatgpt.get('answer', '')}\n"
-                f"دلیل ناظر: {chatgpt.get('reason', '')}\n"
-                f"اصلاحات پیشنهادی: {chatgpt.get('corrections', [])}\n"
-                f"اعتماد ناظر: {chatgpt.get('confidence', '?')}\n"
-                f"وضعیت ناظر: {'تأیید شده — منتظر تأیید شما' if review.get('chatgpt_decision') == 'learn' else 'رد شده توسط ناظر'}\n"
-                f"زمان بررسی: {review.get('reviewed_at', '—')}\n"
-                f"منبع: {review.get('source', 'learning_gate')}\n\n"
-                f"امتیاز: {payload.get('score', '?')}\nمحتوای کامل و منابع:\n{json.dumps(payload, ensure_ascii=False, indent=2)}"
-            )
+            if payload.get("mission_id") or payload.get("candidate_type"):
+                detail = format_mission_candidate_review(row, chatgpt)
+            else:
+                detail = (f"هدف:\n{goal}\n\nعمل انجام‌شده:\n{action}\n\nنتیجه:\n{result}\n\nدرس استخراج‌شده:\n{lesson}\n\n"
+                          f"نظر ناظر: {chatgpt.get('answer', '')}\nدلیل ناظر: {chatgpt.get('reason', '')}\n"
+                          f"اعتماد ناظر: {chatgpt.get('confidence', '?')}\nوضعیت: {review.get('status', '—')}\n")
+            detail += (f"\nزمان بررسی: {review.get('reviewed_at', '—')}"
+                       f"\nاصلاحات پیشنهادی: {chatgpt.get('corrections', [])}"
+                       f"\nمنبع: {review.get('source', 'learning_gate')}"
+                       f"\n\nمحتوای کامل و منابع:\n{json.dumps(payload, ensure_ascii=False, indent=2)}")
+            box.setPlainText(detail)
             l.addWidget(box, 1)
             buttons = QHBoxLayout()
             copy = QPushButton("کپی درخواست")
@@ -577,8 +593,73 @@ class ChatWindow(QMainWindow):
                 f"درس‌های واقعی: {stats.get('verified_lessons', 0):,} | "
                 f"قواعد یادگرفته‌شده: {len(getattr(self.runtime.learning, 'learned_rules', []) or []):,}"
             )
+            self.refresh_missions()
         except Exception as e:
             self.experience_xp.setText(f"یادگیری: خطا در دریافت وضعیت — {e}")
+
+    def refresh_missions(self):
+        try:
+            rows = self.runtime.learning_missions_status()
+            selected = self.mission_rows.currentItem().data(Qt.UserRole) if self.mission_rows.currentItem() else None
+            self.mission_rows.clear()
+            for mission in rows:
+                current = next((u for u in mission.get("units", []) if u.get("unit_id") == mission.get("current_unit")), None)
+                review_wait = sum(x.get("status") == "waiting_for_reviewer" for x in mission.get("candidate_history", []))
+                human_wait = sum(x.get("status") == "human_pending" for x in mission.get("candidate_history", []))
+                text = (f"{mission.get('title')} | {mission.get('progress_percent', 0)}٪ | "
+                        f"{mission.get('current_level', '—')} | {current.get('title', 'پایان‌یافته') if current else 'پایان‌یافته'} | "
+                        f"ناظر: {review_wait}، انسان: {human_wait} | بعدی: {mission.get('next_action', '—')}")
+                self.mission_rows.addItem(text)
+                item = self.mission_rows.item(self.mission_rows.count() - 1)
+                item.setData(Qt.UserRole, mission.get("mission_id"))
+                if mission.get("mission_id") == selected: self.mission_rows.setCurrentItem(item)
+            self.mission_status.setText(
+                " | ".join(f"{m.get('title')}: نقاط ضعف {len(m.get('weak_units', []))}; "
+                           f"گام بعدی {m.get('next_action', '—')}" for m in rows) or "مأموریتی ثبت نشده است.")
+        except Exception as exc:
+            self.mission_status.setText(f"وضعیت مأموریت‌ها در دسترس نیست: {type(exc).__name__}")
+
+    def _selected_mission_id(self):
+        item = self.mission_rows.currentItem() if hasattr(self, "mission_rows") else None
+        return item.data(Qt.UserRole) if item else None
+
+    def pause_selected_mission(self):
+        mission_id = self._selected_mission_id()
+        if mission_id:
+            self._start_job("mission_pause", lambda: self.runtime.learning_missions.pause(mission_id),
+                            lambda result: self.refresh_missions())
+
+    def resume_selected_mission(self):
+        mission_id = self._selected_mission_id()
+        if mission_id:
+            self._start_job("mission_resume", lambda: self.runtime.learning_missions.resume(mission_id),
+                            lambda result: self.refresh_missions())
+
+    def assess_selected_mission(self):
+        mission_id = self._selected_mission_id()
+        if not mission_id: return
+        lesson = self.runtime.prepare_mission_lesson(mission_id)
+        if not lesson:
+            self._dialog("مأموریت", "درس جاری پیدا نشد."); return
+        if lesson.get("ok") is False:
+            self._dialog("پیش‌نیاز", f"این درس تا تکمیل پیش‌نیاز قابل شروع نیست: {lesson.get('missing', [])}"); return
+        self._dialog("درس مأموریت", json.dumps(lesson, ensure_ascii=False, indent=2))
+        evidence, accepted = QInputDialog.getMultiLineText(
+            self, "ثبت شواهد ارزیابی", "شرح تمرین، پاسخ و شاهد قابل بررسی:")
+        if not accepted or not evidence.strip(): return
+        score, accepted = QInputDialog.getDouble(
+            self, "نتیجه ارزیابی", "نمره ارزیابی (۰ تا ۱):", .8, 0.0, 1.0, 2)
+        if not accepted: return
+        transfer = QMessageBox.question(
+            self, "آزمون انتقال", "آیا یک مثال تازه/انتقالی را با موفقیت حل کردید؟",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No) == QMessageBox.StandardButton.Yes
+        self._start_job("mission_assessment", lambda: self.runtime.submit_mission_assessment(
+            mission_id, lesson["unit_id"], score, evidence, evidence, transfer),
+            lambda result: (self.status.setText("candidate در صف داوری قرار گرفت" if result.get("candidate") else
+                                                "ارزیابی ثبت شد؛ بخش نیازمند تمرین مجدد است" if result.get("remediation") else
+                                                "ارزیابی ثبت نشد: " + str(result.get("reason", "نامشخص"))),
+                            self.refresh_missions()))
 
     def refresh_events(self):
         try:
@@ -693,4 +774,3 @@ if __name__ == "__main__":
     #sourceLabel { font-weight:700; color:#cbd5e1; }
     """)
     window = ChatWindow(); window.show(); sys.exit(app.exec())
-
