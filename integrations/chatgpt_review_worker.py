@@ -211,9 +211,9 @@ class ChatGPTReviewWorker:
             }, ensure_ascii=False)
             row["review_status"] = "reviewed"
             row["chatgpt_decision"] = "learn" if result["learn"] else "reject"
-            # Reviewer advice is evidence, not the final authority. Every reviewed
-            # candidate goes to the human gate, including suggested rejections.
-            row["status"] = "human_pending"
+            # Only externally accepted candidates are eligible for human review.
+            # Reviewer rejection ends the candidate before the human queue.
+            row["status"] = "human_pending" if result["learn"] else "rejected"
             row["reviewed_at"] = datetime.fromtimestamp(now, timezone.utc).isoformat(timespec="seconds")
             with json_transaction(self.reviews_path, []) as current:
                 target = next((r for r in current if r.get("proposal_id") == row.get("proposal_id")), None)

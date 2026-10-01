@@ -1,5 +1,5 @@
-{
-  "name": "ایران",
+﻿{
+  "name": "Ø§ÛŒØ±Ø§Ù†",
   "version": "0.54.0",
   "model": {
     "provider": "iran",
@@ -65,7 +65,7 @@
         },
         "dynamic_free_models": true,
         "free_model_limit": 25,
-        "model_attempts": 4,
+        "model_attempts": 8,
         "free_models_ttl": 900
       },
       "gemini": {
@@ -146,3 +146,4 @@
     "zero_budget_credentials_allowed": true
   }
 }
+

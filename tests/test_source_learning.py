@@ -107,3 +107,56 @@ def test_runtime_claim_reuse_records_retrieval_without_promoting_goal(tmp_path):
     assert current.assessments[0]['kind']=='retrieval'
     assert r.effect_learning.stats()['xp']==1_000_000
     r.close()
+
+
+def test_learning_engine_uses_search_when_no_static_source_matches(tmp_path, monkeypatch):
+    shutil.copy(Path(__file__).parents[1]/'config.json',tmp_path)
+    r=IranRuntime(tmp_path); r.internet_access.enable()
+    engine=r.internet_learning
+    monkeypatch.setattr(engine,'discover',lambda topic: [])
+    urls=['https://one.example.org/doc','https://two.example.net/api']
+    monkeypatch.setattr(engine,'search',lambda topic,limit=6: list(urls))
+    claim='منظومه شمسی شامل خورشید و اجرامی است که به دور آن می‌گردند.'
+    def fake_fetch(url,max_chars=30000):
+        return {'url':url,'title':'منظومه شمسی','text':claim,'source_type':'documentation',
+                'confidence':.9,'retrieved_at':'2026-01-01'}
+    monkeypatch.setattr(engine,'fetch',fake_fetch)
+    result=engine.learn('منظومه شمسی',auto=True)
+    assert result['discovery_path']=='search'
+    assert result['sources_fetched']==2
+    assert result.get('review')
+    assert result['review']['kind']=='trusted_knowledge.bootstrap'
+    assert not any(x.get('kind')=='learning.goal_request' for x in r.learning_gate.pending(20))
+    r.close()
+
+
+def test_learning_tick_does_not_require_static_source_mapping(tmp_path, monkeypatch):
+    shutil.copy(Path(__file__).parents[1]/'config.json',tmp_path)
+    r=IranRuntime(tmp_path); r.internet_access.enable()
+    goal=r.self_directed_learning.create_goal('موضوع خودکار آزمایشی','missing_knowledge','learn it','medium','general')
+    r.self_directed_learning.prioritize=lambda limit:[{'goal':goal}]
+    monkeypatch.setattr(r.internet_learning,'discover',lambda topic: [])
+    called=[]
+    def fake_learn(topic,urls=None,auto=True):
+        called.append(topic); return {'ok':False,'reason':'no_sources'}
+    monkeypatch.setattr(r,'learn_from_internet',fake_learn)
+    result=r.learning_tick()
+    assert called==['موضوع خودکار آزمایشی']
+    assert result['reason']=='no_sources'
+    r.close()
+
+
+def test_multilingual_entity_sources_can_form_reviewable_agreement():
+    rows=[
+        {'url':'https://fa.wikipedia.org/api/rest_v1/page/summary/solar',
+         'title':'منظومه شمسی','text':'منظومهٔ شمسی سامانه‌ای گرانشی است که خورشید و اجرام آسمانی پیرامون آن را دربر می‌گیرد.',
+         'confidence':.9,'retrieved_at':'2026-01-01','source_type':'reference'},
+        {'url':'https://www.wikidata.org/w/api.php?q=solar',
+         'title':'Wikidata','text':'منظومه شمسی: Solar System: the Sun, its planets and their moons.',
+         'confidence':.9,'retrieved_at':'2026-01-01','source_type':'structured_api'},
+    ]
+    bundle=TrustedKnowledgeBootstrap().build('منظومه شمسی',rows)
+    assert bundle['status']=='ready_for_review'
+    assert bundle['agreements']
+    assert bundle['agreements'][0]['corroboration']=='multilingual_entity_identity'
+    assert set(bundle['agreements'][0]['independent_sources'])=={'wikipedia.org','wikidata.org'}

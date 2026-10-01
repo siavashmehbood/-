@@ -195,6 +195,47 @@ class TrustedKnowledgeBootstrap:
                     "corroboration": "cross_source_paraphrase",
                 })
 
+        # Multilingual/entity fallback: a structured entity registry and a rich
+        # reference article may describe the same topic in different languages,
+        # making raw token similarity artificially low. Accept only when both
+        # independent sources are strongly topic-relevant, extraction is complete,
+        # each has a claim explicitly touching the topic, and no conflict exists.
+        if not agreements and not conflicts and len(usable) >= 2 and _tokens(topic):
+            topic_tokens = _tokens(topic)
+            best_pair = None
+            for i, left in enumerate(usable):
+                for right in usable[i + 1:]:
+                    if left.domain == right.domain:
+                        continue
+                    pair_relevance = sorted((left.relevance, right.relevance))
+                    source_types = {left.source_type, right.source_type}
+                    strong_pair = pair_relevance[0] >= .75 or (
+                        pair_relevance[1] >= .75 and pair_relevance[0] >= .30
+                        and "structured_api" in source_types
+                    )
+                    if not strong_pair:
+                        continue
+                    lclaims = [c for c in (left.claims or []) if _tokens(c) & topic_tokens]
+                    rclaims = [c for c in (right.claims or []) if _tokens(c) & topic_tokens]
+                    if not lclaims or not rclaims:
+                        continue
+                    lc = max(lclaims, key=lambda x: len(_tokens(x)))
+                    rc = max(rclaims, key=lambda x: len(_tokens(x)))
+                    richness = len(_tokens(lc)) + len(_tokens(rc))
+                    if best_pair is None or richness > best_pair[0]:
+                        best_pair = (richness, lc, rc, left, right)
+            if best_pair:
+                _, lc, rc, left, right = best_pair
+                representative = lc if len(_tokens(lc)) >= len(_tokens(rc)) else rc
+                corroborating = rc if representative == lc else lc
+                agreements.append({
+                    "claim": representative,
+                    "corroborating_claim": corroborating,
+                    "independent_sources": sorted({left.domain or left.source_id, right.domain or right.source_id}),
+                    "support": 2,
+                    "corroboration": "multilingual_entity_identity",
+                })
+
         if conflicts:
             agreements = []
 

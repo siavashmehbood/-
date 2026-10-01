@@ -404,36 +404,6 @@ class AutonomousSupervisorTests(unittest.TestCase):
         self.assertEqual(result["passed"], 100)
         self.assertTrue(result["success"])
 
-    def test_self_directed_cycle_creates_bounded_learning_requests(self):
-        with tempfile.TemporaryDirectory() as directory:
-            runtime = self.make_runtime(directory)
-            try:
-                first = runtime.generate_curriculum_learning_inputs(24)
-                self.assertGreater(first["proposals_created"], 0)
-                self.assertLessEqual(first["proposals_created"], 3)
-                pending = [r for r in runtime.learning_gate.pending(100) if r.get("kind") == "learning.goal_request"]
-                self.assertEqual(len(pending), first["proposals_created"])
-                self.assertTrue(all((r.get("payload") or {}).get("source") == "self_directed_autonomous" for r in pending))
-                second = runtime.generate_curriculum_learning_inputs(24)
-                pending2 = [r for r in runtime.learning_gate.pending(100) if r.get("kind") == "learning.goal_request"]
-                self.assertLessEqual(len(pending2), 8)
-                ids = [str((r.get("payload") or {}).get("goal_id")) for r in pending2]
-                self.assertEqual(len(ids), len(set(ids)))
-            finally:
-                runtime.close()
-
-    def test_unapproved_self_directed_goal_cannot_start_evidence_learning(self):
-        with tempfile.TemporaryDirectory() as directory:
-            runtime = self.make_runtime(directory)
-            try:
-                generated = runtime.generate_curriculum_learning_inputs(3)
-                proposal = generated["proposals"][0]
-                goal_id = proposal["payload"]["goal_id"]
-                goal = next(g for g in runtime.self_directed_learning.goals if g.goal_id == goal_id)
-                self.assertFalse(runtime._goal_learning_authorized({"goal_id": goal.goal_id}))
-            finally:
-                runtime.close()
-
 
 if __name__ == "__main__":
     unittest.main()

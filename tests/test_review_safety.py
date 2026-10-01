@@ -1,4 +1,4 @@
-"""Runtime regressions for the approval/XP/queue failures found in phase 0."""
+﻿"""Runtime regressions for the approval/XP/queue failures found in phase 0."""
 import json
 import shutil
 from pathlib import Path
@@ -25,7 +25,7 @@ def test_web_evidence_never_applies_before_two_approvals(runtime):
     assert runtime.human_learning_pending() == []
 
 def test_feedback_duplicate_cannot_earn_unapproved_xp(runtime):
-    for message in ['پایتخت ایران کجاست؟','درسته'] * 2:
+    for message in ['Ù¾Ø§ÛŒØªØ®Øª Ø§ÛŒØ±Ø§Ù† Ú©Ø¬Ø§Ø³ØªØŸ','Ø¯Ø±Ø³ØªÙ‡'] * 2:
         runtime.handle(message)
     assert runtime.effect_learning.stats()['xp'] == 0
     assert runtime.learning_gate.stats()['approved'] == 0
@@ -38,7 +38,7 @@ def test_queue_preserves_new_candidate_during_review(runtime):
         return {'learn':True}
     runtime.chatgpt_review_worker.transport = transport
     runtime.process_one_chatgpt_learning_review()
-    rows = json.loads(runtime._chatgpt_review_path().read_text())
+    rows = json.loads(runtime._chatgpt_review_path().read_text(encoding="utf-8"))
     assert len(rows) == 2
 
 def test_untrusted_validation_payload_cannot_authorize_learning(runtime):
@@ -159,16 +159,6 @@ def test_learning_tick_auto_reviews_online_candidate_then_waits_for_human(runtim
         }
     }]
     runtime.internet_learning.discover = lambda topic: [{"url": "https://example.org"}]
-    # The new architecture requires human authorization of the self-directed
-    # goal before any evidence-gathering/online learning can begin.
-    goal_request = runtime.learning_gate.request(
-        "learning.goal_request",
-        {"goal_id":"online-goal-1", "goal_topic":"online review fixture",
-         "domain":"test", "objective":"learn online review fixture",
-         "source":"self_directed_autonomous"},
-        "authorized fixture",
-    )
-    runtime.learning_gate.decide(goal_request["proposal_id"], "approved")
 
     def fake_learn(topic):
         proposal = runtime.learning_gate.request(

@@ -64,16 +64,53 @@ class InternetLearningEngine:
             raw = response.read(max_chars * 4 + 1).decode("utf-8", errors="replace")
             content_type = response.headers.get("Content-Type", "")
         source_type = spec.get("type", "web")
+        host = urllib.parse.urlparse(str(url)).netloc.lower()
+        path = urllib.parse.urlparse(str(url)).path.lower()
+        if "wikidata.org" in host and "/w/api.php" in path:
+            source_type = "structured_api"
+        elif "wikipedia.org" in host and "/api/rest_v1/page/summary/" in path:
+            source_type = "reference"
         if source_type == "structured_api" or "application/json" in content_type:
             value = json.loads(raw)
             for key in str(spec.get("text_path", "")).split("."):
                 if key: value = value[int(key)] if isinstance(value, list) else value[key]
-            text = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
+            if isinstance(value, dict) and isinstance(value.get("extract"), str):
+                # Wikimedia REST summary: use clean prose, not JSON metadata.
+                title = str(value.get("title") or value.get("displaytitle") or spec.get("title") or "").strip()
+                description = str(value.get("description") or "").strip()
+                extract = str(value.get("extract") or "").strip()
+                text = ". ".join(x for x in (title, description, extract) if x)
+            elif isinstance(value, dict) and isinstance(value.get("search"), list):
+                # Wikidata search: preserve the queried/matched label and concise
+                # descriptions as sentence-like evidence instead of a huge JSON blob.
+                sentences = []
+                query_text = str((value.get("searchinfo") or {}).get("search") or "").strip()
+                for item in value.get("search", [])[:8]:
+                    if not isinstance(item, dict):
+                        continue
+                    match = item.get("match") or {}
+                    matched = str(match.get("text") or query_text or item.get("label") or "").strip()
+                    label = str(item.get("label") or "").strip()
+                    description = str(item.get("description") or "").strip()
+                    sentence = ": ".join(x for x in (matched, label, description) if x)
+                    if sentence:
+                        sentences.append(sentence.rstrip(".") + ".")
+                text = " ".join(sentences) if sentences else json.dumps(value, ensure_ascii=False)
+            else:
+                text = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
         else:
             # Remove navigation, script and style blocks before sentence extraction.
             raw = re.sub(r"(?is)<(nav|header|footer|aside)\b[^>]*>.*?</\1>", " ", raw)
             text = self._strip_html(raw)
-        return {"url":str(url), "title":spec.get("title") or self._title(raw) or str(url),
+        resolved_title = spec.get("title") or self._title(raw) or str(url)
+        if "application/json" in content_type:
+            try:
+                parsed_title = json.loads(raw)
+                if isinstance(parsed_title, dict):
+                    resolved_title = parsed_title.get("title") or parsed_title.get("displaytitle") or resolved_title
+            except Exception:
+                pass
+        return {"url":str(url), "title":resolved_title,
                 "text":text[:max_chars], "source_type":source_type,
                 "confidence":min(.9,max(0.,float(spec.get("confidence",.6)))),
                 "retrieved_at":datetime.now().isoformat(timespec="seconds")}
@@ -136,8 +173,14 @@ class InternetLearningEngine:
                 "https://en.wikipedia.org/wiki/Automated_planning_and_scheduling",
                 "https://www.cs.cmu.edu/~epxing/Class/10708-19/notes/lecture-1.pdf",
             ]
+        slug = urllib.parse.quote(str(topic).replace(" ", "_"))
+        query = urllib.parse.quote_plus(str(topic))
+        # Generic multilingual/reference fallback. Keep independent domains so
+        # TrustedKnowledgeBootstrap can corroborate instead of trusting one site.
         return [
-            "https://en.wikipedia.org/wiki/" + urllib.parse.quote(str(topic).replace(" ", "_")),
+            "https://fa.wikipedia.org/api/rest_v1/page/summary/" + slug,
+            "https://www.wikidata.org/w/api.php?action=wbsearchentities&search=" + query + "&language=fa&format=json&limit=5",
+            "https://www.britannica.com/search?query=" + query,
         ]
 
     def learn(self, topic: str, urls: list[str] | None = None, auto: bool = True) -> dict:
@@ -148,10 +191,29 @@ class InternetLearningEngine:
             return {"ok": False, "reason": "empty_topic"}
 
         urls = [u for u in (urls or []) if str(u).startswith(("http://", "https://"))]
+        discovery_path = "explicit" if urls else ""
         if not urls:
             urls = [s["url"] for s in self.discover(topic) if s.get("url")]
+            discovery_path = "configured" if urls else ""
         if not urls:
-            return {"ok":False, "reason":"no_configured_sources", "auto_learned":False}
+            try:
+                urls = self.search(topic, limit=6)
+                discovery_path = "search" if urls else ""
+            except Exception:
+                urls = []
+        if len(urls) < 2:
+            fallback = self._trusted_fallback_urls(topic)
+            for url in fallback:
+                if url not in urls:
+                    urls.append(url)
+                if len(urls) >= 6:
+                    break
+            if urls and not discovery_path:
+                discovery_path = "trusted_fallback"
+            elif fallback:
+                discovery_path = (discovery_path + "+trusted_fallback").strip("+")
+        if not urls:
+            return {"ok":False, "reason":"no_sources_discovered", "auto_learned":False}
 
         sources = []
         errors = []
@@ -175,7 +237,7 @@ class InternetLearningEngine:
         result = {
             "ok": True, "topic": topic, "sources_fetched": len(sources),
             "errors": errors, "proposal": proposal, "auto_learned": False,
-            "verified": False,
+            "verified": False, "discovery_path": discovery_path,
         }
 
         # Durable automatic learning is limited to corroborated, low-risk facts.

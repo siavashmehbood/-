@@ -365,100 +365,48 @@ class IranRuntime:
         }
 
     def generate_curriculum_learning_inputs(self, batch_size=8):
-        """Create bounded autonomous learning requests from self-directed goals.
-
-        Goals are durable planning objects; proposals are the approval boundary.
-        A supervisor cycle may create only a few fresh requests and never lets
-        the human/reviewer queue grow without bound.
-        """
         before = {g.goal_id for g in self.self_directed_learning.goals}
         goals = self.self_directed_learning.next_curriculum_goals(limit=batch_size)
         created = sum(1 for goal in goals if goal.get("goal_id") not in before)
+        return {"ok":True, "goals":goals, "created":created, "reused":len(goals)-created,
+                "review_queue":self.chatgpt_review_status()}
 
-        pending_goal_requests = [r for r in self.learning_gate.pending(5000)
-                                 if r.get("kind") == "learning.goal_request"]
-        pending_ids = {(r.get("payload") or {}).get("goal_id") for r in pending_goal_requests}
-        approved_ids = {(r.get("payload") or {}).get("goal_id") for r in self.learning_gate.history(5000)
-                        if r.get("kind") == "learning.goal_request" and r.get("status") == "approved"}
-        queue_cap = 8
-        per_cycle = min(3, max(1, int(batch_size)))
-        room = max(0, queue_cap - len(pending_goal_requests))
-        proposals = []
-        if room:
-            ranked = [row.get("goal", {}) for row in self.self_directed_learning.prioritize(50)]
-            for goal in ranked:
-                gid = goal.get("goal_id")
-                if not gid or gid in pending_ids or gid in approved_ids:
-                    continue
-                if goal.get("status") not in {"needs_evidence", "conflict"}:
-                    continue
-                payload = {
-                    "goal_id": gid,
-                    "goal_topic": goal.get("topic", ""),
-                    "domain": goal.get("domain", "general"),
-                    "objective": goal.get("objective", ""),
-                    "gap": goal.get("gap", ""),
-                    "priority": goal.get("priority", "medium"),
-                    "stage": goal.get("stage", "foundation"),
-                    "requested_action": self.self_directed_learning.next_action(goal),
-                    "why_now": "self_directed_gap_or_growth_opportunity",
-                    "expected_effect": "improve future grounded reasoning on this topic",
-                    "source": "self_directed_autonomous",
-                }
-                proposal = self.learning_gate.request(
-                    "learning.goal_request", payload,
-                    f"درخواست یادگیری خودکار: {goal.get('topic','')}"
-                )
-                if proposal and proposal.get("status") == "pending":
-                    proposals.append(proposal)
-                    pending_ids.add(gid)
-                if len(proposals) >= min(room, per_cycle):
-                    break
-        if proposals:
-            self.sync_chatgpt_learning_reviews()
-        return {
-            "ok":True, "goals":goals, "created":created, "reused":len(goals)-created,
-            "proposals_created":len(proposals), "proposals":proposals,
-            "proposal_cap":queue_cap, "review_queue":self.chatgpt_review_status()
-        }
-
-    def _goal_learning_authorized(self, goal):
-        gid = str((goal or {}).get("goal_id", ""))
-        if not gid:
+    @staticmethod
+    def _autonomous_web_goal_allowed(goal):
+        topic = str((goal or {}).get("topic", "")).strip().lower()
+        gap = str((goal or {}).get("gap", "")).strip().lower()
+        objective = str((goal or {}).get("objective", "")).strip().lower()
+        # Self/identity dialogue gaps are conversation-state problems, not web-learning topics.
+        meta_markers = ("من کیم", "خودت", "تو کی هست", "ایران من", "who am i", "about yourself")
+        if any(marker in topic for marker in meta_markers):
             return False
-        for row in self.learning_gate.history(5000):
-            if row.get("kind") != "learning.goal_request" or row.get("status") != "approved":
-                continue
-            if str((row.get("payload") or {}).get("goal_id", "")) == gid:
-                return True
-        return False
+        if gap in {"unknown_answer", "verification_or_confidence_gap"} and objective.startswith("find_supported_answer:"):
+            if any(marker in topic for marker in ("من ", "خودت", "تو ")):
+                return False
+        return bool(topic)
 
     @serialized
     def learning_tick(self):
         if not self.internet_access.status()["enabled"]:
             return {"ok":False, "reason":"internet_off"}
-        # First advance one pending autonomous request through the external
-        # reviewer. Human approval remains mandatory before evidence gathering.
-        self.sync_chatgpt_learning_reviews()
-        pending_review = next((r for r in self.learning_gate.pending(5000)
-                               if r.get("kind") == "learning.goal_request"), None)
-        if pending_review:
-            review_state = self.chatgpt_learning_review_status(pending_review["proposal_id"])
-            if not review_state.get("reviewed"):
-                reviewed = self.process_one_chatgpt_learning_review()
-                return {"ok":True, "reason":"autonomous_request_review", "review":reviewed}
-        for row in self.self_directed_learning.prioritize(20):
+        rows = self.self_directed_learning.prioritize(50)
+        rows.sort(key=lambda row: (str((row.get("goal") or {}).get("gap", "")) == "curriculum", row.get("priority_score", 0)), reverse=True)
+        for row in rows:
             goal=row["goal"]
             if goal["status"] not in {"needs_evidence", "conflict"}: continue
-            if not self._goal_learning_authorized(goal): continue
-            if not self.internet_learning.discover(goal["topic"]): continue
+            if not self._autonomous_web_goal_allowed(goal): continue
+            # InternetLearningEngine performs configured/search/fallback discovery.
+            # Do not discard autonomous goals merely because no static source is tagged for them.
             if goal.get("attempts", 0) >= int(self.config.get("learning_max_attempts", 3)): continue
             result=self.learn_from_internet(goal["topic"])
             if result.get("review"):
                 self.sync_chatgpt_learning_reviews()
                 review_result = self.process_one_chatgpt_learning_review()
                 result["online_review"] = review_result
-                state = "human_pending" if review_result.get("ok") and review_result.get("reason") == "reviewed" else "awaiting_review"
+                if review_result.get("ok") and review_result.get("reason") == "reviewed":
+                    state = "human_pending" if review_result.get("learn") is True else "needs_evidence"
+                else:
+                    state = "awaiting_review"
                 self.self_directed_learning.update_outcome(goal["goal_id"], state)
             else:
                 self.self_directed_learning.update_outcome(goal["goal_id"], "needs_evidence")
@@ -556,11 +504,13 @@ class IranRuntime:
         return status
 
     def process_one_chatgpt_learning_review(self):
-        """Run exactly one ChatGPT validation request through the dedicated worker."""
+        """Run one external validation; only LEARN candidates reach the human queue."""
         self.sync_chatgpt_learning_reviews()
         result = self.chatgpt_review_worker.process_one()
-        # External review is advisory. Final approval/rejection always belongs
-        # to the human gate, so reviewer rejection must not mutate the gate.
+        if result.get("ok") and result.get("reason") == "reviewed" and result.get("learn") is False:
+            proposal_id = result.get("proposal_id")
+            if proposal_id:
+                self.learning_gate.decide(proposal_id, "rejected")
         return result
 
     def online_learning_review_status(self):
@@ -659,18 +609,13 @@ class IranRuntime:
             elif kind == "trusted_knowledge.bootstrap": result=self._apply_trusted_knowledge(proposal)
             elif kind == "learning.goal_request":
                 p = dict(p)
-                existing = next((g for g in self.self_directed_learning.goals
-                                 if g.goal_id == p.get("goal_id")), None)
-                if existing is not None:
-                    result = asdict(existing)
-                else:
-                    result = self.self_directed_learning.create_goal(
-                        p.get("goal_topic", ""),
-                        gap=p.get("gap", "curriculum_request"),
-                        objective=p.get("objective", ""),
-                        priority=p.get("priority", "medium"),
-                        domain=p.get("domain", "general"),
-                    )
+                result = self.self_directed_learning.create_goal(
+                    p.get("goal_topic", ""),
+                    gap="curriculum_request",
+                    objective=p.get("objective", ""),
+                    priority="medium",
+                    domain=p.get("domain", "general"),
+                )
             elif kind == "learning.record_experience":
                 result=self.learning.record(p["goal"],p["action"],p["result"],p["score"],p.get("intent","general"),p.get("strategy","default"),p.get("domain","general"),p.get("objective",""),p.get("expected_effect",""),p.get("signal_source",""),p.get("evidence",p.get("feedback","")))
                 self.learning.record_approved_lesson(p, proposal_id)

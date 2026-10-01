@@ -420,3 +420,24 @@ def test_provider_manager_uses_short_cooldown_for_proxy_flap(tmp_path, monkeypat
     state=json.loads((tmp_path/'data'/'reviewer_health.json').read_text())['openrouter']
     assert state['next_allowed'] == 1005
     assert state['models'] == {}
+
+
+def test_openrouter_failover_can_reach_fifth_free_model(monkeypatch):
+    monkeypatch.setenv('OPENROUTER_API_KEY','test-key')
+    p=ReviewerProvider('openrouter',{
+        'enabled':True,'dynamic_free_models':True,'model_attempts':16,
+    })
+    models=[f'm{i}:free' for i in range(1,7)]
+    monkeypatch.setattr(p,'review_models',lambda:list(models))
+    calls=[]
+    def fake_review(candidate, model):
+        calls.append(model)
+        if model in models[:4]:
+            raise ReviewFailure('http_429','RATE_LIMITED',60)
+        return {'learn':True,'reason':'fifth model accepted','confidence':.9,
+                'corrections':[],'provider':'openrouter','model':model}
+    monkeypatch.setattr(p,'_review_with_model',fake_review)
+    result=p.review({'claim':'x'})
+    assert calls==models[:5]
+    assert result['model']==models[4]
+    assert result['learn'] is True
