@@ -118,5 +118,23 @@ class LearningGateTests(unittest.TestCase):
             memory.close()
 
 
+    def test_request_rejects_invalid_kind_without_durable_corruption(self):
+        root,gate,memory,knowledge,learning=self.make()
+        try:
+            for invalid in (None,'','   ',123):
+                with self.subTest(kind=invalid):
+                    with self.assertRaises(ValueError):
+                        gate.request(invalid,{'claim':'must not persist'})
+            self.assertEqual(gate.stats()['total'],0)
+            self.assertFalse((root/'proposals.json').exists())
+
+            proposal=gate.request('  knowledge.add_fact  ',{'claim':'safe'})
+            self.assertEqual(proposal['kind'],'knowledge.add_fact')
+            restored=LearningGate(root/'proposals.json')
+            self.assertEqual(restored.get(proposal['proposal_id'])['kind'],'knowledge.add_fact')
+        finally:
+            memory.close()
+
+
 if __name__=='__main__':
     unittest.main()

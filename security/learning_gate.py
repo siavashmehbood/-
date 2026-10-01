@@ -94,6 +94,9 @@ class LearningGate:
 
     def request(self,kind,payload,summary=''):
         if self.bypassed: return None
+        if not isinstance(kind,str) or not kind.strip():
+            raise ValueError('learning kind must be a non-empty string')
+        kind=kind.strip()
         if not isinstance(payload,dict):
             raise TypeError('learning payload must be a dict')
         payload=self._snapshot(payload)
