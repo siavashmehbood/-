@@ -260,7 +260,19 @@ class ReviewerProvider:
         ready = [model for model in models
                  if self._model_health.get(model, {}).get('next_allowed', 0) <= now]
         if ready:
-            return ready
+            # Prefer genuinely fresh models before retrying models that already
+            # failed/rate-limited. Previously the first N catalog entries could
+            # repeatedly consume the bounded attempt budget and starve newly
+            # discovered free models that were actually ready.
+            def model_priority(model):
+                entry = self._model_health.get(model)
+                if not entry:
+                    return (0, 0.0, model)  # never tried
+                last_success = float(entry.get('last_success', 0) or 0)
+                if last_success > 0:
+                    return (1, -last_success, model)  # known-good next
+                return (2, float(entry.get('next_allowed', 0) or 0), model)  # prior failure last
+            return sorted(ready, key=model_priority)
         waits = [entry.get('next_allowed', 0) - now
                  for model, entry in self._model_health.items()
                  if model in models and isinstance(entry, dict)
@@ -456,9 +468,9 @@ class ProviderManager:
                         ready_models_remain = bool(pool and int(pool.get('ready_count', 0) or 0) > 0)
                         if failure.reason == 'proxy_unavailable':
                             delay = failure.retry_after or 5
-                        elif failure.state == 'RATE_LIMITED' and ready_models_remain:
-                            # Only the attempted models are cooling down. Keep the provider
-                            # available for the next batch instead of freezing the whole pool.
+                        elif ready_models_remain and (failure.state == 'RATE_LIMITED' or failure.reason in {'http_403', 'http_404'}):
+                            # Model-specific quota/availability failures must not freeze the
+                            # whole dynamic pool while other free models remain ready.
                             delay = max(5, min(15, int(provider.config.get('min_interval', 15) or 15)))
                         else:
                             delay = max(provider.cooldown, failure.retry_after or 0)

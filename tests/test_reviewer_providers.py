@@ -441,3 +441,31 @@ def test_openrouter_failover_can_reach_fifth_free_model(monkeypatch):
     assert calls==models[:5]
     assert result['model']==models[4]
     assert result['learn'] is True
+
+
+def test_dynamic_pool_prefers_untried_ready_models_over_expired_rate_limited_models(monkeypatch):
+    monkeypatch.setenv('OPENROUTER_API_KEY','test-key')
+    p=ReviewerProvider('openrouter', {'enabled':True,'dynamic_free_models':True,'model_attempts':2}, clock=lambda:1000)
+    monkeypatch.setattr(p,'_discover_openrouter_free_models',lambda:['old-a:free','old-b:free','fresh:free'])
+    p.set_model_health({
+        'old-a:free': {'state':'RATE_LIMITED','next_allowed':900,'last_success':0},
+        'old-b:free': {'state':'RATE_LIMITED','next_allowed':950,'last_success':0},
+    })
+    assert p.review_models()[0] == 'fresh:free'
+
+
+def test_dynamic_pool_model_403_does_not_freeze_provider_when_ready_models_remain(tmp_path, monkeypatch):
+    monkeypatch.setenv('OPENROUTER_API_KEY','test-key')
+    internet=InternetAccessManager(tmp_path/'internet.json'); internet.enable()
+    p=ReviewerProvider('openrouter',{'enabled':True,'dynamic_free_models':True,'model_attempts':1,'cooldown':60,'min_interval':15},clock=lambda:1000)
+    p._free_models_cache=['bad:free','fresh:free']
+    monkeypatch.setattr(p,'_discover_openrouter_free_models',lambda:['bad:free','fresh:free'])
+    def call(candidate, model):
+        if model=='bad:free': raise ReviewFailure('http_403','UNAVAILABLE')
+        return {'learn':False,'reason':'ok','confidence':1.0,'corrections':[],'provider':'openrouter','model':model}
+    monkeypatch.setattr(p,'_review_with_model',call)
+    m=ProviderManager(tmp_path,{'external_access':{'credential_free_only':False},'reviewers':{'max_attempts':4,'max_seconds':40}},internet,[p],clock=lambda:1000)
+    first=m.review({'claim':'x'})
+    assert first['state']=='WAITING_FOR_REVIEWER'
+    stored=json.loads(m.path.read_text())['openrouter']
+    assert stored['next_allowed'] == 1015
