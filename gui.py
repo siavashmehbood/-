@@ -91,73 +91,105 @@ class ChatWindow(QMainWindow):
         self.chatgpt_review_timer.start(1000)
         QTimer.singleShot(1200, self.run_autonomous_learning)
     def build(self):
-        root = QWidget(); self.setCentralWidget(root); outer = QVBoxLayout(root)
-        outer.setContentsMargins(14, 14, 14, 14); outer.setSpacing(10)
-        top = QHBoxLayout()
-        title = QLabel("ایران — معماری شناختی"); title.setObjectName("title")
-        sub = QLabel("گفت‌وگوی فارسی، حافظه، استدلال و یادگیری کنترل‌شده"); sub.setObjectName("subtitle")
-        self.status = QLabel("آماده")
-        top.addWidget(title); top.addWidget(sub); top.addStretch(); top.addWidget(self.status); outer.addLayout(top)
-        splitter = QSplitter(Qt.Horizontal); outer.addWidget(splitter, 1)
-        splitter.addWidget(self.sidebar()); splitter.addWidget(self.chat_panel()); splitter.addWidget(self.rightbar())
-        splitter.setSizes([260, 850, 330])
+        root = QWidget(); self.setCentralWidget(root)
+        outer = QVBoxLayout(root); outer.setContentsMargins(18, 16, 18, 16); outer.setSpacing(12)
+
+        header = QFrame(); header.setObjectName("header")
+        top = QHBoxLayout(header); top.setContentsMargins(16, 10, 16, 10); top.setSpacing(12)
+        titles = QVBoxLayout(); titles.setSpacing(1)
+        title = QLabel("ایران"); title.setObjectName("title")
+        sub = QLabel("دستیار شناختی فارسی"); sub.setObjectName("subtitle")
+        titles.addWidget(title); titles.addWidget(sub)
+        top.addLayout(titles); top.addStretch()
+        self.status = QLabel("آماده"); self.status.setObjectName("statusPill"); top.addWidget(self.status)
+        self.internet_button = QPushButton(); self.internet_button.setObjectName("internetButton")
+        self.internet_button.clicked.connect(self.toggle_internet); top.addWidget(self.internet_button)
+        outer.addWidget(header)
+
+        splitter = QSplitter(Qt.Horizontal); splitter.setChildrenCollapsible(False)
+        splitter.addWidget(self.sidebar())
+        self.main_tabs = QTabWidget(); self.main_tabs.setObjectName("mainTabs")
+        self.main_tabs.addTab(self.chat_panel(), "گفت‌وگو")
+        self.main_tabs.addTab(self.rightbar(), "مدیریت")
+        splitter.addWidget(self.main_tabs); splitter.setSizes([230, 1150]); splitter.setStretchFactor(1, 1)
+        outer.addWidget(splitter, 1)
+        self.refresh_internet()
+
     def sidebar(self):
-        w = QWidget(); l = QVBoxLayout(w); l.setSpacing(7)
-        l.addWidget(QLabel("گفت‌وگوها")); self.sessions = QListWidget()
+        w = QFrame(); w.setObjectName("sidebar")
+        l = QVBoxLayout(w); l.setContentsMargins(12, 12, 12, 12); l.setSpacing(8)
+        h = QLabel("گفت‌وگوها"); h.setObjectName("sectionTitle"); l.addWidget(h)
+        self.sessions = QListWidget(); self.sessions.setObjectName("sessions")
         self.sessions.addItem("گفت‌وگوی فعلی"); l.addWidget(self.sessions, 1)
-        self.newbtn = QPushButton("+ گفت‌وگوی جدید"); self.newbtn.clicked.connect(self.new_chat); l.addWidget(self.newbtn)
-        self.clearbtn = QPushButton("پاک کردن گفت‌وگو"); self.clearbtn.clicked.connect(self.clear_display); l.addWidget(self.clearbtn)
-        self.savebtn = QPushButton("ذخیره گفت‌وگو"); self.savebtn.clicked.connect(self.save_chat); l.addWidget(self.savebtn)
+        self.newbtn = QPushButton("+ گفت‌وگوی جدید"); self.newbtn.setObjectName("primaryButton"); self.newbtn.clicked.connect(self.new_chat); l.addWidget(self.newbtn)
+        row = QHBoxLayout(); row.setSpacing(6)
+        self.savebtn = QPushButton("ذخیره"); self.savebtn.clicked.connect(self.save_chat); row.addWidget(self.savebtn)
+        self.clearbtn = QPushButton("پاک‌کردن"); self.clearbtn.clicked.connect(self.clear_display); row.addWidget(self.clearbtn)
+        l.addLayout(row)
+        l.addSpacing(8)
         l.addWidget(QLabel("حالت پاسخ")); self.mode = QComboBox()
         self.mode.addItems(["گفت‌وگوی عادی", "تحلیل عمیق", "پاسخ مستند"]); l.addWidget(self.mode)
-        self.autocopy = QCheckBox("کپی خودکار پاسخ"); l.addWidget(self.autocopy); l.addStretch()
-        l.addWidget(QLabel("Enter: ارسال  |  Shift+Enter: خط جدید")); return w
-    def chat_panel(self):
-        w = QWidget(); l = QVBoxLayout(w)
-        searchbar = QHBoxLayout(); self.search = QLineEdit()
-        self.search.setPlaceholderText("جست‌وجو در گفت‌وگو..."); self.search.returnPressed.connect(self.search_chat)
-        searchbar.addWidget(self.search); q = QPushButton("جست‌وجو"); q.clicked.connect(self.search_chat); searchbar.addWidget(q); l.addLayout(searchbar)
-        self.chat = QTextBrowser(); l.addWidget(self.chat, 1)
-        bottom = QHBoxLayout(); self.input = QPlainTextEdit(); self.input.setPlaceholderText("پیام خود را اینجا بنویسید...")
-        self.input.setFixedHeight(105); self.input.installEventFilter(self); bottom.addWidget(self.input, 1)
-        actions = QVBoxLayout(); self.send = QPushButton("ارسال"); self.send.clicked.connect(self.send_message); actions.addWidget(self.send)
-        self.copybtn = QPushButton("کپی پاسخ"); self.copybtn.clicked.connect(self.copy_response); actions.addWidget(self.copybtn)
-        self.copysel = QPushButton("کپی انتخاب"); self.copysel.clicked.connect(self.copy_selection); actions.addWidget(self.copysel)
-        self.attach = QPushButton("درج از کلیپ‌برد"); self.attach.clicked.connect(self.paste_clipboard); actions.addWidget(self.attach)
-        bottom.addLayout(actions); l.addLayout(bottom); return w
-    def rightbar(self):
-        w = QWidget(); l = QVBoxLayout(w); l.setSpacing(7); l.addWidget(QLabel("وضعیت شناختی"))
-        self.conf = QLabel("اطمینان: —"); self.quality = QLabel("کیفیت: —"); self.intent = QLabel("هدف: —"); self.elapsed = QLabel("زمان: —"); self.experience_xp = QLabel("XP تأییدشده: ۰")
-        self.chatgpt_pending = QLabel("درخواست‌های بازبینی ناظر: ۰")
-        self.online_review_status = QLabel("ناظر آنلاین: —")
-        self.duplicate_warning = QLabel("ورودی تکراری: —")
-        self.cooldown_status = QLabel("خنک‌سازی: —")
-        self.queue_status = QLabel("صف: —")
-        self.integrity_status = QLabel("یکپارچگی: —")
-        self.recovery_status = QLabel("بازیابی: —")
-        self.review_rows_detail = QLabel("صف بازبینی: —")
-        self.human_pending = QLabel("در انتظار انسان: —")
-        self.review_accepted = QLabel("تأیید شده: —")
-        self.review_rejected = QLabel("رد شده: —")
-        self.review_errors = QLabel("خطاهای بازبینی: —")
-        self.input_fabric_json = QLabel("ورودی‌ها: —")
-        self.review_next_button = QPushButton("بازبینی مورد بعدی")
-        self.review_next_button.clicked.connect(self.run_chatgpt_review_once)
-        for x in (self.conf, self.quality, self.intent, self.elapsed, self.experience_xp, self.chatgpt_pending, self.online_review_status, self.duplicate_warning, self.cooldown_status, self.queue_status, self.integrity_status, self.recovery_status, self.review_rows_detail, self.human_pending, self.review_accepted, self.review_rejected, self.review_errors, self.input_fabric_json, self.review_next_button): l.addWidget(x)
-        self.internet_button = QPushButton()
-        self.internet_button.clicked.connect(self.toggle_internet)
-        l.addWidget(self.internet_button); self.refresh_internet()
-        l.addSpacing(8); l.addWidget(QLabel("آخرین رویدادها")); self.events = QListWidget(); l.addWidget(self.events, 1)
-        buttons = [("حافظه", self.show_memory), ("ردیابی پاسخ", self.show_trace),
-                   ("وضعیت ناظر آنلاین", self.show_chatgpt_reviews),
-                   ("آزمون بنچمارک", self.run_benchmark), ("بازبینی یادگیری", self.review_pending_learning),
-                   ("درس‌های یادگرفته‌شده", self.show_learned_lessons),
-                   ("تایید همه یادگیری‌ها", self.approve_all_learning_ui),
-                   ("رد موارد صف یادگیری", self.clear_all_learning_ui),
-                   ("تنظیمات", self.show_settings)]
-        for text, fn in buttons:
-            b = QPushButton(text); b.clicked.connect(fn); l.addWidget(b)
+        self.autocopy = QCheckBox("کپی خودکار پاسخ"); l.addWidget(self.autocopy)
+        hint = QLabel("Enter ارسال  •  Shift+Enter خط جدید"); hint.setObjectName("hint"); hint.setWordWrap(True); l.addWidget(hint)
         return w
+
+    def chat_panel(self):
+        w = QWidget(); l = QVBoxLayout(w); l.setContentsMargins(12, 12, 12, 12); l.setSpacing(10)
+        toolbar = QHBoxLayout(); toolbar.setSpacing(6)
+        self.search = QLineEdit(); self.search.setPlaceholderText("جست‌وجو در این گفت‌وگو")
+        self.search.returnPressed.connect(self.search_chat); toolbar.addWidget(self.search, 1)
+        q = QPushButton("جست‌وجو"); q.clicked.connect(self.search_chat); toolbar.addWidget(q)
+        self.copybtn = QPushButton("کپی پاسخ"); self.copybtn.clicked.connect(self.copy_response); toolbar.addWidget(self.copybtn)
+        l.addLayout(toolbar)
+        self.chat = QTextBrowser(); self.chat.setObjectName("chatView"); self.chat.setOpenExternalLinks(False); l.addWidget(self.chat, 1)
+        composer = QFrame(); composer.setObjectName("composer")
+        bottom = QHBoxLayout(composer); bottom.setContentsMargins(10, 10, 10, 10); bottom.setSpacing(8)
+        self.input = QPlainTextEdit(); self.input.setPlaceholderText("پیامت را بنویس…")
+        self.input.setFixedHeight(92); self.input.installEventFilter(self); bottom.addWidget(self.input, 1)
+        actions = QVBoxLayout(); actions.setSpacing(6)
+        self.send = QPushButton("ارسال"); self.send.setObjectName("sendButton"); self.send.clicked.connect(self.send_message); actions.addWidget(self.send)
+        small = QHBoxLayout(); small.setSpacing(5)
+        self.copysel = QPushButton("کپی انتخاب"); self.copysel.clicked.connect(self.copy_selection); small.addWidget(self.copysel)
+        self.attach = QPushButton("کلیپ‌بورد"); self.attach.clicked.connect(self.paste_clipboard); small.addWidget(self.attach)
+        actions.addLayout(small); bottom.addLayout(actions)
+        l.addWidget(composer)
+        return w
+
+    def rightbar(self):
+        outer = QWidget(); layout = QVBoxLayout(outer); layout.setContentsMargins(12, 12, 12, 12)
+        tabs = QTabWidget(); tabs.setObjectName("adminTabs"); layout.addWidget(tabs)
+
+        learning = QWidget(); ll = QVBoxLayout(learning); ll.setSpacing(8)
+        ll.addWidget(QLabel("یادگیری و بازبینی", objectName="sectionTitle"))
+        self.experience_xp = QLabel("XP تأییدشده: ۰"); self.experience_xp.setWordWrap(True); ll.addWidget(self.experience_xp)
+        self.chatgpt_pending = QLabel("درخواست‌های بازبینی ناظر: ۰")
+        self.online_review_status = QLabel("ناظر آنلاین: —"); self.duplicate_warning = QLabel("ورودی تکراری: —")
+        self.cooldown_status = QLabel("خنک‌سازی: —"); self.queue_status = QLabel("صف: —")
+        self.review_rows_detail = QLabel("صف بازبینی: —"); self.human_pending = QLabel("در انتظار انسان: —")
+        self.review_accepted = QLabel("تأیید شده: —"); self.review_rejected = QLabel("رد شده: —"); self.review_errors = QLabel("خطاهای بازبینی: —")
+        for x in (self.chatgpt_pending, self.online_review_status, self.duplicate_warning, self.cooldown_status, self.queue_status, self.review_rows_detail, self.human_pending, self.review_accepted, self.review_rejected, self.review_errors):
+            x.setObjectName("metric"); x.setWordWrap(True); ll.addWidget(x)
+        self.review_next_button = QPushButton("بازبینی مورد بعدی"); self.review_next_button.setObjectName("primaryButton"); self.review_next_button.clicked.connect(self.run_chatgpt_review_once); ll.addWidget(self.review_next_button)
+        for text, fn in (("بازبینی یادگیری", self.review_pending_learning), ("درس‌های یادگرفته‌شده", self.show_learned_lessons), ("تأیید همه یادگیری‌ها", self.approve_all_learning_ui), ("رد موارد صف یادگیری", self.clear_all_learning_ui)):
+            b=QPushButton(text); b.clicked.connect(fn); ll.addWidget(b)
+        ll.addStretch(); tabs.addTab(learning, "یادگیری")
+
+        system = QWidget(); sl = QVBoxLayout(system); sl.setSpacing(8)
+        sl.addWidget(QLabel("وضعیت شناختی", objectName="sectionTitle"))
+        self.conf = QLabel("اطمینان: —"); self.quality = QLabel("کیفیت: —"); self.intent = QLabel("هدف: —"); self.elapsed = QLabel("زمان: —")
+        self.integrity_status = QLabel("یکپارچگی: —"); self.recovery_status = QLabel("بازیابی: —"); self.input_fabric_json = QLabel("ورودی‌ها: —")
+        for x in (self.conf, self.quality, self.intent, self.elapsed, self.integrity_status, self.recovery_status, self.input_fabric_json):
+            x.setObjectName("metric"); x.setWordWrap(True); sl.addWidget(x)
+        sl.addSpacing(8); sl.addWidget(QLabel("آخرین رویدادها", objectName="sectionTitle"))
+        self.events = QListWidget(); sl.addWidget(self.events, 1)
+        tabs.addTab(system, "سیستم")
+
+        tools = QWidget(); tl = QVBoxLayout(tools); tl.setSpacing(8)
+        tl.addWidget(QLabel("ابزارها", objectName="sectionTitle"))
+        for text, fn in (("حافظه", self.show_memory), ("ردیابی پاسخ", self.show_trace), ("وضعیت ناظر آنلاین", self.show_chatgpt_reviews), ("آزمون بنچمارک", self.run_benchmark), ("تنظیمات", self.show_settings)):
+            b=QPushButton(text); b.clicked.connect(fn); tl.addWidget(b)
+        tl.addStretch(); tabs.addTab(tools, "ابزارها")
+        return outer
     def eventFilter(self, obj, event):
         if obj is self.input and event.type() == QEvent.Type.KeyPress:
             if event.key() in (Qt.Key_Return, Qt.Key_Enter) and not (event.modifiers() & Qt.ShiftModifier):
@@ -630,14 +662,32 @@ if __name__ == "__main__":
         sys.exit(0)
     app = QApplication(sys.argv); app.setLayoutDirection(Qt.RightToLeft); app.setFont(QFont("Tahoma", 10))
     app.setStyleSheet("""
-    QWidget { background:#10151d; color:#e5e7eb; font-family:'Tahoma','Segoe UI','Arial'; font-size:10pt; }
-    QLineEdit,QPlainTextEdit,QTextBrowser,QListWidget,QComboBox { background:#171e28; border:1px solid #2d3745; border-radius:8px; padding:7px; }
-    QPushButton { background:#202a38; border:1px solid #354255; border-radius:8px; padding:8px; }
-    QPushButton:hover { background:#2a3748; }
-    QFrame { background:#151c26; border:1px solid #303b4b; border-radius:10px; }
-    #title { font-size:18pt; font-weight:700; }
-    #subtitle { color:#94a3b8; }
-    #learningHeader { font-size:17pt; font-weight:700; padding:4px; }
+    QWidget { background:#0b1017; color:#eef2f7; font-family:'Tahoma','Segoe UI','Arial'; font-size:10.5pt; }
+    QMainWindow { background:#0b1017; }
+    QFrame#header, QFrame#sidebar, QFrame#composer { background:#111923; border:1px solid #223044; border-radius:12px; }
+    QLabel#title { font-size:20pt; font-weight:800; color:#ffffff; }
+    QLabel#subtitle, QLabel#hint { color:#8fa0b5; }
+    QLabel#sectionTitle { font-size:12pt; font-weight:700; color:#dbe7f5; padding:4px 0; }
+    QLabel#statusPill { background:#142235; color:#b9d7ff; border:1px solid #29405f; border-radius:12px; padding:6px 12px; font-weight:700; }
+    QLabel#metric { background:#101823; border:1px solid #202d3e; border-radius:9px; padding:8px 10px; color:#d8e2ee; }
+    QLineEdit,QPlainTextEdit,QTextBrowser,QListWidget,QComboBox { background:#0f1721; border:1px solid #253246; border-radius:10px; padding:9px; selection-background-color:#2f6fb5; }
+    QTextBrowser#chatView { font-size:11.5pt; padding:18px; border:1px solid #223044; }
+    QListWidget#sessions { outline:0; }
+    QListWidget::item { padding:8px; border-radius:7px; }
+    QListWidget::item:selected { background:#1d3048; color:#ffffff; }
+    QPushButton { background:#182332; border:1px solid #2a3b52; border-radius:9px; padding:8px 12px; min-height:20px; }
+    QPushButton:hover { background:#213149; border-color:#3a5575; }
+    QPushButton:pressed { background:#132033; }
+    QPushButton#primaryButton, QPushButton#sendButton { background:#2563a9; border-color:#2e78c8; color:white; font-weight:700; }
+    QPushButton#primaryButton:hover, QPushButton#sendButton:hover { background:#2d72bd; }
+    QPushButton#internetButton { min-width:135px; }
+    QTabWidget::pane { border:1px solid #223044; border-radius:10px; background:#0d141d; top:-1px; }
+    QTabBar::tab { background:#111923; border:1px solid #223044; padding:9px 18px; margin-left:4px; border-top-left-radius:8px; border-top-right-radius:8px; }
+    QTabBar::tab:selected { background:#1b2a3d; color:#ffffff; border-bottom-color:#1b2a3d; }
+    QSplitter::handle { background:#0b1017; width:6px; }
+    QScrollBar:vertical { background:#0d141d; width:10px; margin:0; }
+    QScrollBar::handle:vertical { background:#2b3b50; min-height:30px; border-radius:5px; }
+    #learningHeader { font-size:16pt; font-weight:700; padding:4px; }
     #sourceLabel { font-weight:700; color:#cbd5e1; }
     """)
     window = ChatWindow(); window.show(); sys.exit(app.exec())
