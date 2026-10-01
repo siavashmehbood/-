@@ -428,7 +428,9 @@ class LearningMissionManager:
                 m["approved_learning_ids"].append(gate_id)
             unit["status"] = "mastered"
             unit["effect_status"] = "awaiting_future_observation"
-            unit["mastery_score"] = max(float(unit.get("mastery_score", 0)), float(unit.get("assessment_history", [{}])[-1].get("score", 0)))
+            history = unit.get("assessment_history") or []
+            latest_score = float(history[-1].get("score", 0)) if history else 0.0
+            unit["mastery_score"] = max(float(unit.get("mastery_score", 0)), latest_score)
             for item in m["candidate_history"]:
                 if item.get("candidate_id") == candidate_id:
                     item.update(status="approved", gate_proposal_id=gate_id, learned_object_id=learned_id,

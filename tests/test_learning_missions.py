@@ -297,3 +297,16 @@ def test_approval_crash_rolls_back_mission_gate_and_review_together(tmp_path, mo
         assert restored.learning_missions.get(mission["mission_id"])["progress_percent"] == 50.0
     finally:
         restored.close()
+
+
+def test_mark_approved_handles_direct_candidate_without_assessment_history(tmp_path):
+    manager = LearningMissionManager(tmp_path / "missions.json")
+    mission = manager.create("python", "narrow")
+    unit = mission["units"][0]
+    manager.mark_candidate(mission["mission_id"], unit["unit_id"], "candidate_direct")
+    approved = manager.mark_approved(
+        mission["mission_id"], unit["unit_id"], "candidate_direct", "gate_direct",
+        learned_id="lesson_direct", approval_source="test_human")
+    assert approved["units"][0]["status"] == "mastered"
+    assert approved["units"][0]["mastery_score"] == 0.0
+    assert approved["candidate_history"][0]["status"] == "approved"
