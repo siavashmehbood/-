@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock
 
-from integrations.chatgpt_review_worker import ChatGPTReviewWorker, RateLimitError
+from integrations.chatgpt_review_worker import ChatGPTReviewWorker, RateLimitError, ReviewerUnavailable
 from runtime.app import IranRuntime
 from security.learning_gate import LearningGate
 
@@ -109,6 +109,29 @@ class ChatGPTReviewPipelineTests(unittest.TestCase):
         self.assertEqual(restarted.status()["last_success_at"] is not None, True)
         self.assertEqual(restarted.status()["cooldown"], True)
         restarted.transport.assert_not_called()
+
+    def test_success_clears_prior_failure_reason(self):
+        root, runtime, gate = self.make_runtime()
+        candidate = self.add_candidate(gate, "retry cleanup")
+        now = [1000.0]
+        calls = []
+        def transport(row):
+            calls.append(row["proposal_id"])
+            if len(calls) == 1:
+                raise ReviewerUnavailable("temporary")
+            return {"learn": True, "reason": "ok", "confidence": .9, "corrections": []}
+        worker = ChatGPTReviewWorker(root, transport=transport, clock=lambda: now[0])
+        runtime.chatgpt_review_worker = worker
+        first = runtime.process_one_chatgpt_learning_review()
+        self.assertEqual(first["state"], "WAITING_FOR_REVIEWER")
+        row = runtime.chatgpt_learning_review_status(candidate["proposal_id"])["row"]
+        self.assertEqual(row.get("failure_reason"), "temporary")
+        now[0] += 20
+        second = runtime.process_one_chatgpt_learning_review()
+        self.assertTrue(second["ok"])
+        row = runtime.chatgpt_learning_review_status(candidate["proposal_id"])["row"]
+        self.assertNotIn("failure_reason", row)
+        self.assertEqual(row["status"], "human_pending")
 
 
 if __name__ == "__main__":
