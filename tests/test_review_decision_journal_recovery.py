@@ -1,5 +1,7 @@
 import json
+from unittest.mock import Mock
 
+from runtime.app import IranRuntime
 from security.review_decision_journal import ReviewDecisionJournal
 
 
@@ -56,6 +58,8 @@ def test_truncated_primary_recovers_from_backup_and_repairs_on_sync(tmp_path):
     recovered = restarted.status()
     assert recovered["valid"] is True
     assert recovered["count"] == 1
+    assert recovered["source"] == "backup"
+    assert recovered["recovered_from_backup"] is True
 
     repaired = restarted.sync([first, second])
     persisted = json.loads(path.read_text(encoding="utf-8"))
@@ -66,3 +70,30 @@ def test_truncated_primary_recovers_from_backup_and_repairs_on_sync(tmp_path):
     assert [event["sequence"] for event in persisted] == [1, 2]
     assert page["count"] == 2
     assert page["items"][0]["previous_hash"] == page["items"][1]["event_hash"]
+    healthy = restarted.status()
+    assert healthy["source"] == "primary"
+    assert healthy["recovered_from_backup"] is False
+
+
+def test_backup_recovery_is_visible_in_health_and_inspect(tmp_path):
+    data = tmp_path / "data"
+    data.mkdir()
+    runtime = IranRuntime.__new__(IranRuntime)
+    runtime.root = tmp_path
+    runtime.cognitive_system = Mock()
+    runtime.cognitive_system.inspect.return_value = {"version": "test"}
+
+    first = review_row("first")
+    second = review_row("second")
+    journal = runtime._review_decision_journal_store()
+    journal.sync([first])
+    journal.sync([first, second])
+    journal.path.write_bytes(b'{"interrupted":')
+
+    health = runtime.review_decision_journal_health()
+    inspected = runtime.inspect()["review_decision_journal"]
+
+    assert health["valid"] is True
+    assert health["source"] == "backup"
+    assert health["recovered_from_backup"] is True
+    assert inspected == health
