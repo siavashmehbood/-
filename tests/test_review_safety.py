@@ -317,6 +317,7 @@ def test_bulk_approval_applies_only_reviewer_approved_candidates(runtime):
 
 
 def test_zero_limit_bulk_actions_never_decide_a_proposal(runtime):
+    from tests.chatgpt_test_helper import mark_chatgpt_correct
     proposals=[]
     for index in range(2):
         proposal=runtime.knowledge.add_fact(
