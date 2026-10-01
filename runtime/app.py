@@ -678,6 +678,9 @@ class IranRuntime:
         if proposal is None: return {"ok":False,"reason":"proposal_not_found"}
         if proposal.get("status") != "pending":
             return {"ok":False,"reason":"proposal_not_pending","proposal":proposal}
+        # Ensure direct human rejection has a durable reviewer-ledger row.
+        # If queue state is corrupt, fail closed before changing the gate.
+        self.sync_chatgpt_learning_reviews()
         result=self.learning_gate.decide(proposal_id,"rejected")
         self._set_human_review_status(proposal_id, "rejected")
         self.events.emit("learning_rejected",{"proposal_id":proposal_id,"kind":result.get("kind")})

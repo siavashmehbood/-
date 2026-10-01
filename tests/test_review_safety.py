@@ -202,3 +202,62 @@ def test_learning_tick_auto_reviews_online_candidate_then_waits_for_human(runtim
     pending = runtime.human_learning_pending()
     assert pending and pending[0]["proposal_id"] == proposal_id
     assert runtime.memory.lesson_search("online review fixture", limit=5) == []  # no durable lesson before human approval
+
+def test_direct_rejection_creates_durable_review_ledger_before_gate_change(runtime):
+    proposal=runtime.learning_gate.request(
+        'knowledge.add_fact',
+        {'subject':'direct reject fixture','predicate':'is','object':'unsafe'},
+    )
+    proposal_id=proposal['proposal_id']
+    assert not runtime._chatgpt_review_path().exists()
+
+    result=runtime.reject_learning(proposal_id)
+    assert result['ok']
+    assert runtime.learning_gate.get(proposal_id)['status']=='rejected'
+    row=runtime.chatgpt_learning_review_status(proposal_id)['row']
+    assert row['status']=='rejected'
+    assert row['human_decision']=='rejected'
+
+    root=runtime.root
+    runtime.close()
+    restored=IranRuntime(root)
+    try:
+        assert restored.learning_gate.get(proposal_id)['status']=='rejected'
+        restored_row=restored.chatgpt_learning_review_status(proposal_id)['row']
+        assert restored_row['status']=='rejected'
+        assert restored_row['human_decision']=='rejected'
+        assert restored.knowledge.query('direct reject fixture')==[]
+    finally:
+        restored.close()
+
+
+def test_simultaneous_approve_and_reject_leave_one_consistent_terminal_decision(runtime):
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+    from tests.chatgpt_test_helper import mark_chatgpt_correct
+
+    proposal=runtime.knowledge.add_fact('approval race fixture','is','blue',source='fixture')
+    proposal_id=proposal['proposal_id']
+    mark_chatgpt_correct(runtime,proposal_id,'deterministic race fixture')
+    barrier=threading.Barrier(3)
+
+    def decide(operation):
+        barrier.wait()
+        return operation(proposal_id)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        approve=pool.submit(decide,runtime.approve_learning)
+        reject=pool.submit(decide,runtime.reject_learning)
+        barrier.wait()
+        results=[approve.result(timeout=20),reject.result(timeout=20)]
+
+    assert sum(bool(result.get('ok')) for result in results)==1
+    assert {result.get('reason') for result in results if not result.get('ok')}=={'proposal_not_pending'}
+    gate_status=runtime.learning_gate.get(proposal_id)['status']
+    assert gate_status in {'approved','rejected'}
+    review_row=runtime.chatgpt_learning_review_status(proposal_id)['row']
+    assert review_row['status']==gate_status
+    assert review_row['human_decision']==gate_status
+    learned=bool(runtime.knowledge.query('approval race fixture'))
+    assert learned is (gate_status=='approved')
+
