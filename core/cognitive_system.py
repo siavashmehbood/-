@@ -445,7 +445,7 @@ class CognitiveSystem:
     def bind_legacy_adapters(self) -> None:
         """Bind legacy names to this composition root; they remain compatibility adapters."""
         runtime = self.runtime
-        for name in ("brain", "cognition_engine", "kernel", "cognitive_core", "orchestrator"):
+        for name in ("brain", "cognition_engine", "kernel", "cognitive_core", "orchestrator", "dialogue"):
             component = getattr(runtime, name, None)
             if component is not None:
                 try:
