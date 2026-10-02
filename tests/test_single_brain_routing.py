@@ -44,6 +44,27 @@ def test_legacy_decision_entrypoints_delegate_to_one_brain():
     ]
 
 
+def test_legacy_decision_adapters_fail_closed_without_canonical_owner():
+    import pytest
+    from core.cognition_engine import CognitiveEngine
+
+    orchestrator = Orchestrator.__new__(Orchestrator)
+    with pytest.raises(RuntimeError, match="compatibility adapter"):
+        orchestrator.handle("x")
+
+    kernel = CognitiveKernel.__new__(CognitiveKernel)
+    with pytest.raises(RuntimeError, match="compatibility adapter"):
+        kernel.cycle("x")
+
+    advanced = AdvancedCognitiveCore.__new__(AdvancedCognitiveCore)
+    with pytest.raises(RuntimeError, match="compatibility adapter"):
+        advanced.begin("x")
+
+    engine = CognitiveEngine()
+    with pytest.raises(RuntimeError, match="analysis component"):
+        engine.dispatch("x")
+
+
 def test_runtime_binds_legacy_components_to_cognitive_system():
     source = Path("runtime/app.py").read_text(encoding="utf-8")
     assert "self.cognitive_system.bind_legacy_adapters()" in source
