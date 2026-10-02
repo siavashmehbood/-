@@ -622,19 +622,22 @@ class SoarCognitiveEngine:
         }
 
     def close(self):
+        """Shutdown the SML kernel exactly once.
+
+        SML owns Agent lifetime. Kernel.Shutdown() destroys its agents; calling
+        DestroyAgent first can double-release native objects in the Python
+        bindings and has caused process-level segmentation faults in regression
+        teardown.
+        """
         try:
             self._clear_input()
         except Exception:
             pass
+        kernel=self.kernel
+        self.agent=None
+        self.kernel=None
         try:
-            if self.kernel is not None and self.agent is not None and hasattr(self.kernel, "DestroyAgent"):
-                self.kernel.DestroyAgent(self.agent)
+            if kernel is not None and hasattr(kernel, "Shutdown"):
+                kernel.Shutdown()
         except Exception:
             pass
-        try:
-            if self.kernel is not None and hasattr(self.kernel, "Shutdown"):
-                self.kernel.Shutdown()
-        except Exception:
-            pass
-        self.agent = None
-        self.kernel = None
