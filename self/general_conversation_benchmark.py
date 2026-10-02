@@ -38,7 +38,7 @@ class GeneralConversationBenchmark:
             check("tool_request",lambda:((len(a:=r.handle("اطلاعات سیستم رو بگو"))>3),a))
             check("computer_continuity",lambda:((len(a:=r.handle("حالا ادامه بده"))>3),a))
             check("learning_intent",lambda:((bool(r.handle("پایتون رو از صفر تا صد یاد بگیر")) and bool(r.conversation_snapshot().get("active_goal",""))),r.conversation_snapshot().get("active_goal","")))
-            check("meta",lambda:(("UNKNOWN" not in (a:=r.handle("تو چی جواب دادی؟")) and "جواب" in a),a))
+            check("meta",lambda:(("جواب" in (a:=r.handle("تو چی جواب دادی؟")) and "هنوز جواب قبلی ثبت نشده" not in a),a))
             check("colloquial",lambda:((len(a:=r.handle("میخام بدونم چجوری کار میکنه"))>3),a))
             check("noisy_persian",lambda:((len(a:=r.handle("ميخوام  پایتون رو بفهمم"))>3),a))
             check("mixed",lambda:((len(a:=r.handle("Python برای پروژه IRAN خوبه؟"))>3),a))
