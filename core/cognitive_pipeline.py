@@ -45,6 +45,7 @@ class CognitivePipeline:
         self.conversation_foundation = RasaFoundationAdapter(path=__import__("pathlib").Path(self.runtime.root)/"data"/"conversation_events.json")
         self.semantic_intelligence = SemanticIntelligence(self.runtime.memory)
         self.last_semantic_turn = None
+        self.last_cognitive_cycle = None
 
     def _emit(self, event, data):
         try:
@@ -236,6 +237,28 @@ class CognitivePipeline:
             self.semantic_intelligence.sync_foundation(
                 semantic_turn,self.conversation_foundation)
             semantic_answer=self.semantic_intelligence.answer(semantic_turn)
+
+            # Phase 2 consumes the structured Phase-1 representation. Soar does
+            # not re-parse Persian and does not own final answers/actions.
+            cognitive_engine=getattr(self,"cognitive_engine",None)
+            if cognitive_engine is not None:
+                cycle=cognitive_engine.cycle(
+                    semantic_turn, e.state, parsed=foundation_parsed)
+                self.last_cognitive_cycle=cycle
+                foundation_parsed["soar_operator"]=cycle.selected_operator
+                foundation_parsed["soar_status"]=cycle.status
+                foundation_parsed["soar_uncertainty"]=cycle.uncertainty
+                e.last_cognitive_trace=cycle.to_dict()
+                self._emit("cognitive_cycle",{
+                    "backend":cycle.backend,
+                    "real_soar":cycle.real_soar,
+                    "status":cycle.status,
+                    "operator":cycle.selected_operator,
+                    "impasse":cycle.impasse,
+                    "cycles":cycle.cycle_count,
+                    "canonical":True,
+                })
+
             self._emit("semantic_analysis",semantic_turn.public_trace())
             e.last_semantic_trace={
                 "raw_input": text,
@@ -245,6 +268,7 @@ class CognitivePipeline:
                 "resolved_references": list(semantic_turn.resolved_references),
                 "retrieved_evidence": [x.to_dict() for x in semantic_turn.evidence],
                 "answer_candidate": semantic_answer,
+                "cognitive_cycle": getattr(e,"last_cognitive_trace",{}),
             }
             if semantic_stored:
                 self._emit("semantic_facts_stored",{
