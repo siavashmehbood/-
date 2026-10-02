@@ -58,6 +58,23 @@ class CognitivePipeline:
         facts = list(getattr(self.runtime.knowledge, 'facts', []))
         facts.extend(list(turn_knowledge or []))
         facts.extend(self.runtime.user_model.current_profile(30))
+        # Reference resolution may establish the subject/relation even when the
+        # user omits it ("اسمش؟"). Mark only evidence selected by the semantic
+        # resolver as resolved; this does not bypass factual verification.
+        try:
+            for item in getattr(getattr(self,"last_semantic_turn",None),"evidence",[]) or []:
+                row=item.to_dict() if hasattr(item,"to_dict") else dict(item)
+                facts.append({
+                    "subject":row.get("subject",""),
+                    "predicate":row.get("relation",""),
+                    "object":row.get("value",""),
+                    "confidence":row.get("confidence",0),
+                    "source":row.get("provenance","semantic_resolver"),
+                    "resolved":True,
+                    "superseded":bool(row.get("superseded",False)),
+                })
+        except Exception:
+            pass
         # Structured semantic facts outrank raw history as evidence. Keep only
         # the newest value per subject/relation while preserving provenance.
         try:
