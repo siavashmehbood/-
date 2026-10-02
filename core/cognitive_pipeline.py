@@ -479,7 +479,9 @@ class CognitivePipeline:
         elif any(x in low for x in ("همونو بیشتر", "همون قبلی", "همونو", "ادامه بده", "بیشتر توضیح بده")) and reference:
             answer = f"حتماً؛ ادامه را از «{reference}» می‌دهم و همان موضوع را مبنا می‌گیرم."
 
-        unknown_candidate = (not knowledge and not memory and context.question_type in {"what", "why", "how", "where", "yes_no"} and not is_follow_up(text) and not is_correction(text))
+        unknown_candidate = (not knowledge and not memory and
+            (context.question_type in {"what", "why", "how", "where", "yes_no"} or context.intent in {"information_request","factual_question"}) and
+            not is_follow_up(text) and not is_correction(text))
         if not answer and unknown_candidate:
             answer = "UNKNOWN: برای این سؤال در دانش و شواهد محلی اطلاعات کافی ندارم؛ نمی‌خواهم حدس را به‌عنوان واقعیت بگویم."
         if not answer and getattr(e, "grounded_synthesizer", None):
