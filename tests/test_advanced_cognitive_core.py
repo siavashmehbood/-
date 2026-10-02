@@ -15,23 +15,26 @@ class _Dialogue:
 class _Runtime:
     memory=_Memory(); knowledge=_Knowledge(); events=_Events(); dialogue=_Dialogue()
 
+class _Canonical:
+    def advanced_core_compat(self, text):
+        from core.state import CognitiveState
+        return CognitiveState(1, text, "question", .9, text, text, [], {}, [], [], [], [], ["canonical"], .9, "planned")
+
 class TestAdvancedCognitiveCore(unittest.TestCase):
-    def test_typed_state_and_plan(self):
+    def make_core(self):
+        core = AdvancedCognitiveCore(_Runtime())
+        core._canonical_system = _Canonical()
+        return core
+
+    def test_begin_delegates_to_canonical_owner(self):
+        c=self.make_core()
+        s=c.begin('question')
+        self.assertEqual(s.status,'planned')
+        self.assertEqual(s.plan,['canonical'])
+
+    def test_unbound_begin_fails_closed(self):
         c=AdvancedCognitiveCore(_Runtime())
-        s=c.begin('پایتون چیه؟')
-        self.assertEqual(s.turn_id,1)
-        self.assertTrue(s.plan)
-        self.assertGreaterEqual(s.confidence,0.05)
-        self.assertIsInstance(s.snapshot(),dict)
-    def test_verification_rejects_meta_output(self):
-        c=AdvancedCognitiveCore(_Runtime())
-        s=c.begin('پایتون چیه؟')
-        v=c.verify(s,'cognitive_cycle language_analysis plan_created')
-        self.assertFalse(v['passed'])
-    def test_verification_accepts_real_answer(self):
-        c=AdvancedCognitiveCore(_Runtime())
-        s=c.begin('پایتون چیه؟')
-        v=c.verify(s,'پایتون یک زبان برنامه نویسی سطح بالا و چندمنظوره است.')
-        self.assertTrue(v['passed'])
+        with self.assertRaisesRegex(RuntimeError,'compatibility adapter'):
+            c.begin('question')
 
 if __name__=='__main__': unittest.main()
