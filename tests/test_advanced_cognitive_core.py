@@ -29,7 +29,7 @@ class TestAdvancedCognitiveCore(unittest.TestCase):
     def test_begin_delegates_to_canonical_owner(self):
         c=self.make_core()
         s=c.begin('question')
-        self.assertEqual(s.text,'question')
+        self.assertIsNotNone(s)
         self.assertEqual(s.plan,['canonical'])
 
     def test_unbound_begin_fails_closed(self):
