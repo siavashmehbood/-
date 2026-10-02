@@ -124,10 +124,40 @@ class CognitiveSystem:
         if routed is not None:
             tool_name, arguments = routed.choose(clean_text)
             if tool_name and tool_name in {"open_application","screenshot","set_volume","get_battery"}:
+                # Phase 2: Phase-1 semantics become a Soar candidate evaluation.
+                # CognitiveSystem still owns the allow/deny decision and Jarvis
+                # remains a subordinate executor.
+                try:
+                    slots=self.pipeline.conversation_foundation.current_state().get("slots",{})
+                    semantic_turn=self.pipeline.semantic_intelligence.analyze(
+                        clean_text,slots=slots,
+                        source_turn=int(getattr(self.dialogue.state,"turns",0) or 0)+1)
+                    cycle=self.cognitive_engine.cycle(
+                        semantic_turn,self.dialogue.state,
+                        parsed={"goal":clean_text,"intent":"tool","constraints":[]},
+                        tool_candidate=tool_name)
+                    self.pipeline.last_semantic_turn=semantic_turn
+                    self.pipeline.last_cognitive_cycle=cycle
+                    self.dialogue.last_cognitive_trace=cycle.to_dict()
+                    if cycle.real_soar and (
+                            cycle.safe_abort or cycle.impasse or
+                            cycle.selected_operator != tool_name):
+                        self.last_answer="عملیات اجرا نشد: موتور شناختی اقدام قابل اتکایی انتخاب نکرد."
+                        self.last_output={"computer_action":{"success":False,"reason":"soar_not_authorized"},
+                                          "cognitive_cycle":cycle.to_dict(),"answer":self.last_answer}
+                        return self.last_answer
+                except Exception as exc:
+                    self.last_answer="عملیات اجرا نشد: ارزیابی شناختی اقدام در دسترس نیست."
+                    self.last_output={"computer_action":{"success":False,"reason":"cognitive_engine_error",
+                                                         "error_type":type(exc).__name__},
+                                      "answer":self.last_answer}
+                    return self.last_answer
                 outcome = self.runtime.computer_use.execute(clean_text, tool_name, arguments)
                 self.last_answer = ("انجام شد." if outcome.get("success") else
                                     f"عملیات تأیید نشد: {outcome.get('verification',{}).get('reason','unknown')}")
-                self.last_output = {"computer_action": outcome, "answer": self.last_answer}
+                self.last_output = {"computer_action": outcome,
+                                    "cognitive_cycle":cycle.to_dict(),
+                                    "answer": self.last_answer}
                 return self.last_answer
         return self.turn(clean_text)
 
