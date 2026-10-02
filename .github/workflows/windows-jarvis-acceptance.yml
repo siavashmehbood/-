@@ -12,6 +12,8 @@ on:
       - "core/cognitive_system.py"
       - "core/rasa_foundation.py"
       - "core/semantic_intelligence.py"
+      - "core/soar_cognitive_engine.py"
+      - "cognitive/iran_phase2.soar"
       - "core/semantic_verifier.py"
       - "runtime/app.py"
       - "learning/missions.py"
@@ -23,6 +25,7 @@ on:
       - "tests/test_general_conversation.py"
       - "tests/test_rasa_foundation.py"
       - "tests/test_semantic_intelligence.py"
+      - "tests/test_soar_cognitive_foundation.py"
       - "tests/test_conversation_fact_memory.py"
       - "tests/test_windows_jarvis_acceptance.py"
       - ".github/workflows/windows-jarvis-acceptance.yml"
@@ -66,5 +69,7 @@ jobs:
         run: python -m pytest -q tests/test_rasa_foundation.py tests/test_general_conversation.py
       - name: Semantic intelligence Windows acceptance
         run: python -m pytest -q tests/test_semantic_intelligence.py tests/test_conversation_fact_memory.py tests/test_single_brain_routing.py
+      - name: Soar cognitive foundation Windows acceptance
+        run: python -m pytest -q tests/test_soar_cognitive_foundation.py
       - name: Real Windows acceptance
         run: python -m pytest -q tests/test_windows_jarvis_acceptance.py
