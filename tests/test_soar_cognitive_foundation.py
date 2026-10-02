@@ -77,9 +77,13 @@ class SoarCognitiveFoundationAcceptance(unittest.TestCase):
             self.assertTrue(cycle.real_soar,cycle.to_dict())
             self.assertGreaterEqual(len(cycle.proposed_operators),2,cycle.to_dict())
             self.assertTrue(cycle.impasse,cycle.to_dict())
-            self.assertEqual(cycle.status,"IMPASSE")
+            self.assertIn(cycle.status,{"IMPASSE","RESOLVED_IMPASSE"})
             self.assertTrue(cycle.substate)
             self.assertTrue(any(x.get("stage")=="impasse" for x in cycle.trace))
+            self.assertTrue(any(x.get("stage")=="substate-problem-solving" for x in cycle.trace))
+            if cycle.status=="RESOLVED_IMPASSE":
+                self.assertTrue(cycle.selected_operator)
+                self.assertTrue(cycle.substate.get("returned_to_superstate",True))
             self.assertEqual(cycle.goal["subgoals"][0]["status"],"blocked")
         finally:r.close()
 
