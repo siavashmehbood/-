@@ -28,6 +28,20 @@ class ReasoningPlanningTests(unittest.TestCase):
         self.assertGreaterEqual(trace.uncertainty, .65)
         self.assertTrue(trace.assumptions)
 
+    def test_conflicting_high_confidence_facts_cannot_fake_verified_certainty(self):
+        trace = self.engine.analyze(
+            "service state?",
+            {"intent": "question", "goal": "service state?", "constraints": []},
+            knowledge=[
+                {"subject": "service", "predicate": "state", "object": "online", "confidence": .98, "source": "a"},
+                {"subject": "service", "predicate": "state", "object": "offline", "confidence": .97, "source": "b"},
+            ],
+        )
+        self.assertEqual(trace.status, "CONFLICTING")
+        self.assertLess(trace.confidence, .65)
+        self.assertGreaterEqual(trace.uncertainty, .51)
+        self.assertTrue(trace.contradictions)
+
     def test_reference_becomes_explicit_decision_input(self):
         trace = self.engine.analyze(
             "ادامه بده",
