@@ -109,9 +109,26 @@ class ReasoningPlanningEngine:
             status = "VERIFIED_CANDIDATE"
             decisions.append("زنجیره استدلال محلی نیز یک نامزد راستی‌آزمایی‌شده ارائه کرده است.")
 
+        # Contradictory evidence must lower confidence before any high-confidence
+        # fact can promote the trace to VERIFIED_CANDIDATE.
+        normalized_claims = {}
+        for fact in knowledge:
+            key = (str(fact.get("subject", "")).strip().lower(),
+                   str(fact.get("predicate", "")).strip().lower())
+            value = str(fact.get("object", fact.get("value", ""))).strip().lower()
+            if key != ("", "") and value:
+                normalized_claims.setdefault(key, set()).add(value)
+        conflicts = [f"{subject}:{predicate}" for (subject, predicate), values in normalized_claims.items()
+                     if len(values) > 1]
+        if conflicts:
+            inference.confidence = min(inference.confidence, .49)
+            inference.uncertainty = max(inference.uncertainty, .51)
+            status = "CONFLICTING"
+            decisions.append("شواهد درباره یک گزاره با هم تعارض دارند؛ ادعای قطعی مجاز نیست.")
+
         # High-confidence verified local facts are stronger than lexical
-        # hypothesis matching; do not turn a known fact into artificial doubt.
-        if knowledge:
+        # hypothesis matching only when the evidence set is internally consistent.
+        if knowledge and not conflicts:
             strongest = max(float(f.get("confidence", 0.0)) for f in knowledge)
             if strongest >= .90:
                 inference.confidence = max(inference.confidence, round(strongest, 3))
@@ -122,7 +139,7 @@ class ReasoningPlanningEngine:
             goal=goal, intent=intent, subgoals=subgoals,
             evidence=[{"text": e.text, "source": e.source, "weight": e.weight, "reliability": e.reliability} for e in raw_evidence[:12]],
             hypotheses=[h.name for h in inference.hypotheses],
-            contradictions=list(getattr(selected, "contradictions", []) if selected else []),
+            contradictions=list(getattr(selected, "contradictions", []) if selected else []) + conflicts,
             assumptions=list(inference.assumptions) + constraints,
             decisions=decisions,
             steps=self._steps(subgoals),
