@@ -21,11 +21,11 @@ class ComputerUse:
         self.runtime=runtime; self.max_steps=max(1,int(max_steps)); self._cancel=threading.Event()
     def cancel(self): self._cancel.set()
     def reset_cancel(self): self._cancel.clear()
-    def execute(self,goal,tool,arguments=None,verify=None):
+    def execute(self,goal,tool,arguments=None,verify=None,permission_granted=False):
         arguments=dict(arguments or {}); registered=self.runtime.registry.get(tool)
         if registered is None:return self._failure(goal,tool,arguments,"unknown_tool")
         permission=registered.permission
-        if not self.runtime.policy.allows(permission):return self._failure(goal,tool,arguments,"permission_denied",permission)
+        if not self.runtime.policy.allows(permission,explicit=bool(permission_granted)):return self._failure(goal,tool,arguments,"permission_denied",permission)
         started=perf_counter()
         try:
             result=registered.run(**arguments); verification=self._verify(tool,result,verify)
@@ -62,7 +62,8 @@ class ComputerUse:
             sig=before_dict.get("signature",""); key=(sig,action["tool"],json.dumps(action["arguments"],sort_keys=True,default=str))
             repeated[key]=repeated.get(key,0)+1
             if repeated[key]>max_retries_per_action:return self._finish(ep,started,"loop_detected",False)
-            report=self.execute(goal,action["tool"],action["arguments"],decision.get("verify")); action["outcome"]=report
+            report=self.execute(goal,action["tool"],action["arguments"],decision.get("verify"),
+                permission_granted=bool(decision.get("permission_granted",False))); action["outcome"]=report
             after=observe(); after_dict=after.to_dict() if hasattr(after,"to_dict") else dict(after); ep.observations.append(after_dict)
             evidence=self._verify_transition(decision,report,before_dict,after_dict); action["transition_verification"]=evidence
             ep.actions.append(action); ep.step_count=len(ep.actions); last_verification=evidence
