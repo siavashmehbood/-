@@ -11,12 +11,14 @@ from learning.learning_engine import LearningEngine
 from core.kernel import CognitiveKernel
 
 class CognitiveCoreTests(unittest.TestCase):
-    def test_kernel_cycle(self):
+    def test_kernel_requires_canonical_owner(self):
         with TemporaryDirectory() as d:
             m=Memory(Path(d)/'m.db'); w=WorldModel(Path(d)/'w.json'); k=KnowledgeGraph(Path(d)/'k.json')
-            l=LearningEngine(Path(d)/'l.json'); p=PredictionEngine(); a=AnomalyDetector()
-            result=CognitiveKernel(m,w,k,p,a).cycle('پروژه را بررسی کن')
-            self.assertEqual(result.intent,'inspection'); self.assertGreater(result.confidence,.5); m.close()
+            p=PredictionEngine(); a=AnomalyDetector()
+            kernel=CognitiveKernel(m,w,k,p,a)
+            with self.assertRaisesRegex(RuntimeError,'compatibility adapter'):
+                kernel.cycle('inspect project')
+            m.close()
     def test_language_snapshot(self):
         s=CognitiveEngine().analyze('میخوام ایران را بسازی بدون اتصال خارجی')
         self.assertEqual(s.intent,'build'); self.assertTrue(s.needs_tools); self.assertTrue(s.constraints)
