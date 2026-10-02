@@ -104,3 +104,27 @@ an attempted call.
 
 Decision owner remains exactly `CognitiveSystem`; no Jarvis agent loop or external
 LLM orchestration was imported.
+
+
+## Autonomous computer use / screen understanding audit
+
+Interactive computer work preserves ONE BRAIN. `CognitiveSystem.decide_computer_action`
+is the next-action decision boundary. `ComputerUse.adaptive_run` coordinates a bounded
+step-driven loop but receives its decision callback from cognition and owns no planner,
+memory, response engine or learning policy.
+
+Desktop observations are structured and evidence-bearing: screenshot reference when
+requested, dimensions, active/visible windows, cursor when available, native Win32/UIA
+elements, timestamp, confidence, provenance and a stable state signature. Windows UI
+Automation is preferred over OCR/raw-pixel guessing. `UIGrounder` returns grounded,
+ambiguous or unknown and never invents a target.
+
+Every action is permission checked. Input control requires an explicit per-action grant;
+safe mode continues to block writes and destructive actions. Episodes enforce max steps,
+timeout, retry/loop detection, consecutive-failure stop and user cancellation. Each action
+is followed by observation and transition verification. Failed episodes emit evidence to
+Cognitive Growth; they do not bypass Reviewer/Human/LearningGate governance.
+
+Roles remain: ScreenObserver=observer; ScreenPerception=perception; UIGrounder=resolver;
+ComputerUse=bounded coordinator/executor; ToolRegistry=capabilities; InputController=adapter;
+Voice=transport; CognitiveGrowth=evaluation/improvement; CognitiveSystem=sole Decision Owner.
