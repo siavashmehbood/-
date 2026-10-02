@@ -3,7 +3,7 @@ from pathlib import Path
 
 from core.dialogue import AnswerPlanner, CognitiveContext
 from runtime.app import IranRuntime
-from self.cognitive_growth import CapabilityBenchmark
+from self.cognitive_growth import CapabilityBenchmark, CognitiveGrowthCycle
 
 
 def make_runtime(tmp_path):
@@ -59,6 +59,13 @@ def test_governed_learning_changes_unseen_planning_and_survives_restart(tmp_path
         before = benchmark.run("approved lesson transfer", cases, solve,
                                lambda output, case: output is True, "baseline")
         assert before["score"] == 0
+        growth = CognitiveGrowthCycle(tmp_path)
+        failure = growth.evaluate_failure(
+            "approved lesson transfer", "training-goal", "transfer succeeds",
+            "no approved lesson", "capability unavailable before governed learning",
+            ["baseline:0/2"], .95)
+        weakness_id = failure["weakness"]["weakness_id"]
+        assert growth.begin_learning(weakness_id)["status"] == "learning"
 
         candidate = runtime.queue_learning_candidate(
             "memory.add_lesson",
@@ -91,6 +98,9 @@ def test_governed_learning_changes_unseen_planning_and_survives_restart(tmp_path
         assert after["score"] == 2
         assert comparison["delta"] == 2
         assert comparison["mastery_eligible"] is True
+        assert growth.begin_retest(weakness_id)["status"] == "retest"
+        conclusion = growth.conclude(weakness_id, before, after)
+        assert conclusion["weakness_status"] == "resolved"
     finally:
         runtime.close()
 
