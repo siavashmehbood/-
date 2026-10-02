@@ -28,4 +28,12 @@ class ToolRouter:
             return 'open_application', {'name':'notepad'}
         if any(x in t for x in ('وی اس کد رو باز','وی‌اس‌کد رو باز','open vscode','open vs code')):
             return 'open_application', {'name':'vscode'}
+        if any(x in t for x in ('صدا رو کمتر','صدا را کمتر','volume down')):
+            return 'set_volume', {'direction':'down','steps':2}
+        if any(x in t for x in ('صدا رو بیشتر','صدا را بیشتر','volume up')):
+            return 'set_volume', {'direction':'up','steps':2}
+        if any(x in t for x in ('صدا رو قطع','صدا را قطع','mute')):
+            return 'set_volume', {'direction':'mute','steps':1}
+        if any(x in t for x in ('باتری چقدره','وضعیت باتری','battery')):
+            return 'get_battery', {}
         return None, {}
