@@ -91,6 +91,7 @@ def build_registry(root, memory, internet_access=None):
     registry.register(Tool('uia_elements', 'مشاهده ساختاری عناصر Windows UI Automation', windows.uia_elements, True, 'read'))
     registry.register(Tool('uia_text', 'خواندن متن Windows UI Automation ValuePattern', windows.uia_text, True, 'read'))
     registry.register(Tool('uia_document_text', 'خواندن محتوای Document/Edit از Windows UI Automation', windows.uia_document_text, True, 'read'))
+    registry.register(Tool('uia_type_text', 'تایپ در Document/Edit grounded با Windows UI Automation', windows.uia_set_and_read_text, False, 'input_control'))
     registry.register(Tool('focus_window', 'تمرکز روی پنجره Windows', windows.focus, False, 'input_control'))
     registry.register(Tool('minimize_window', 'کوچک کردن پنجره Windows', windows.minimize, False, 'input_control'))
     registry.register(Tool('maximize_window', 'بزرگ کردن پنجره Windows', windows.maximize, False, 'input_control'))
