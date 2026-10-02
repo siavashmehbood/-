@@ -7,6 +7,7 @@ except ImportError:
 from pathlib import Path
 import sys
 import threading
+import subprocess
 from PySide6.QtCore import QEvent, Qt, Signal, QObject, QTimer, QThread
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
@@ -189,15 +190,10 @@ class ChatWindow(QMainWindow):
         for button in (self.lesson_view_button, self.lesson_review_button, self.lesson_approve_button, self.lesson_reject_button):
             lesson_buttons.addWidget(button)
         ll.addLayout(lesson_buttons)
-        lesson_bulk_buttons = QHBoxLayout()
-        self.lesson_review_ready_button = QPushButton("بازبینی تکی درس‌های آماده")
-        self.lesson_approve_all_button = QPushButton("تأیید همه درس‌های آماده")
-        self.lesson_approve_all_button.setObjectName("primaryButton")
-        self.lesson_review_ready_button.clicked.connect(self.review_ready_lessons)
-        self.lesson_approve_all_button.clicked.connect(self.approve_all_ready_lessons_ui)
-        lesson_bulk_buttons.addWidget(self.lesson_review_ready_button)
-        lesson_bulk_buttons.addWidget(self.lesson_approve_all_button)
-        ll.addLayout(lesson_bulk_buttons)
+        self.lesson_finish_all_button = QPushButton("تکمیل درس‌های باقی‌مانده")
+        self.lesson_finish_all_button.setObjectName("primaryButton")
+        self.lesson_finish_all_button.clicked.connect(self.finish_remaining_lessons)
+        ll.addWidget(self.lesson_finish_all_button)
         self.learning_queue_status = QLabel("صف درس‌ها هنوز بارگذاری نشده است."); self.learning_queue_status.setObjectName("metric"); self.learning_queue_status.setWordWrap(True)
         ll.addWidget(self.learning_queue_status)
         ll.addWidget(QLabel("نتیجه‌های ناظر", objectName="sectionTitle"))
@@ -717,6 +713,78 @@ class ChatWindow(QMainWindow):
             self.reviewer_result_rows.clear()
             self.reviewer_result_status.setText(f"خطا در نمایش نتیجه ناظر: {type(exc).__name__}")
 
+    def _remaining_lesson_count(self):
+        try:
+            from persistence import load_critical_json
+            rows = load_critical_json(self.runtime._chatgpt_review_path(), [])
+            return sum(
+                1 for row in rows
+                if row.get("source") == "learning_candidate"
+                and (row.get("payload", {}) or {}).get("source") == "direct_user_requested_teaching_100_batch"
+                and row.get("review_status", "not_reviewed") == "not_reviewed"
+                and row.get("status", "pending") in {"pending", "WAITING_FOR_REVIEWER"}
+            )
+        except Exception:
+            return 0
+
+    def finish_remaining_lessons(self):
+        remaining = self._remaining_lesson_count()
+        ready = len(self._ready_lesson_rows(100000))
+        if remaining <= 0:
+            if ready > 0:
+                self.approve_all_ready_lessons_ui()
+            else:
+                QMessageBox.information(self, "درس‌ها", "همه درس‌ها بررسی شده‌اند و درس آماده‌ای برای تأیید باقی نمانده است.")
+            return
+        answer = QMessageBox.question(
+            self, "تکمیل درس‌های باقی‌مانده",
+            f"{remaining} درس هنوز منتظر ناظر است. ناظر جداگانه اجرا شود و همه درس‌های باقی‌مانده را تا جای ممکن بررسی کند؟",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        self.lesson_finish_all_button.setEnabled(False)
+        self.lesson_finish_all_button.setText(f"در حال بررسی {remaining} درس باقی‌مانده…")
+
+        def run_batch():
+            flags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+            completed = subprocess.run(
+                [sys.executable, str(ROOT / "lesson_review_batch.py")],
+                cwd=str(ROOT), capture_output=True, text=True,
+                encoding="utf-8", errors="replace", timeout=930,
+                creationflags=flags
+            )
+            last = {}
+            for line in completed.stdout.splitlines():
+                try:
+                    row = json.loads(line)
+                except Exception:
+                    continue
+                if row.get("event") in {"progress", "done"}:
+                    last = row
+            return {"returncode": completed.returncode, "last": last,
+                    "stderr": completed.stderr[-1000:]}
+
+        def finish(result):
+            self.lesson_finish_all_button.setEnabled(True)
+            self.refresh_learning_stats()
+            remaining_now = self._remaining_lesson_count()
+            ready_now = len(self._ready_lesson_rows(100000))
+            self.lesson_finish_all_button.setText(f"تکمیل درس‌های باقی‌مانده ({remaining_now})")
+            self.status.setText(
+                f"ناظر تمام شد | باقی‌مانده: {remaining_now} | آماده تأیید: {ready_now}"
+            )
+            if ready_now > 0:
+                QTimer.singleShot(0, self.approve_all_ready_lessons_ui)
+            elif remaining_now > 0:
+                QMessageBox.information(
+                    self, "وضعیت درس‌ها",
+                    f"فعلاً {remaining_now} درس به‌دلیل محدودیت ناظر باقی مانده؛ دوباره همین دکمه را بزن تا ادامه دهد."
+                )
+
+        self._start_job("finish_remaining_lessons", run_batch, finish)
+
     def _ready_lesson_rows(self, limit=100000):
         rows = self._dedupe_human_pending_rows(self.runtime.human_learning_pending(limit))
         result = []
@@ -893,11 +961,13 @@ class ChatWindow(QMainWindow):
             self.learning_queue_rows.clear()
             # Put items the user can act on or has just approved at the top.
             # Keep the pending backlog visible after those, while preserving all 100 lessons.
-            status_order = {"human_pending": 0, "approved": 1, "rejected": 2, "pending": 3, "waiting_for_reviewer": 3}
+            status_order = {"human_pending": 0, "approved": 1, "rejected": 2,
+                            "pending": 3, "waiting_for_reviewer": 3, "WAITING_FOR_REVIEWER": 3}
             lesson_rows.sort(key=lambda row: (status_order.get(row.get("status"), 9),
                                                str((row.get("payload") or {}).get("mission_title", "")),
                                                int((row.get("payload") or {}).get("sequence", 0) or 0)))
             labels = {"pending": "منتظر ناظر", "waiting_for_reviewer": "منتظر ناظر",
+                      "WAITING_FOR_REVIEWER": "منتظر ناظر",
                       "human_pending": "منتظر تأیید انسان", "approved": "یادگرفته‌شده",
                       "rejected": "ردشده"}
             for row in lesson_rows:
@@ -915,16 +985,18 @@ class ChatWindow(QMainWindow):
             counts = {}
             for row in lesson_rows:
                 counts[row.get("status", "unknown")] = counts.get(row.get("status", "unknown"), 0) + 1
+            waiting_count = (counts.get("pending", 0)
+                             + counts.get("waiting_for_reviewer", 0)
+                             + counts.get("WAITING_FOR_REVIEWER", 0))
             self.learning_queue_status.setText(
-                f"کل ۱۰۰ درس: {len(lesson_rows)} | منتظر ناظر: {counts.get('pending', 0) + counts.get('waiting_for_reviewer', 0)} | "
+                f"کل ۱۰۰ درس: {len(lesson_rows)} | منتظر ناظر: {waiting_count} | "
                 f"منتظر تأیید تو: {counts.get('human_pending', 0)} | یادگرفته‌شده: {counts.get('approved', 0)} | ردشده: {counts.get('rejected', 0)}")
-            try:
-                ready_count = len(self._ready_lesson_rows(100000))
-            except Exception:
-                ready_count = int(counts.get('human_pending', 0) or 0)
-            self.lesson_approve_all_button.setText(f"تأیید همه درس‌های آماده ({ready_count})")
-            self.lesson_approve_all_button.setEnabled(ready_count > 0)
-            self.lesson_review_ready_button.setEnabled(ready_count > 0)
+            remaining_count = self._remaining_lesson_count()
+            ready_count = int(counts.get('human_pending', 0) or 0)
+            self.lesson_finish_all_button.setText(
+                f"تکمیل درس‌های باقی‌مانده ({remaining_count})"
+            )
+            self.lesson_finish_all_button.setEnabled((remaining_count + ready_count) > 0)
             if self.learning_queue_rows.currentItem() is None and self.learning_queue_rows.count():
                 self.learning_queue_rows.setCurrentRow(0)
             self.update_lesson_action_buttons()
