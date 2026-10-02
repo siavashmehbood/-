@@ -77,3 +77,5 @@ class ConversationFactMemoryRegression(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+# Validation branch marker: exercises the exact master implementation through PR CI.
