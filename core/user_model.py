@@ -203,3 +203,96 @@ def _facts_canonical(self, predicate=None, limit=20):
         if len(out)>=int(limit): break
     return out
 UserModel.facts = _facts_canonical
+
+
+# v0.34: structured names for user-owned entities (project/company/etc.).
+# Raw history remains context; explicit named relations are stored as semantic facts.
+_UserModel_extract_owned_base = UserModel.extract_explicit_facts
+
+def _owned_entity_key(entity):
+    value = re.sub(r"\s+", " ", str(entity or "").replace("\u200c", " ")).strip(" ،,:؛")
+    value = re.sub(r"(?:\s+من)$", "", value).strip()
+    return value
+
+def _strip_persian_copula(value):
+    value = str(value or "").strip(" ،,:؛")
+    value = re.sub(r"\s+(?:است|هست|بود)$", "", value).strip()
+    # Persian contracts vowel-final words: دانا + است -> داناست.
+    if len(value) > 3 and value.endswith("ست") and value[-3] in "اوی":
+        value = value[:-2].strip()
+    return value
+
+def _extract_explicit_facts_owned_names(self, text):
+    raw = self._clean(text)
+    # Memory directives are not part of the fact value.
+    declarative = re.sub(
+        r"(?:[،,]\s*)?(?:یادت\s+(?:بماند|بمونه)|یادت\s+باشه|به\s+خاطر\s+بسپار)\.?$",
+        "", raw, flags=re.I,
+    ).strip()
+    facts = _UserModel_extract_owned_base(self, declarative)
+
+    # Generic relation: "اسم <owned entity> من X است" / "اسم <entity>‌ام X است".
+    # The entity label is data, not a hard-coded project/company list.
+    pattern = re.compile(
+        r"(?:اسم|نام)\s+"
+        r"(?P<entity>[\wآ-ی‌-]+?)"
+        r"(?:\s+من|‌?ام|م)\s+"
+        r"(?P<value>.+?)"
+        r"(?=[،,.!?؟]|(?:\s+حالا\b)|$)",
+        re.I,
+    )
+    for match in pattern.finditer(declarative):
+        entity = _owned_entity_key(match.group("entity"))
+        value = _strip_persian_copula(match.group("value"))
+        low_value = value.lower()
+        if (not entity or not value or entity in {"من", "خودم"} or
+                re.match(r"^(?:چی|چیه|چیست|چه|کدام|کدوم|چی\s+بود)", low_value)):
+            continue
+        fact = self._fact(f"owned_name:{entity}", value, .99)
+        key = (fact["predicate"], fact["object"])
+        if not any((x.get("predicate"), x.get("object")) == key for x in facts):
+            facts.append(fact)
+    return facts
+
+UserModel.extract_explicit_facts = _extract_explicit_facts_owned_names
+
+
+def _owned_name_entity_from_query(text):
+    q = re.sub(r"\s+", " ", str(text or "").replace("\u200c", " ")).strip()
+    # Explicit possessive query: اسم پروژه من چیه؟ / اسم شرکتم چی بود؟
+    patterns = [
+        r"(?:اسم|نام)\s+(?P<entity>[\wآ-ی-]+?)\s+من\s+(?:چی|چیه|چیست|چه|کدام|کدوم)",
+        r"(?:اسم|نام)\s+(?P<entity>[\wآ-ی-]+?)(?:ام|م)\s+(?:چی|چیه|چیست|چه|کدام|کدوم)",
+    ]
+    for pat in patterns:
+        m = re.search(pat, q, re.I)
+        if m:
+            return _owned_entity_key(m.group("entity"))
+    # Elliptical return: "برگردیم به پروژه قبلی؛ اسمش چی بود؟"
+    if re.search(r"(?:اسمش|نامش)\s+(?:چی|چیه|چیست|چه)", q, re.I):
+        m = re.search(r"(?P<entity>[\wآ-ی-]+)\s+قبلی", q, re.I)
+        if m:
+            return _owned_entity_key(m.group("entity"))
+        return "*"
+    return ""
+
+def _answer_owned_name(self, text):
+    entity = _owned_name_entity_from_query(text)
+    if not entity:
+        return None
+    if entity == "*":
+        rows = [x for x in self.facts(limit=100)
+                if str(x.get("predicate", "")).startswith("owned_name:")]
+        if not rows:
+            return None
+        fact = rows[0]
+        entity = str(fact["predicate"]).split(":", 1)[1]
+    else:
+        rows = self.current_belief(f"owned_name:{entity}", limit=1)
+        if not rows:
+            return None
+        fact = rows[0]
+    return f"اسم {entity} شما «{fact['object']}» است."
+
+UserModel.answer_owned_name = _answer_owned_name
+UserModel.owned_name_entity_from_query = staticmethod(_owned_name_entity_from_query)
