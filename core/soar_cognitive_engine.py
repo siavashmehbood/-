@@ -169,11 +169,12 @@ class SoarCognitiveEngine:
             # EPMem attached to its default location.
             self._cmd(f"epmem --set path {self._cli_path(self.epmem_path)}")
             self._cmd("epmem --set append on")
-            # Process-owned kernels cannot rely on kernel shutdown to flush the
-            # SQLite cache. Persist native episodes independently so runtime
-            # restart remains durable while SML Shutdown stays avoided.
-            self._cmd("epmem --set lazy-commit off")
-            self._cmd("epmem --set optimization safety")
+            # Keep decision cycles fast, especially on Windows. Soar documents
+            # lazy-commit/optimization as the durability-vs-performance knobs;
+            # IRAN closes the gap by issuing epmem --backup on runtime close,
+            # which commits all outstanding changes before copying the DB.
+            self._cmd("epmem --set lazy-commit on")
+            self._cmd("epmem --set optimization performance")
             self._cmd("epmem --set database file")
             self._cmd("epmem --init")
             self.epmem_config = {
@@ -656,6 +657,7 @@ class SoarCognitiveEngine:
                 "persistent_path": str(self.epmem_path),
                 "exists": self.epmem_path.exists(),
                 "config": dict(getattr(self, "epmem_config", {}) or {}),
+                "durability": "lazy-runtime+backup-on-close",
             },
             "chunking": {"mode": "only", "governance": "LearningGate"},
             "rl": {"durable_rewards": "LearningGate_only"},
