@@ -196,10 +196,8 @@ class IranRuntime:
 
     @serialized
     def handle(self, text):
-        mission_intent = self.learning_missions.parse_intent(text)
-        if mission_intent is not None:
-            return self._handle_learning_mission_intent(mission_intent, text)
-        # One public ingress: capture the learning signal first, then route cognition.
+        # One public ingress: capture the learning signal first, then let CognitiveSystem
+        # own the decision between conversation, learning missions and tools.
         self.input_fabric.ingest(text, source="user", input_type="conversation",
                                  provenance={"channel": "runtime.handle"}, create_goal=True)
         return self.cognitive_system.dispatch(text)
