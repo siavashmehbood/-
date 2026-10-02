@@ -141,6 +141,25 @@ class WindowsDesktop:
     def restore(self,hwnd): return self._show(hwnd,9)
     def focus(self,hwnd):
         user32=self._require(); return {"hwnd":int(hwnd),"focused":bool(user32.SetForegroundWindow(int(hwnd)))}
+    def uia_document_text(self,hwnd):
+        self._require()
+        try: from pywinauto import Desktop
+        except ImportError as exc: raise RuntimeError("pywinauto optional dependency is not installed") from exc
+        root=Desktop(backend="uia").window(handle=int(hwnd)); values=[]
+        for child in root.descendants():
+            try:
+                ctype=str(child.element_info.control_type or "")
+                if ctype not in {"Document","Edit"}: continue
+                texts=[]
+                try: texts.extend(child.texts())
+                except Exception: pass
+                try:
+                    value=str(child.iface_value.CurrentValue or "")
+                    if value:texts.append(value)
+                except Exception: pass
+                values.extend(x for x in texts if x)
+            except Exception: continue
+        return {"hwnd":int(hwnd),"texts":values,"text":"\n".join(dict.fromkeys(values)),"source":"windows_uia_document"}
     def uia_text(self,hwnd):
         self._require()
         try: from pywinauto import Desktop
