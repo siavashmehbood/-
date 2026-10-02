@@ -164,8 +164,20 @@ class CognitiveGrowthCycle:
             evidence=evidence or [], proposed_learning_goal=f"Improve {capability}: {reason}")
         return {"weakness": weakness, "mission": self.weaknesses.mission(weakness["weakness_id"])}
 
+    def begin_learning(self, weakness_id: str) -> dict | None:
+        return self.weaknesses.mark(weakness_id, "learning")
+
+    def begin_retest(self, weakness_id: str) -> dict | None:
+        row = next((r for r in self.weaknesses.rows if r.get("weakness_id") == weakness_id), None)
+        if not row or row.get("status") != "learning":
+            return None
+        return self.weaknesses.mark(weakness_id, "retest")
+
     def conclude(self, weakness_id: str, before: dict, after: dict) -> dict:
+        row = next((r for r in self.weaknesses.rows if r.get("weakness_id") == weakness_id), None)
+        if not row or row.get("status") != "retest":
+            raise ValueError("weakness must be in retest before conclusion")
         comparison = self.benchmark.compare(before, after)
-        status = "resolved" if comparison["improved"] else "remediation"
+        status = "resolved" if comparison["mastery_eligible"] else "remediation"
         self.weaknesses.mark(weakness_id, status)
         return {"comparison": comparison, "weakness_status": status}
