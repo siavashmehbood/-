@@ -15,6 +15,8 @@ class SecurityPolicy:
             if self.internet_access is not None:
                 return bool(self.internet_access.status().get('enabled'))
             return bool(self.config_network)
+        if permission in {'destructive', 'input_control'}:
+            return False
         if self.safe_mode and permission in {'write', 'shell', 'deploy'}:
             return False
         if permission == 'shell':
