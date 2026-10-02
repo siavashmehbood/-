@@ -310,7 +310,33 @@ def run(repository):
         require(not retry['duplicate'],'failed input consumed duplicate key')
         require(bool(r.learning_gate.pending()),'retried input did not reach review queue')
         require(not r.human_learning_pending(),'unreviewed input bypassed reviewer')
-    for name, operation in [('input_save_recovery',input_save_recovery), ('long_input_restart',long_input_restart), ('structured_health',structured_health), ('credential_free_only',credential_free_only), ('structured_queue_recovery',structured_queue_recovery), ('numeric_evidence',numeric_evidence), ('remembered_constraints',remembered_constraints), ('subject_binding',subject_binding), ('assistant_not_evidence',assistant_not_evidence), ('offline_permission_recovery',offline_permission_recovery), ('diagnostic_not_learning',diagnostic_not_learning), ('sandbox_boundary',sandbox_boundary), ('corroborating_sources',corroborating_sources), ('corrupt_reviewer_state',corrupt_reviewer_state), ('recover_then_learn',recover_then_learn), ('knowledge_correction',knowledge_correction), ('conflicting_knowledge',conflicting_knowledge), ('topic_switch',topic_switch), ('verified_action_recovery',verified_action), ('multi_turn_memory',recall), ('correction',correction), ('correction_restart',correction_restart), ('reference_resolution',reference), ('unknown',unknown), ('restart_memory',restart), ('review_then_human',approval), ('hidden_candidate',hidden), ('feedback_no_xp',feedback), ('deduplication',duplicate), ('forged_review_rejected',forged), ('source_conflict',conflict), ('provider_offline_fallback',provider), ('learn_apply_observe_credit_once',reuse)]:
+    def calibrated_reasoning_states(r):
+        engine = r.cognitive_system.pipeline.reasoning_planning
+        unknown = engine.analyze('unseen phenomenon', {'intent':'question','goal':'unseen phenomenon','constraints':[]})
+        require(unknown.status == 'UNKNOWN', 'no-evidence case was not UNKNOWN')
+        conflict = engine.analyze('service state', {'intent':'question','goal':'service state','constraints':[]},
+            knowledge=[
+                {'subject':'service','predicate':'state','object':'online','confidence':.98,'source':'a'},
+                {'subject':'service','predicate':'state','object':'offline','confidence':.97,'source':'b'}])
+        require(conflict.status == 'CONFLICTING', 'conflicting evidence became certain')
+        require(conflict.confidence < .65 and conflict.uncertainty >= .51, 'conflict calibration unsafe')
+
+    def bounded_autonomy_controls(r):
+        supervisor = r.autonomous_supervisor
+        original = supervisor.step
+        try:
+            supervisor.step = lambda: {'verified':True,'long_horizon':{'status':'active'}}
+            reports = supervisor.run(cycles=2)
+            require(len(reports) == 2, 'autonomy ignored cycle budget')
+            require(reports[-1].get('stop_reason') == 'budget_exhausted', 'budget stop not auditable')
+            supervisor.step = lambda: {'verified':False,'long_horizon':{'status':'active'}}
+            reports = supervisor.run(cycles=5)
+            require(len(reports) == 1 and reports[-1].get('stop_reason') == 'verification_failure',
+                    'autonomy did not stop on failed verification')
+        finally:
+            supervisor.step = original
+
+    for name, operation in [('input_save_recovery',input_save_recovery), ('long_input_restart',long_input_restart), ('structured_health',structured_health), ('credential_free_only',credential_free_only), ('structured_queue_recovery',structured_queue_recovery), ('numeric_evidence',numeric_evidence), ('remembered_constraints',remembered_constraints), ('subject_binding',subject_binding), ('assistant_not_evidence',assistant_not_evidence), ('offline_permission_recovery',offline_permission_recovery), ('diagnostic_not_learning',diagnostic_not_learning), ('sandbox_boundary',sandbox_boundary), ('corroborating_sources',corroborating_sources), ('corrupt_reviewer_state',corrupt_reviewer_state), ('recover_then_learn',recover_then_learn), ('knowledge_correction',knowledge_correction), ('conflicting_knowledge',conflicting_knowledge), ('topic_switch',topic_switch), ('verified_action_recovery',verified_action), ('multi_turn_memory',recall), ('correction',correction), ('correction_restart',correction_restart), ('reference_resolution',reference), ('unknown',unknown), ('restart_memory',restart), ('review_then_human',approval), ('hidden_candidate',hidden), ('feedback_no_xp',feedback), ('deduplication',duplicate), ('forged_review_rejected',forged), ('source_conflict',conflict), ('provider_offline_fallback',provider), ('learn_apply_observe_credit_once',reuse), ('calibrated_reasoning_states',calibrated_reasoning_states), ('bounded_autonomy_controls',bounded_autonomy_controls)]:
         case(name, operation)
     return {'cases': results, 'passed': sum(x['passed'] for x in results), 'total': len(results), 'live_external_services': 'NOT_TESTED'}
 
