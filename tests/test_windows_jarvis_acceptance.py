@@ -1,3 +1,4 @@
+"""Final Windows acceptance: real app, screen, system, and canonical action path."""
 import os, tempfile, unittest
 from pathlib import Path
 from tools.desktop import DesktopTools
