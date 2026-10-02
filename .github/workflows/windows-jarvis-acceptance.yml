@@ -1,6 +1,20 @@
 name: Windows Jarvis Acceptance
 on:
   workflow_dispatch:
+  pull_request:
+    branches: [master]
+    paths:
+      - "core/rasa_foundation.py"
+      - "core/cognitive_pipeline.py"
+      - "core/rasa_foundation.py"
+      - "core/cognitive_system.py"
+      - "runtime/app.py"
+      - "tests/test_rasa_foundation.py"
+      - "tests/test_general_conversation.py"
+      - "tests/test_rasa_foundation.py"
+      - "tests/test_jarvis_integration.py"
+      - "tests/test_windows_jarvis_acceptance.py"
+      - ".github/workflows/windows-jarvis-acceptance.yml"
   push:
     branches: [master]
     paths:
@@ -31,5 +45,7 @@ jobs:
       - run: pip install -r requirements.txt -r requirements-dev.txt pywinauto
       - name: Platform-independent Jarvis integration
         run: python -m pytest -q tests/test_jarvis_integration.py
+      - name: Rasa canonical runtime acceptance
+        run: python -m pytest -q tests/test_rasa_foundation.py tests/test_general_conversation.py
       - name: Real Windows acceptance
         run: python -m pytest -q tests/test_windows_jarvis_acceptance.py
