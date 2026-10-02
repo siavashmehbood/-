@@ -47,15 +47,14 @@ class WindowsJarvisAcceptance(unittest.TestCase):
             if n==3:
                 windows=[w for w in obs.get("visible_windows",[]) if "notepad" in str(w.get("title","")).lower()]
                 if not windows:return {"status":"safe_stop"}
-                return {"status":"act","tool":"uia_elements","arguments":{"hwnd":windows[0]["hwnd"]}}
+                return {"status":"act","tool":"uia_text","arguments":{"hwnd":windows[0]["hwnd"]}}
             return {"status":"goal_complete"}
         try:
             result=runtime.computer_use.adaptive_run("Open Notepad and type: "+sentence,lambda:observer.observe(capture=False),decide,timeout_seconds=30,max_consecutive_failures=4)
             self.assertTrue(any(a["tool"]=="keyboard_type" for a in result["actions"]))
-            observed=[a for a in result["actions"] if a["tool"]=="uia_elements"]
+            observed=[a for a in result["actions"] if a["tool"]=="uia_text"]
             self.assertTrue(observed)
-            labels="\n".join(str(e.get("label","")) for e in observed[-1]["outcome"]["execution"]["result"])
-            self.assertIn(sentence,labels)
+            self.assertIn(sentence,observed[-1]["outcome"]["execution"]["result"]["text"])
             self.assertTrue(result["success"])
         finally: runtime.close()
 
