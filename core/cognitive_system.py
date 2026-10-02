@@ -96,6 +96,15 @@ class CognitiveSystem:
                 self.last_trace = getattr(self.dialogue, "last_trace", None)
                 self.last_output = self.unified_output()
                 return str(result)
+        routed = getattr(getattr(self.runtime, "orchestrator", None), "router", None)
+        if routed is not None:
+            tool_name, arguments = routed.choose(clean_text)
+            if tool_name and tool_name in {"open_application","screenshot"}:
+                outcome = self.runtime.computer_use.execute(clean_text, tool_name, arguments)
+                self.last_answer = ("انجام شد." if outcome.get("success") else
+                                    f"عملیات تأیید نشد: {outcome.get('verification',{}).get('reason','unknown')}")
+                self.last_output = {"computer_action": outcome, "answer": self.last_answer}
+                return self.last_answer
         return self.turn(clean_text)
 
     def turn(self, text: str) -> str:
