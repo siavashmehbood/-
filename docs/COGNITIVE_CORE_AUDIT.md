@@ -49,3 +49,28 @@ The first milestone is not autonomous behavior. It is reliable Persian multi-tur
 - persist the resulting state
 
 Only after this milestone passes the behavioral suite should broader autonomy be re-enabled.
+
+
+## Current canonical architecture verification
+
+The active natural-language decision owner is `CognitiveSystem.dispatch -> CognitivePipeline.run`.
+`Orchestrator.handle`, `CognitiveKernel.cycle`, and `AdvancedCognitiveCore.begin` are compatibility facades bound back to that owner; they are not parallel brains.
+
+The governed growth path is separate from response ownership:
+
+`failure -> WeaknessLedger -> LearningMissionManager -> candidate -> external reviewer -> human pending -> explicit human approval -> LearningGate -> durable lesson -> retrieval -> cognition -> retest`.
+
+A reviewer decision alone cannot change cognition. Transfer benchmarks use stable case identities and require a positive before/after delta before a weakness may resolve.
+
+Memory retrieval treats records as evidence and ranks relevance, freshness, confidence, source, usefulness, outcome status, contradiction and supersession.
+
+Autonomy is bounded to read-only registered actions, explicit cycle budgets, verification failure stops, persisted journal evidence and auditable stop reasons. Learned action ranking is advisory and explainable; it does not execute actions or bypass permissions.
+
+### Legacy/compatibility disposition
+
+- `CognitiveSystem`: canonical decision owner.
+- `CognitivePipeline`: canonical turn pipeline.
+- `Orchestrator`, `CognitiveKernel`, `AdvancedCognitiveCore`: compatibility facades only.
+- `ReasoningPlanningEngine`: reasoning/planning stage used behind the canonical pipeline.
+- `AutonomousSupervisor`: bounded supervisor; it does not own conversational responses.
+- `LearnedActionRanker`: small persisted-experience ranking core; advisory only.
