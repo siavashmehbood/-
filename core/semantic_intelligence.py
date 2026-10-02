@@ -176,6 +176,7 @@ class PersianLinguisticAnalyzer:
         self._stanza_pipeline=None
         self._spacy_nlp=None
         self.last_backend_error=""
+        self.last_backend="iran_fallback"
 
     @staticmethod
     def _language(text):
@@ -221,6 +222,7 @@ class PersianLinguisticAnalyzer:
                     str(ent.text),str(ent.type).lower(),"ner",
                     int(getattr(ent,"start_char",-1) or -1),int(getattr(ent,"end_char",-1) or -1),
                     .85,"stanza:fa"))
+            self.last_backend="stanza:fa"
             return LinguisticAnalysis(
                 raw_text=str(text or ""),normalized_text=normalize_fa(text),
                 language=self._language(normalize_fa(text)),tokens=tokens,
@@ -249,6 +251,7 @@ class PersianLinguisticAnalyzer:
                 t.text,normalize_fa(t.text).lower(),str(t.lemma_ or t.text),
                 str(t.pos_ or ""),{},int(t.head.i) if t.head is not None else -1,
                 str(t.dep_ or ""),int(t.idx),int(t.idx+len(t.text))) for t in doc]
+            self.last_backend="spacy:fa-blank"
             return LinguisticAnalysis(
                 raw_text=str(text or ""),normalized_text=normalize_fa(text),
                 language=self._language(normalize_fa(text)),tokens=tokens,
@@ -270,6 +273,7 @@ class PersianLinguisticAnalyzer:
         elif self.backend_preference=="spacy":
             result=self._analyze_spacy(text)
             if result is not None:return result
+        self.last_backend="iran_fallback"
         started = time.perf_counter()
         normalized = normalize_fa(text)
         tokens = []
@@ -567,7 +571,7 @@ class SemanticIntelligence:
         # Entity linking: mention of a previously stored entity name binds the
         # query to that semantic entity instead of relying only on recency.
         try:
-            for subject,predicate,value,confidence,source,updated in self._rows(self.memory):
+            for subject,predicate,value,confidence,source,created,updated in self.retriever.rows():
                 if predicate=="name" and normalize_fa(value) and normalize_fa(value) in n:
                     q.entity_id=str(subject)
                     if ":" in q.entity_id:
@@ -707,7 +711,7 @@ class SemanticIntelligence:
 
     def backend_status(self):
         return {
-            "active":getattr(self.linguistic,"backend_preference","fallback"),
+            "active":getattr(self.linguistic,"last_backend","iran_fallback"),
             "optional":dict(self.linguistic.optional),
             "last_backend_error":getattr(self.linguistic,"last_backend_error",""),
             "runtime_downloads":False,
