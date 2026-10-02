@@ -220,6 +220,58 @@ class PersianLinguisticAnalyzer:
         )
 
 
+class SemanticEvidenceRetriever:
+    """Haystack-style retrieval contract over IRAN's existing semantic store.
+
+    Storage remains Memory; this class only filters/ranks evidence with metadata
+    and provenance. No vector database, cloud service or parallel memory exists.
+    """
+    def __init__(self,memory):
+        self.memory=memory
+
+    def rows(self):
+        return self.memory.conn.execute(
+            "SELECT subject,predicate,value,confidence,source,created_at,updated_at "
+            "FROM semantic_facts ORDER BY updated_at DESC,id DESC"
+        ).fetchall()
+
+    def related_entity(self,relation):
+        rows=self.memory.conn.execute(
+            "SELECT value FROM semantic_facts WHERE subject='user' AND predicate=? "
+            "ORDER BY updated_at DESC,id DESC LIMIT 1",(str(relation),)
+        ).fetchone()
+        return str(rows[0]) if rows else ""
+
+    def entity_by_ordinal(self,entity_type,index):
+        rows=self.memory.conn.execute(
+            "SELECT subject,MIN(created_at) first_seen FROM semantic_facts "
+            "WHERE subject LIKE ? GROUP BY subject ORDER BY first_seen ASC",
+            (str(entity_type)+":%",)
+        ).fetchall()
+        try:return str(rows[int(index)-1][0])
+        except (IndexError,ValueError,TypeError):return ""
+
+    def rank(self,query):
+        if not query.relation:return []
+        rows=self.rows(); newest={}; out=[]
+        for s,p,v,c,src,created,updated in rows:
+            key=(s,p); superseded=key in newest; newest.setdefault(key,v)
+            score=.0; reasons=[]
+            if p==query.relation:score+=.45; reasons.append("relation")
+            if query.entity_id and s==query.entity_id:score+=.38; reasons.append("entity_id")
+            elif query.entity_type and str(s).startswith(query.entity_type+":"):score+=.22; reasons.append("entity_type")
+            if query.subject and s==query.subject:score+=.30; reasons.append("subject")
+            if query.value_hint and query.value_hint in normalize_fa(v):score+=.18; reasons.append("value_hint")
+            score+=.10*float(c)
+            if superseded:score-=.55
+            if score>.25:
+                out.append(EvidenceRecord(
+                    s,p,v,s.split(":",1)[0] if ":" in s else s,float(c),src,updated,
+                    round(score,3),superseded,"+".join(reasons)))
+        out.sort(key=lambda x:(x.score,x.updated_at),reverse=True)
+        return out
+
+
 class SemanticIntelligence:
     """Meaning/fact/reference layer subordinate to CognitiveSystem."""
 
@@ -242,6 +294,7 @@ class SemanticIntelligence:
     def __init__(self, memory):
         self.memory = memory
         self.linguistic = PersianLinguisticAnalyzer()
+        self.retriever = SemanticEvidenceRetriever(memory)
 
     @staticmethod
     def _slug(value):
@@ -394,9 +447,10 @@ class SemanticIntelligence:
         name=self._strip_copula(m.group("name")); role=normalize_fa(m.group("role"))
         eid=f"person:{self._slug(name)}"
         ent=EntityMention(eid,name,"person","colleague" if "همکار" in role else "friend",m.start("name"),m.end("name"),.96,"iran_semantic_frame")
+        relation="colleague" if "همکار" in role else "friend"
         facts=[
-            SemanticFact(eid,"name",name,"person",{"role":"colleague" if "همکار" in role else "friend"},turn,confidence=.97,provenance="explicit_user_statement"),
-            SemanticFact("user","relation",eid,"user",{"role":"colleague" if "همکار" in role else "friend"},turn,confidence=.94,provenance="explicit_user_statement"),
+            SemanticFact(eid,"name",name,"person",{"role":relation},turn,confidence=.97,provenance="explicit_user_statement"),
+            SemanticFact("user",relation,eid,"user",{"role":relation},turn,confidence=.94,provenance="explicit_user_statement"),
         ]
         return [ent],facts
 
@@ -429,13 +483,26 @@ class SemanticIntelligence:
             q.relation="name"; q.entity_type=typ
         if any(x in low for x in ("پروژه ای که", "پروژه‌ای که", "پروژه قبلی", "اون پروژه", "همون پروژه")):
             q.entity_type="project"; q.relation=q.relation or "name"; q.reference="project_reference"
+        if q.entity_type=="project" and any(x in low for x in ("روش کار", "روی آن کار", "روی اون کار", "روی همون کار")):
+            q.entity_id=self.retriever.related_entity("works_on")
+            q.reference="works_on"
+        ordinal={"اول":1,"دوم":2,"سوم":3}
+        if q.entity_type:
+            for marker,index in ordinal.items():
+                if marker in n:
+                    q.entity_id=self.retriever.entity_by_ordinal(q.entity_type,index)
+                    q.reference=f"ordinal:{index}"
+                    break
         if re.search(r"(?:همکار|دوست)(?:م|ام)?",n) and any(x in n for x in ("اسم","نام")):
-            q.entity_type="person"; q.relation="name"; q.reference="person_relation"
+            q.entity_type="person"; q.relation="name"
+            role="colleague" if "همکار" in n else "friend"
+            q.reference=role
+            q.entity_id=self.retriever.related_entity(role)
         if ("قهوه" in n or "دوست" in n or "ترجیح" in n) and any(x in n for x in ("چطوری","چگونه","چه جوری","چی","یادم")):
             q.subject="user"; q.relation="preference"; q.value_hint="قهوه" if "قهوه" in n else ""
         if re.search(r"(?:منظورم|منظورت)\s+(?:اسم|نام)\s+",n):
             q.relation="name"; q.entity_type=typ
-        if q.entity_type:
+        if q.entity_type and not q.entity_id:
             q.entity_id=self._latest_entity(slots,q.entity_type)
         if not q.entity_id and any(x in n for x in ("اسمش","نامش","اون","همون","قبلی")):
             q.entity_id=self._latest_entity(slots)
@@ -473,33 +540,8 @@ class SemanticIntelligence:
         # follow the same gate-bypass rule already used by UserModel.record.
         return user_model.record_from_facts([f.to_memory() for f in turn.facts])
 
-    @staticmethod
-    def _rows(memory):
-        return memory.conn.execute(
-            "SELECT subject,predicate,value,confidence,source,updated_at FROM semantic_facts ORDER BY updated_at DESC,id DESC"
-        ).fetchall()
-
     def _rank_evidence(self,turn):
-        q=turn.query
-        if not q.relation:return []
-        rows=self._rows(self.memory)
-        newest={}; out=[]
-        for s,p,v,c,src,updated in rows:
-            key=(s,p)
-            superseded=key in newest
-            newest.setdefault(key,v)
-            score=.0; reasons=[]
-            if p==q.relation:score+=.45; reasons.append("relation")
-            if q.entity_id and s==q.entity_id:score+=.38; reasons.append("entity_id")
-            elif q.entity_type and str(s).startswith(q.entity_type+":"):score+=.22; reasons.append("entity_type")
-            if q.subject and s==q.subject:score+=.30; reasons.append("subject")
-            if q.value_hint and q.value_hint in normalize_fa(v):score+=.18; reasons.append("value_hint")
-            score+=.10*float(c)
-            if superseded:score-=.55
-            if score>.25:
-                out.append(EvidenceRecord(s,p,v,s.split(":",1)[0] if ":" in s else s,float(c),src,updated,round(score,3),superseded,"+".join(reasons)))
-        out.sort(key=lambda x:(x.score,x.updated_at),reverse=True)
-        return out
+        return self.retriever.rank(turn.query)
 
     def answer(self,turn):
         evidence=self._rank_evidence(turn); turn.evidence=evidence
