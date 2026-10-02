@@ -1,0 +1,5 @@
+# Optional desktop assistant dependencies.
+# Core/text mode requires none of these.
+vosk>=0.3.45; python_version < "3.15"
+sounddevice>=0.5; python_version < "3.15"
+pyautogui>=0.9.54; python_version < "3.15"
