@@ -654,18 +654,22 @@ class ChatWindow(QMainWindow):
                 payload = row.get("payload", {}) or {}
                 if row.get("source") != "learning_candidate":
                     continue
+                if payload.get("source") != "direct_user_requested_teaching_100_batch":
+                    continue
                 if payload.get("mission_title") not in {"پایتون", "انگلیسی", "فارسی"}:
                     continue
                 lesson_rows.append(row)
             self.learning_queue_rows.clear()
-            status_order = {"human_pending": 0, "pending": 1, "waiting_for_reviewer": 1, "approved": 2, "rejected": 3}
+            # Put items the user can act on or has just approved at the top.
+            # Keep the pending backlog visible after those, while preserving all 100 lessons.
+            status_order = {"human_pending": 0, "approved": 1, "rejected": 2, "pending": 3, "waiting_for_reviewer": 3}
             lesson_rows.sort(key=lambda row: (status_order.get(row.get("status"), 9),
                                                str((row.get("payload") or {}).get("mission_title", "")),
                                                int((row.get("payload") or {}).get("sequence", 0) or 0)))
             labels = {"pending": "منتظر ناظر", "waiting_for_reviewer": "منتظر ناظر",
                       "human_pending": "منتظر تأیید انسان", "approved": "یادگرفته‌شده",
                       "rejected": "ردشده"}
-            for row in lesson_rows[:100]:
+            for row in lesson_rows:
                 payload = row.get("payload", {}) or {}
                 subject = payload.get("mission_title", "—")
                 title = payload.get("unit_title", payload.get("lesson", "—"))
@@ -677,7 +681,7 @@ class ChatWindow(QMainWindow):
             for row in lesson_rows:
                 counts[row.get("status", "unknown")] = counts.get(row.get("status", "unknown"), 0) + 1
             self.learning_queue_status.setText(
-                f"کل درس‌ها: {len(lesson_rows)} | منتظر ناظر: {counts.get('pending', 0) + counts.get('waiting_for_reviewer', 0)} | "
+                f"کل ۱۰۰ درس: {len(lesson_rows)} | منتظر ناظر: {counts.get('pending', 0) + counts.get('waiting_for_reviewer', 0)} | "
                 f"منتظر تأیید تو: {counts.get('human_pending', 0)} | یادگرفته‌شده: {counts.get('approved', 0)} | ردشده: {counts.get('rejected', 0)}")
         except Exception as exc:
             self.learning_queue_rows.clear()
