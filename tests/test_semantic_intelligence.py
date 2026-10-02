@@ -184,6 +184,24 @@ class SemanticIntelligenceAcceptance(unittest.TestCase):
                 self.assertIn(name,status["optional"])
         finally:r.close()
 
+    def test_semantic_resolver_diagnostics_for_possessive_and_correction(self):
+        r=self.runtime()
+        try:
+            r.handle("یکی از دوستام اسمش رادین است.")
+            si=r.cognitive_system.pipeline.semantic_intelligence
+            slots=r.cognitive_system.pipeline.conversation_foundation.current_state().get("slots",{})
+            self.assertTrue(si.retriever.related_entity("friend").startswith("person:"))
+            turn=si.analyze("اسم دوستم چی بود؟",slots=slots,source_turn=2)
+            direct=si.answer(turn)
+            self.assertIn("رادین",direct,(turn.public_trace(),[x.to_dict() for x in turn.evidence]))
+
+            r.handle("دارم روی یه پروژه به اسم دانا کار می‌کنم که برای کتابه.")
+            slots=r.cognitive_system.pipeline.conversation_foundation.current_state().get("slots",{})
+            turn2=si.analyze("نه منظورم اسم پروژه بود.",slots=slots,source_turn=4)
+            direct2=si.answer(turn2)
+            self.assertIn("دانا",direct2,(turn2.public_trace(),[x.to_dict() for x in turn2.evidence]))
+        finally:r.close()
+
     def test_semantic_trace_and_rasa_consistency(self):
         r=self.runtime()
         try:
