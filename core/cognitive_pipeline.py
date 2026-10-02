@@ -240,6 +240,14 @@ class CognitivePipeline:
             if goal:
                 return self._persist_answer(text, f"هدف ثبت‌شده برای «دانا»: «{goal}».", "MEMORY", .99)
 
+        # Establish multi-turn conversational goals before generic retrieval.
+        try:
+            preview=e._parse(text); preview_meaning=e.understanding.analyze(text,e.state,preview)
+            if preview_meaning.dialogue_act=="learning_request":
+                e.state.active_goal=preview_meaning.normalized_text
+                e.state.save(e.state_path)
+        except Exception: pass
+
         # Resolve identity and terse contextual follow-ups inside the canonical route.
         try:
             identity = self.runtime.user_model.answer_identity(text)
@@ -480,7 +488,7 @@ class CognitivePipeline:
             answer = f"حتماً؛ ادامه را از «{reference}» می‌دهم و همان موضوع را مبنا می‌گیرم."
 
         unknown_candidate = (not knowledge and not memory and
-            (context.question_type in {"what", "why", "how", "where", "yes_no"} or context.intent in {"information_request","factual_question"}) and
+            (context.question_type in {"what", "why", "how", "where", "yes_no"} or meaning.dialogue_act in {"information_request","factual_question"}) and
             not is_follow_up(text) and not is_correction(text))
         if not answer and unknown_candidate:
             answer = "UNKNOWN: برای این سؤال در دانش و شواهد محلی اطلاعات کافی ندارم؛ نمی‌خواهم حدس را به‌عنوان واقعیت بگویم."
