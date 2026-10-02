@@ -105,6 +105,19 @@ class WindowsDesktop:
             import ctypes
             return ctypes.windll.user32
         except Exception as exc: raise OSError("Windows user32 unavailable") from exc
+    def enumerate_windows(self):
+        user32=self._require(); import ctypes
+        rows=[]
+        callback_type=ctypes.WINFUNCTYPE(ctypes.c_bool,ctypes.c_int,ctypes.c_int)
+        def collect(hwnd,lparam):
+            if user32.IsWindowVisible(hwnd):
+                length=user32.GetWindowTextLengthW(hwnd)
+                if length:
+                    buf=ctypes.create_unicode_buffer(length+1); user32.GetWindowTextW(hwnd,buf,length+1)
+                    rows.append({"hwnd":int(hwnd),"title":buf.value})
+            return True
+        user32.EnumWindows(callback_type(collect),0)
+        return rows[:500]
     def active_window(self):
         user32=self._require(); hwnd=user32.GetForegroundWindow()
         length=user32.GetWindowTextLengthW(hwnd); import ctypes
