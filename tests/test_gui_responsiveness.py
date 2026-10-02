@@ -15,7 +15,11 @@ def test_slow_reviewer_keeps_gui_responsive_and_closes_safely(tmp_path,monkeypat
     window=gui.ChatWindow();window.show()
     window.autonomy_timer.stop();window.chatgpt_review_timer.stop()
     window.runtime.internet_access.enable()
-    window.runtime.learning.record('probe','test','result',.9)
+    window.runtime.queue_learning_candidate(
+        "memory.add_lesson",
+        {"goal":"probe","lesson":"test result","confidence":.9,"source":"gui_responsiveness"},
+        "gui responsiveness fixture",
+    )
     def slow(row):
         time.sleep(.3)
         return {'learn':True,'reason':'test'}
