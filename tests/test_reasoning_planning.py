@@ -70,6 +70,25 @@ class ReasoningPlanningTests(unittest.TestCase):
         self.assertEqual(trace.steps[2]["blocked_by"], [2])
         self.assertTrue(trace.replan_required)
 
+    def test_capability_matrix_covers_grounded_reasoning_and_uncertainty(self):
+        grounded = self.engine.analyze(
+            "چرا سرویس خطا می‌دهد؟",
+            {"intent": "debug", "goal": "رفع خطای سرویس", "constraints": []},
+            knowledge=[{"subject": "سرویس", "predicate": "خطا",
+                        "object": "پیکربندی ناسازگار", "confidence": .95,
+                        "source": "benchmark"}],
+        )
+        self.assertEqual(grounded.status, "VERIFIED_CANDIDATE")
+        self.assertGreaterEqual(len(grounded.subgoals), 5)
+        self.assertEqual(grounded.steps[1]["depends_on"], [1])
+
+        unknown = self.engine.analyze(
+            "علت پدیده ناشناخته چیست؟",
+            {"intent": "question", "goal": "علت پدیده ناشناخته چیست؟", "constraints": []},
+        )
+        self.assertEqual(unknown.status, "UNKNOWN")
+        self.assertGreaterEqual(unknown.uncertainty, .65)
+
     def test_plan_completes_only_after_ordered_verified_steps(self):
         trace = self.engine.analyze(
             "یک پروژه بساز",
