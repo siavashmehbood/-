@@ -36,4 +36,6 @@ class ToolRouter:
             return 'set_volume', {'direction':'mute','steps':1}
         if any(x in t for x in ('باتری چقدره','وضعیت باتری','battery')):
             return 'get_battery', {}
+        m=re.search(r'(?:create|make) (?:a )?(?:test )?folder(?: named)?[ :]+([\w.-]+)',t)
+        if m:return 'create_folder', {'path':m.group(1)}
         return None, {}
