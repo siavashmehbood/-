@@ -32,6 +32,8 @@ jobs:
         run: python -m unittest discover -s tests -q
       - name: Runtime evaluation
         run: python evaluation/runtime_suite.py
+      - name: General conversation benchmark
+        run: python self/general_conversation_benchmark.py
       - name: CLI smoke
         run: printf '/health\n/exit\n' | python main.py
 
