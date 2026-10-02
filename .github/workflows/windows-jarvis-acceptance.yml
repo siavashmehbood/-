@@ -15,6 +15,7 @@ on:
       - "tools/desktop.py"
       - "tools/builtin.py"
       - "tests/test_jarvis_integration.py"
+      - "tests/test_general_conversation.py"
       - "tests/test_windows_jarvis_acceptance.py"
       - ".github/workflows/windows-jarvis-acceptance.yml"
 jobs:
