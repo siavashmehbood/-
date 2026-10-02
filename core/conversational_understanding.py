@@ -61,6 +61,7 @@ class ConversationalUnderstanding:
         if act=="unknown" and any(x in low for x in ("یاد بگیر","یادگیری","از صفر تا صد یاد","می‌خواهم یاد بگیر","میخوام یاد بگیر")):act="learning_request"
         if act=="unknown" and any(x in low for x in ("واقعیت","اطلاعات","بگو","توضیح بده")) and not any(x in low for x in ("همون","قبلی","ادامه","بیشتر")) and ("؟" not in norm and "?" not in norm):act="information_request"
         if act=="unknown" and re.match(r"^(و\s+)?برای\s+.+[؟?]?$",norm):act="follow_up"
+        if act=="unknown" and any(x in low for x in ("چرا سیستم","چطور حافظه","چگونه حافظه")):act="factual_question"
         if act=="unknown" and ("؟" in norm or "?" in norm or any(low.startswith(x) for x in ("چرا","چی","چه ","کدام","کدوم","آیا","کی ","کجا"))):act="factual_question"
         if act=="unknown" and any(x in low for x in ("حوصله ندارم","خوشحالم","ناراحتم","خسته ام","خسته‌ام")):act="emotional_expression"
         if act=="unknown":act="casual_statement"
