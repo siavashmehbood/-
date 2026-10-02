@@ -85,6 +85,7 @@ def build_registry(root, memory, internet_access=None):
     registry.register(Tool('screenshot', 'ثبت تصویر واقعی صفحه', desktop.screenshot, True, 'read'))
     registry.register(Tool('active_window', 'پنجره فعال Windows', windows.active_window, True, 'read'))
     registry.register(Tool('list_windows', 'فهرست پنجره‌های قابل مشاهده Windows', windows.enumerate_windows, True, 'read'))
+    registry.register(Tool('find_window', 'پیدا کردن پنجره با عنوان معنایی', windows.find_window, True, 'read'))
     registry.register(Tool('focus_window', 'تمرکز روی پنجره Windows', windows.focus, False, 'input_control'))
     registry.register(Tool('minimize_window', 'کوچک کردن پنجره Windows', windows.minimize, False, 'input_control'))
     registry.register(Tool('maximize_window', 'بزرگ کردن پنجره Windows', windows.maximize, False, 'input_control'))
