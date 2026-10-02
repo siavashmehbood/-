@@ -512,7 +512,9 @@ class CognitivePipeline:
             answer = "UNKNOWN: برای این درخواست اطلاعات قابل اتکای محلی ندارم؛ نمی‌خواهم چیزی را بدون شاهد بسازم."
         if not answer and unknown_candidate:
             answer = "UNKNOWN: برای این سؤال در دانش و شواهد محلی اطلاعات کافی ندارم؛ نمی‌خواهم حدس را به‌عنوان واقعیت بگویم."
-        if not answer and getattr(e, "grounded_synthesizer", None):
+        if answer and meaning.dialogue_act in {"clarification","meta_conversation","continuation","follow_up","simplify","length_control","example_request","return_to_topic","greeting","farewell","gratitude","acknowledgement","emotional_expression"}:
+            synthesis = None
+        elif not answer and getattr(e, "grounded_synthesizer", None):
             try:
                 synthesis = e.grounded_synthesizer.synthesize(text, chain_result)
                 if synthesis.status in {"GROUNDED", "PARTIAL"}:
