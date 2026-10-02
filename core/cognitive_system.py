@@ -7,6 +7,7 @@ from pathlib import Path
 from core.cognitive_pipeline import CognitivePipeline
 from core.grounded_synthesizer import GroundedSynthesizer
 from core.self_correction import SelfCorrectionEngine
+from core.soar_cognitive_engine import SoarCognitiveEngine
 from self.cognitive_growth import CognitiveGrowthCycle
 
 
@@ -25,6 +26,7 @@ class CognitiveComponents:
     self_directed_learning: Any
     trusted_knowledge: Any
     learning_gate: Any
+    cognitive_engine: Any
 
 
 class CognitiveSystem:
@@ -41,6 +43,11 @@ class CognitiveSystem:
         self.runtime = runtime
         self.dialogue = runtime.dialogue
         self.pipeline = self._get_pipeline()
+        self.cognitive_engine = SoarCognitiveEngine(
+            runtime.root, getattr(runtime, "memory", None),
+            learning_gate=getattr(runtime, "learning_gate", None),
+            event_log=getattr(runtime, "events", None))
+        self.pipeline.cognitive_engine = self.cognitive_engine
         if getattr(self.dialogue, "grounded_synthesizer", None) is None:
             self.dialogue.grounded_synthesizer = GroundedSynthesizer(
                 getattr(runtime, "knowledge", None), getattr(runtime, "memory", None),
@@ -63,6 +70,7 @@ class CognitiveSystem:
             self_directed_learning=getattr(runtime, "self_directed_learning", None),
             trusted_knowledge=getattr(runtime, "trusted_knowledge", None),
             learning_gate=getattr(runtime, "learning_gate", None),
+            cognitive_engine=self.cognitive_engine,
         )
         self.last_answer = ""
         self.last_trace = None
@@ -201,6 +209,22 @@ class CognitiveSystem:
                 )
         elif self.last_trace is not None and (self.last_trace.confidence < .5 or self.last_trace.verification_status in {"REPAIR", "CLARIFY"}):
             self.runtime.self_directed_learning.observe_gap(text, "verification_or_confidence_gap")
+        # Soar can propose learning only after the canonical verifier has accepted
+        # the outcome. The proposal remains pending in IRAN's LearningGate and
+        # cannot mutate procedural cognition on its own.
+        try:
+            cycle=getattr(self.pipeline,"last_cognitive_cycle",None)
+            if cycle is not None and getattr(cycle,"real_soar",False) and (
+                    getattr(cycle,"impasse",False) or
+                    getattr(cycle,"selected_operator","") in {"decompose-goal","retrieve-semantic-memory"}):
+                proposal=self.cognitive_engine.propose_learning(
+                    cycle, verified=bool(checked.accepted), outcome=str(answer))
+                if proposal:
+                    self.runtime.events.emit("soar_learning_candidate",{
+                        "proposal_id":proposal.get("proposal_id"),
+                        "status":proposal.get("status"),"canonical":True})
+        except Exception:
+            pass
         self._post_turn_learning(text, answer, self.last_trace)
         self.runtime.observe_knowledge_use(text, answer)
         self.last_output = self.unified_output()
@@ -380,6 +404,7 @@ class CognitiveSystem:
             "autonomy": self.autonomy_status(),
             "improvement": self.improvement_status(),
             "conversation": runtime.conversation_snapshot() if hasattr(runtime, "conversation_snapshot") else {},
+            "cognitive_engine": self.cognitive_engine.status(),
         }
 
     def inspect(self) -> dict:
@@ -406,6 +431,7 @@ class CognitiveSystem:
             "self_directed_learning": type(getattr(runtime, "self_directed_learning", None)).__name__,
             "trusted_knowledge": type(getattr(runtime, "trusted_knowledge", None)).__name__,
             "learning_gate": type(getattr(runtime, "learning_gate", None)).__name__,
+            "soar_cognitive_engine": self.cognitive_engine.status(),
         }
 
     def learning_status(self) -> dict:
@@ -478,6 +504,10 @@ class CognitiveSystem:
         return state if state is not None else {"text": str(text)}
 
     def close(self) -> None:
+        try:
+            self.cognitive_engine.close()
+        except Exception:
+            pass
         self.last_answer = ""
         self.last_trace = None
         self.last_output = {}
@@ -489,7 +519,7 @@ class CognitiveSystem:
             "context": "conversation_state + context_tracker",
             "memory": "MemoryIntelligence + UserModel + episodic/semantic memory",
             "knowledge": "KnowledgeGraph",
-            "reasoning": "ChainReasoner + ReasoningPlanningEngine",
+            "reasoning": "SoarCognitiveEngine + ChainReasoner + ReasoningPlanningEngine",
             "planning": "AnswerPlanner / planning subsystem",
             "generation": "local deterministic response synthesis",
             "verification": "AnswerVerifier + SemanticVerifier + repair",
@@ -505,6 +535,7 @@ class CognitiveSystem:
                 "CognitiveKernel": "compatibility facade",
                 "Orchestrator": "compatibility facade",
             },
+            "soar_role": "internal cognitive engine / candidate operator selection",
             "decision_owner": "CognitiveSystem",
             "parallel_decision_paths": False,
         }
