@@ -81,8 +81,8 @@ class SemanticIntelligenceAcceptance(unittest.TestCase):
     def test_scenario_e_multiple_entities_resolve_independently(self):
         r=self.runtime()
         try:
-            r.handle("من روی پروژه‌ای به اسم باران کار می‌کنم.")
-            r.handle("من روی پروژه‌ای به اسم آذرخش کار می‌کنم.")
+            r.handle("من روی پروژه‌ای به اسم باران کار می‌کنم که برای فروش کتاب است.")
+            r.handle("من روی پروژه‌ای به اسم آذرخش کار می‌کنم که برای مدیریت صوت است.")
             r.handle("یکی از همکارام اسمش کیان است.")
             r.handle("یکی از دوستام اسمش رادین است.")
             r.handle("اسم محصولمون ماهوره.")
@@ -91,6 +91,8 @@ class SemanticIntelligenceAcceptance(unittest.TestCase):
             self.assert_value(r.handle("اسم محصول چیه؟"),"ماهور")
             self.assert_value(r.handle("اسم پروژه اول چی بود؟"),"باران")
             self.assert_value(r.handle("اسم پروژه دوم چی بود؟"),"آذرخش")
+            self.assert_value(r.handle("پروژه باران برای چی بود؟"),"فروش کتاب")
+            self.assert_value(r.handle("پروژه آذرخش برای چی بود؟"),"مدیریت صوت")
         finally:r.close()
 
     def test_scenario_f_topic_switch_and_return(self):
@@ -143,6 +145,42 @@ class SemanticIntelligenceAcceptance(unittest.TestCase):
             self.assert_value(r.handle("اسمش؟"),"ژرفا")
             r.handle("نه، اسمش رو گذاشتیم ژرفای نو.")
             self.assert_value(r.handle("همون قبلی، اسمش چی شد؟"),"ژرفای نو")
+        finally:r.close()
+
+    def test_questions_speculation_and_uncertainty_do_not_become_facts(self):
+        r=self.runtime()
+        try:
+            r.handle("شاید اسم پروژه بعدی مهتاب باشد.")
+            r.handle("اگر اسم پروژه فرضی شهاب باشد چه؟")
+            r.handle("اسم پروژه من چیه؟")
+            rows=r.memory.conn.execute(
+                "SELECT value FROM semantic_facts WHERE predicate='name' AND subject LIKE 'project:%'"
+            ).fetchall()
+            values={x[0] for x in rows}
+            self.assertNotIn("مهتاب",values)
+            self.assertNotIn("شهاب",values)
+        finally:r.close()
+
+    def test_anti_echo_blocks_previous_question_as_answer(self):
+        r=self.runtime()
+        try:
+            q="این موضوع ناشناخته دقیقاً چه نامی داشت؟"
+            a=r.handle(q)
+            self.assertNotEqual(a.strip(),q.strip())
+            r.handle("یک سؤال دیگر دارم.")
+            b=r.handle("من چند لحظه پیش چه سؤال ناشناخته‌ای پرسیدم؟")
+            self.assertNotEqual(b.strip(),q.strip())
+        finally:r.close()
+
+    def test_backend_contract_is_offline_and_framework_optional(self):
+        r=self.runtime()
+        try:
+            status=r.cognitive_system.pipeline.semantic_intelligence.backend_status()
+            self.assertTrue(status["offline"])
+            self.assertEqual(status["decision_owner"],"CognitiveSystem")
+            self.assertEqual(status["active"],"iran_fallback")
+            for name in ("spacy","stanza","deeppavlov","haystack"):
+                self.assertIn(name,status["optional"])
         finally:r.close()
 
     def test_semantic_trace_and_rasa_consistency(self):
