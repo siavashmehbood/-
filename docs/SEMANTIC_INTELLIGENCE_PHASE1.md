@@ -26,11 +26,11 @@ Already integrated as conversation/NLU/dialogue-state foundation. It keeps track
 
 ### spaCy
 
-The repository does not install spaCy in runtime requirements. Phase 1 adopts only the requested internal contracts: token representation, sentence segmentation, entity spans, matcher-style token patterns and a backend-neutral linguistic interface. No spaCy pipeline is required for offline operation.
+spaCy is not a mandatory runtime dependency. If it is already installed locally and `IRAN_NLP_BACKEND=spacy` is selected, IRAN lazily creates a Persian blank pipeline with sentence segmentation and maps its tokens into `LinguisticAnalysis`. Because the blank Persian pipeline has no trained POS/dependency/NER model, those capabilities are explicitly reported unavailable rather than fabricated. The normal offline fallback remains available.
 
 ### Stanza
 
-The repository does not install Stanza or a Persian Stanza model. The internal interface exposes the requested token/POS/morphology/dependency/NER capability flags. Current deterministic fallback provides tokenization, sentence segmentation and lightweight POS/morphology; dependency parsing and NER are reported unavailable rather than fabricated. A future Stanza backend can populate the same interface without changing downstream cognition.
+Stanza is not a mandatory runtime dependency. If Stanza and Persian resources are already installed locally and `IRAN_NLP_BACKEND=stanza` is selected, IRAN lazily loads Persian tokenize/MWT/POS/lemma/dependency/NER processors into the same internal `LinguisticAnalysis` contract. Runtime model downloads are disabled. Missing packages/models fail gracefully to the deterministic fallback and record an observable backend error.
 
 ### DeepPavlov
 
@@ -42,7 +42,7 @@ No Haystack dependency, vector database or cloud service is added. Its requested
 
 ## Fallback
 
-The active backend is `iran_fallback`: deterministic, offline and observable. Missing optional NLP frameworks do not crash the runtime. `backend_status()` reports availability and keeps `decision_owner=CognitiveSystem`.
+The default backend preference is `fallback`: deterministic, offline and observable. Optional `spacy` or `stanza` backends are lazy and opt-in. Missing packages/models do not crash the runtime, no runtime downloads occur, and `backend_status()` reports availability/errors while keeping `decision_owner=CognitiveSystem`.
 
 ## Semantic behaviour
 
