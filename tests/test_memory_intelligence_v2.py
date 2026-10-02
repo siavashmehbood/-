@@ -85,5 +85,36 @@ class MemoryIntelligenceV2Tests(unittest.TestCase):
             m.close()
 
 
+    def test_experience_candidate_exposes_usefulness_and_contradiction(self):
+        with tempfile.TemporaryDirectory() as d:
+            m = Memory(Path(d) / "m.db")
+            text = "راهکار حافظه برای بازیابی تجربه"
+            m.add("assistant", text, .8, .9, "test")
+            state = ConversationState()
+            state.accept(text)
+            out = MemoryIntelligence(m).retrieve("حافظه بازیابی تجربه", state, limit=3)
+            self.assertTrue(out)
+            self.assertGreaterEqual(out[0].usefulness, .25)
+            self.assertFalse(out[0].contradiction)
+            self.assertIn("usefulness=", out[0].reason)
+            self.assertIn("contradiction=False", out[0].reason)
+            m.close()
+
+    def test_superseded_experience_is_explicitly_marked_contradictory(self):
+        with tempfile.TemporaryDirectory() as d:
+            m = Memory(Path(d) / "m.db")
+            text = "روش قبلی برای حافظه"
+            m.add("assistant", text, .8, .9, "test")
+            state = ConversationState()
+            state.corrections.append("روش قبلی برای حافظه اشتباه بود")
+            out = MemoryIntelligence(m).retrieve("روش قبلی حافظه", state, limit=3)
+            row = next(x for x in out if x.content == text)
+            self.assertEqual(row.status, "superseded")
+            self.assertTrue(row.contradiction)
+            self.assertLess(row.score, 1.0)
+            m.close()
+
+
+
 if __name__ == "__main__":
     unittest.main()
