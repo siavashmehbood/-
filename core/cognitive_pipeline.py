@@ -198,7 +198,7 @@ class CognitivePipeline:
         # references before raw conversation-history similarity is considered.
         try:
             foundation_slots=self.conversation_foundation.current_state().get("slots",{})
-            source_turn=len(getattr(e.state,"turns",[]) or []) + 1
+            source_turn=int(getattr(e.state,"turns",0) or 0) + 1
             semantic_turn=self.semantic_intelligence.analyze(
                 text,slots=foundation_slots,source_turn=source_turn)
             self.last_semantic_turn=semantic_turn
