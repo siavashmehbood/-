@@ -67,8 +67,8 @@ def build_registry(root, memory, internet_access=None):
         return record
     registry.register(Tool('save_note', 'ذخیره یادداشت کاربر', save_note, safe=False, permission='write'))
 
-    from .desktop import DesktopTools, InputController
-    desktop, inputs = DesktopTools(root), InputController()
+    from .desktop import DesktopTools, InputController, WindowsDesktop
+    desktop, inputs, windows = DesktopTools(root), InputController(), WindowsDesktop(root)
     registry.register(Tool('find_file', 'جستجوی فایل در محدوده پروژه', desktop.find_file, True, 'read'))
     registry.register(Tool('create_folder', 'ساخت پوشه در محدوده پروژه', desktop.create_folder, False, 'write'))
     registry.register(Tool('copy_file', 'کپی فایل در محدوده پروژه', desktop.copy_file, False, 'write'))
@@ -78,6 +78,13 @@ def build_registry(root, memory, internet_access=None):
     registry.register(Tool('close_application', 'بستن برنامه با شناسه فرایند', desktop.close_application, False, 'destructive'))
     registry.register(Tool('list_running_apps', 'فهرست برنامه‌های در حال اجرا', desktop.list_running_apps, True, 'read'))
     registry.register(Tool('screenshot', 'ثبت تصویر واقعی صفحه', desktop.screenshot, True, 'read'))
+    registry.register(Tool('active_window', 'پنجره فعال Windows', windows.active_window, True, 'read'))
+    registry.register(Tool('focus_window', 'تمرکز روی پنجره Windows', windows.focus, False, 'input_control'))
+    registry.register(Tool('minimize_window', 'کوچک کردن پنجره Windows', windows.minimize, False, 'input_control'))
+    registry.register(Tool('maximize_window', 'بزرگ کردن پنجره Windows', windows.maximize, False, 'input_control'))
+    registry.register(Tool('restore_window', 'بازیابی پنجره Windows', windows.restore, False, 'input_control'))
+    registry.register(Tool('clipboard_read', 'خواندن clipboard', windows.clipboard_read, True, 'read'))
+    registry.register(Tool('clipboard_write', 'نوشتن clipboard', windows.clipboard_write, False, 'write'))
     registry.register(Tool('mouse_move', 'حرکت نشانگر ماوس', inputs.move, False, 'input_control'))
     registry.register(Tool('mouse_click', 'کلیک ماوس', inputs.click, False, 'input_control'))
     registry.register(Tool('mouse_scroll', 'اسکرول ماوس', inputs.scroll, False, 'input_control'))
