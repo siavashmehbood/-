@@ -379,8 +379,9 @@ class SemanticIntelligence:
         n=normalize_fa(text); low=n.lower()
         q=SemanticQuery()
         typ=self._entity_type_from_text(n)
+        short_name_reference=bool(re.fullmatch(r"\s*(?:اسمش|نامش)\s*[؟?]?\s*",n,re.I))
         name_question=bool(re.search(r"(?:اسم|نام)(?:ش|\s+[^ ]+)?\s+(?:چی|چیه|چیست|چه|کدوم|کدام|چی\s+بود)",n,re.I))
-        if name_question or re.search(r"(?:اسم|نام)\s+.*?\s+(?:چی|چه)\s+بود",n,re.I):
+        if short_name_reference or name_question or re.search(r"(?:اسم|نام)\s+.*?\s+(?:چی|چه)\s+بود",n,re.I):
             q.relation="name"; q.entity_type=typ
         if any(x in low for x in ("پروژه ای که", "پروژه‌ای که", "پروژه قبلی", "اون پروژه", "همون پروژه")):
             q.entity_type="project"; q.relation=q.relation or "name"; q.reference="project_reference"
@@ -404,11 +405,15 @@ class SemanticIntelligence:
         linguistic=self.linguistic.analyze(text)
         utterance=self._utterance_type(text)
         entities=[]; facts=[]
-        a,b=self._extract_named_entity(text,linguistic,slots,source_turn); entities+=a; facts+=b
-        a,b=self._extract_person(text,slots,source_turn); entities+=a; facts+=b
-        if utterance in {"preference","statement"}: facts+=self._extract_preference(text,source_turn)
-        if utterance=="correction" or re.search(r"(?:اسمش|نامش).*(?:گذاشتیم|شد)",normalize_fa(text)):
-            facts+=self._extract_correction(text,slots,source_turn)
+        # Only assertive/corrective utterances can create durable semantic facts.
+        # Questions, commands, speculation and uncertainty are context, never facts.
+        if utterance in {"statement","preference","correction"}:
+            a,b=self._extract_named_entity(text,linguistic,slots,source_turn); entities+=a; facts+=b
+            a,b=self._extract_person(text,slots,source_turn); entities+=a; facts+=b
+            if utterance in {"preference","statement"}:
+                facts+=self._extract_preference(text,source_turn)
+            if utterance=="correction" or re.search(r"(?:اسمش|نامش).*(?:گذاشتیم|شد)",normalize_fa(text)):
+                facts+=self._extract_correction(text,slots,source_turn)
         linguistic.entities.extend(entities)
         query=self._query(text,slots)
         resolved=[]
@@ -485,13 +490,19 @@ class SemanticIntelligence:
         qt=self._tokens(q); at=self._tokens(a)
         sim=len(qt&at)/max(1,len(qt|at)) if qt and at else 0.0
         exact=a.strip(" «»'\".")==q.strip(" «»'\".")
-        quoted_question=bool(re.search(r"(?:یادم هست گفتی|گفتی)\s*[:：]?\s*[«\"]",a)) and any(x in q for x in self.QUESTION_MARKERS)
+        import difflib
+        near_question = (
+            any(x in q for x in self.QUESTION_MARKERS)
+            and difflib.SequenceMatcher(None,q,a).ratio() >= .92
+        )
         previous_echo=False
         for row in recent_user_turns or []:
             r=normalize_fa(row)
+            # Quoting a user's factual statement can be a legitimate recall.
+            # Only a prior question/instruction used as the answer is blocked.
             if len(r)>8 and r in a and any(x in r for x in self.QUESTION_MARKERS):
                 previous_echo=True;break
-        if exact or sim>=.88 or quoted_question or previous_echo:
+        if exact or near_question or previous_echo:
             if semantic_answer:
                 return semantic_answer,True,"semantic_fact_repair"
             if any(x in q for x in self.QUESTION_MARKERS):
