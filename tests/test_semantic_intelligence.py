@@ -179,7 +179,7 @@ class SemanticIntelligenceAcceptance(unittest.TestCase):
             self.assertTrue(status["offline"])
             self.assertFalse(status["runtime_downloads"])
             self.assertEqual(status["decision_owner"],"CognitiveSystem")
-            self.assertEqual(status["active"],"fallback")
+            self.assertEqual(status["active"],"iran_fallback")
             for name in ("spacy","stanza","deeppavlov","haystack"):
                 self.assertIn(name,status["optional"])
         finally:r.close()
