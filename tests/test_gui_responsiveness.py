@@ -23,7 +23,7 @@ def test_slow_reviewer_keeps_gui_responsive_and_closes_safely(tmp_path,monkeypat
     ticks=[];timer=QTimer();timer.timeout.connect(lambda:ticks.append(time.monotonic()));timer.start(10)
     window.run_chatgpt_review_once()
     until=time.monotonic()+2
-    while time.monotonic()<until and (window._jobs or len(ticks)<5):
+    while time.monotonic()<until and (window._jobs or len(ticks)<10):
         app.processEvents();time.sleep(.002)
     timer.stop()
     assert not window._jobs
