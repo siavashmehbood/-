@@ -171,7 +171,20 @@ class ChatWindow(QMainWindow):
         ll.addWidget(self.mission_status)
         ll.addWidget(QLabel("درس‌های در صف یادگیری", objectName="sectionTitle"))
         self.learning_queue_rows = QListWidget(); self.learning_queue_rows.setObjectName("learningQueueRows"); self.learning_queue_rows.setMinimumHeight(130); self.learning_queue_rows.setMaximumHeight(180)
+        self.learning_queue_rows.currentItemChanged.connect(self.update_lesson_action_buttons)
         ll.addWidget(self.learning_queue_rows)
+        lesson_buttons = QHBoxLayout()
+        self.lesson_view_button = QPushButton("مشاهده درس")
+        self.lesson_review_button = QPushButton("فرستادن برای ناظر")
+        self.lesson_approve_button = QPushButton("تأیید همین درس")
+        self.lesson_reject_button = QPushButton("رد همین درس")
+        self.lesson_view_button.clicked.connect(self.view_selected_lesson)
+        self.lesson_review_button.clicked.connect(self.review_selected_lesson)
+        self.lesson_approve_button.clicked.connect(self.approve_selected_lesson)
+        self.lesson_reject_button.clicked.connect(self.reject_selected_lesson)
+        for button in (self.lesson_view_button, self.lesson_review_button, self.lesson_approve_button, self.lesson_reject_button):
+            lesson_buttons.addWidget(button)
+        ll.addLayout(lesson_buttons)
         self.learning_queue_status = QLabel("صف درس‌ها هنوز بارگذاری نشده است."); self.learning_queue_status.setObjectName("metric"); self.learning_queue_status.setWordWrap(True)
         ll.addWidget(self.learning_queue_status)
         ll.addWidget(QLabel("نتیجه‌های ناظر", objectName="sectionTitle"))
@@ -645,6 +658,97 @@ class ChatWindow(QMainWindow):
             self.reviewer_result_rows.clear()
             self.reviewer_result_status.setText(f"خطا در نمایش نتیجه ناظر: {type(exc).__name__}")
 
+    def _selected_lesson_row(self):
+        item = self.learning_queue_rows.currentItem() if hasattr(self, "learning_queue_rows") else None
+        if item is None:
+            return None
+        proposal_id = item.data(Qt.UserRole)
+        if not proposal_id:
+            return None
+        try:
+            from persistence import load_critical_json
+            rows = load_critical_json(self.runtime._chatgpt_review_path(), [])
+            return next((row for row in rows if row.get("proposal_id") == proposal_id), None)
+        except Exception:
+            return None
+
+    def update_lesson_action_buttons(self, *args):
+        row = self._selected_lesson_row()
+        status = (row or {}).get("status")
+        has_row = row is not None
+        self.lesson_view_button.setEnabled(has_row)
+        self.lesson_review_button.setEnabled(status in {"pending", "WAITING_FOR_REVIEWER"})
+        self.lesson_approve_button.setEnabled(status == "human_pending" and (row or {}).get("chatgpt_decision") == "learn")
+        self.lesson_reject_button.setEnabled(status == "human_pending")
+
+    def view_selected_lesson(self):
+        row = self._selected_lesson_row()
+        if not row:
+            return
+        payload = row.get("payload", {}) or {}
+        lines = [
+            f"موضوع: {payload.get('mission_title', '—')}",
+            f"درس: {payload.get('unit_title', '—')}",
+            f"وضعیت: {row.get('status', '—')}",
+            f"شناسه: {row.get('proposal_id', '—')}",
+            "",
+            f"هدف: {payload.get('learning_objective', '—')}",
+            f"محتوا: {payload.get('lesson', payload.get('claim', '—'))}",
+            f"مثال‌ها: {payload.get('examples', [])}",
+            f"تمرین: {payload.get('practice_result', '—')}",
+            f"اثر مورد انتظار: {payload.get('expected_effect', '—')}",
+            "",
+            f"تصمیم ناظر: {row.get('chatgpt_decision', '—')}",
+            f"مدل ناظر: {row.get('model', '—')}",
+            f"نظر ناظر: {row.get('review', '—')}",
+        ]
+        self._dialog("جزئیات درس", "\n".join(str(x) for x in lines))
+
+    def review_selected_lesson(self):
+        row = self._selected_lesson_row()
+        if not row or row.get("status") not in {"pending", "WAITING_FOR_REVIEWER"}:
+            return
+        proposal_id = row.get("proposal_id")
+        # The worker chooses the highest-priority eligible candidate. Temporarily
+        # move the selected lesson to the front by stable queue order without
+        # changing its content or decision state.
+        def run_selected():
+            from persistence import json_transaction
+            with json_transaction(self.runtime._chatgpt_review_path(), []) as rows:
+                index = next((i for i, item in enumerate(rows) if item.get("proposal_id") == proposal_id), None)
+                if index is not None:
+                    selected = rows.pop(index)
+                    rows.insert(0, selected)
+            return self.runtime.process_one_chatgpt_learning_review()
+        self._start_job("lesson_review:" + str(proposal_id), run_selected, lambda result: self.refresh_learning_stats())
+        self.update_lesson_action_buttons()
+
+    def approve_selected_lesson(self):
+        row = self._selected_lesson_row()
+        if not row or row.get("status") != "human_pending" or row.get("chatgpt_decision") != "learn":
+            return
+        proposal_id = row.get("proposal_id")
+        answer = QMessageBox.question(self, "تأیید درس", "همین درس تأیید و وارد یادگیری شود؟", QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.No)
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        self._start_job("lesson_approve:" + str(proposal_id),
+                        lambda: self.runtime.approve_learning(proposal_id, human_confirmed=True, source="gui_lesson"),
+                        lambda result: self.refresh_learning_stats())
+        self.update_lesson_action_buttons()
+
+    def reject_selected_lesson(self):
+        row = self._selected_lesson_row()
+        if not row or row.get("status") != "human_pending":
+            return
+        proposal_id = row.get("proposal_id")
+        answer = QMessageBox.question(self, "رد درس", "همین درس رد شود؟", QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.No)
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        self._start_job("lesson_reject:" + str(proposal_id),
+                        lambda: self.runtime.reject_learning(proposal_id),
+                        lambda result: self.refresh_learning_stats())
+        self.update_lesson_action_buttons()
+
     def refresh_learning_queue(self):
         try:
             from persistence import load_critical_json
@@ -659,6 +763,7 @@ class ChatWindow(QMainWindow):
                 if payload.get("mission_title") not in {"پایتون", "انگلیسی", "فارسی"}:
                     continue
                 lesson_rows.append(row)
+            selected_id = self.learning_queue_rows.currentItem().data(Qt.UserRole) if self.learning_queue_rows.currentItem() else None
             self.learning_queue_rows.clear()
             # Put items the user can act on or has just approved at the top.
             # Keep the pending backlog visible after those, while preserving all 100 lessons.
@@ -677,12 +782,19 @@ class ChatWindow(QMainWindow):
                 prefix = f"{int(sequence):02d}. " if isinstance(sequence, (int, float)) else ""
                 state = labels.get(row.get("status"), str(row.get("status", "—")))
                 self.learning_queue_rows.addItem(f"{subject} | {prefix}{title} | {state}")
+                item = self.learning_queue_rows.item(self.learning_queue_rows.count() - 1)
+                item.setData(Qt.UserRole, row.get("proposal_id"))
+                if row.get("proposal_id") == selected_id:
+                    self.learning_queue_rows.setCurrentItem(item)
             counts = {}
             for row in lesson_rows:
                 counts[row.get("status", "unknown")] = counts.get(row.get("status", "unknown"), 0) + 1
             self.learning_queue_status.setText(
                 f"کل ۱۰۰ درس: {len(lesson_rows)} | منتظر ناظر: {counts.get('pending', 0) + counts.get('waiting_for_reviewer', 0)} | "
                 f"منتظر تأیید تو: {counts.get('human_pending', 0)} | یادگرفته‌شده: {counts.get('approved', 0)} | ردشده: {counts.get('rejected', 0)}")
+            if self.learning_queue_rows.currentItem() is None and self.learning_queue_rows.count():
+                self.learning_queue_rows.setCurrentRow(0)
+            self.update_lesson_action_buttons()
         except Exception as exc:
             self.learning_queue_rows.clear()
             self.learning_queue_status.setText(f"خطا در نمایش صف درس‌ها: {type(exc).__name__}")
