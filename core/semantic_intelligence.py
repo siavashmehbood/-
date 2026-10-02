@@ -650,9 +650,14 @@ class SemanticIntelligence:
 
     def answer(self,turn):
         evidence=self._rank_evidence(turn); turn.evidence=evidence
-        active=next((x for x in evidence if not x.superseded),None)
-        if not active:return ""
         q=turn.query
+        # A resolved entity reference is a hard semantic filter, not merely a
+        # ranking hint. This prevents a high-scoring fact from another entity
+        # of the same type from becoming the answer.
+        active=next((x for x in evidence
+                     if not x.superseded and
+                     (not q.entity_id or str(x.subject)==str(q.entity_id))),None)
+        if not active:return ""
         if q.relation=="name":
             label=self.TYPE_LABELS.get(q.entity_type or active.entity_type,"مورد")
             turn.semantic_answer=f"اسم {label} «{active.value}» است."
