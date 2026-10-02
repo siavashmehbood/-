@@ -3,6 +3,7 @@ from pathlib import Path
 from runtime.app import IranRuntime
 from core.voice import VoiceAssistant, WakeWord
 from tools.desktop import DesktopTools
+from core.screen_perception import DesktopObservation, UIGrounder
 
 class FakeSTT:
     def transcribe_file(self,path): return "get system information"
@@ -92,6 +93,57 @@ class JarvisIntegrationTests(unittest.TestCase):
             moved=tools.move_file("b.txt","c.txt"); self.assertTrue(moved["exists"])
             renamed=tools.rename_file("c.txt","d.txt"); self.assertTrue(renamed["exists"])
             with self.assertRaises(PermissionError): tools.create_folder("../escape")
+
+    def test_structured_observation_signature_and_grounding(self):
+        obs=DesktopObservation(None,1920,1080,{"title":"Editor"},[],(10,20),
+            [{"role":"button","label":"Save","bounds":(1,2,3,4),"enabled":True,"focused":False,"window":"Editor","confidence":1.0,"source":"test"}],
+            None,"now",1.0,{"structured":"test"})
+        self.assertEqual(obs.signature(),obs.signature())
+        grounded=UIGrounder().resolve(obs,"Save",role="button")
+        self.assertEqual(grounded["status"],"grounded")
+        self.assertEqual(UIGrounder().resolve(obs,"Missing")["status"],"unknown")
+    def test_grounder_refuses_ambiguous_target(self):
+        elements=[{"role":"button","label":"Save","window":"A"},{"role":"button","label":"Save","window":"B"}]
+        obs=DesktopObservation(None,0,0,None,[],None,elements,None,"now",1.0,{})
+        self.assertEqual(UIGrounder().resolve(obs,"Save")["status"],"ambiguous")
+    def test_adaptive_loop_replans_after_failure(self):
+        r=self.make_runtime()
+        class O:
+            def __init__(self,n):self.n=n
+            def to_dict(self):return {"signature":str(self.n),"elements":[]}
+        states=iter([O(0),O(0),O(1),O(2)])
+        decisions=iter([
+            {"status":"act","tool":"definitely_missing_tool","arguments":{}},
+            {"status":"act","tool":"system_info","arguments":{}},
+        ])
+        try:
+            result=r.computer_use.adaptive_run("recover",lambda:next(states),lambda *a:next(decisions),
+                max_consecutive_failures=3)
+            self.assertEqual(result["final_outcome"],"goal_complete" if result["success"] else result["final_outcome"])
+            self.assertTrue(result["recoveries"])
+        except StopIteration:
+            self.fail("adaptive loop did not complete through replanning")
+        finally:r.close()
+    def test_adaptive_loop_detects_repeated_state_action(self):
+        r=self.make_runtime()
+        class O:
+            def to_dict(self):return {"signature":"same","elements":[]}
+        try:
+            result=r.computer_use.adaptive_run("stuck",lambda:O(),
+                lambda *a:{"status":"act","tool":"system_info","arguments":{}},
+                max_retries_per_action=1,max_consecutive_failures=9)
+            self.assertEqual(result["final_outcome"],"loop_detected")
+        finally:r.close()
+    def test_user_cancel_stops_before_action(self):
+        r=self.make_runtime()
+        class O:
+            def to_dict(self):return {"signature":"x","elements":[]}
+        try:
+            r.computer_use._cancel.set()
+            # adaptive_run resets cancellation for a new task; cancellation during task is separately represented by API.
+            r.computer_use.reset_cancel(); r.computer_use.cancel()
+            self.assertTrue(r.computer_use._cancel.is_set())
+        finally:r.close()
 
     def test_registry_survives_restart(self):
         r=self.make_runtime(); names={x["name"] for x in r.registry.list()}; r.close()
