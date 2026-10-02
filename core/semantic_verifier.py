@@ -114,7 +114,7 @@ class SemanticVerifier:
             if not isinstance(fact, dict) or fact.get('superseded') is True:
                 continue
             anchor = self.tokens(str(fact.get('subject','')) + ' ' + str(fact.get('predicate',''))) - operators
-            if (anchor and anchor <= question_terms) or (profile_query and fact.get('subject') == 'user'):
+            if fact.get('resolved') is True or (anchor and anchor <= question_terms) or (profile_query and fact.get('subject') == 'user'):
                 relevant.append(fact)
         evidence_status, evidence_sources = self._grounding(a, relevant, profile_query)
         supported = evidence_status == 'SUPPORTED'
