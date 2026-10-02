@@ -107,34 +107,10 @@ class AdvancedCognitiveCore:
 
     def begin(self, text):
         canonical = getattr(self, "_canonical_system", None)
-        if canonical is not None:
-            return canonical.advanced_core_compat(text)
-        self.turn += 1
-        parsed = self._parse(text)
-        evidence = self._memory(text) + self._graph(text)
-        contradictions = self._contradictions(text)
-        score = float(parsed.get("intent_score", .45))
-        evidence_score = min(1.0, len(evidence) / 5.0)
-        contradiction_penalty = .18 if contradictions else 0.0
-        confidence = max(.05, min(.99, .62 * score + .28 * evidence_score + .10 - contradiction_penalty))
-        unresolved = []
-        if confidence < .42:
-            unresolved.append("low_confidence")
-        if contradictions:
-            unresolved.append("contradictory_evidence")
-        state = CognitiveState(
-            turn_id=self.turn, text=parsed.get("text", text),
-            intent=parsed.get("intent", "general"), intent_confidence=score,
-            goal=parsed.get("goal", text), topic=parsed.get("goal", text),
-            entities=parsed.get("entities", []), references=parsed.get("references", {}),
-            evidence=[CognitiveEvidence(**x).__dict__ for x in evidence],
-            hypotheses=[x.get("name", "") for x in parsed.get("alternatives", [])],
-            contradictions=contradictions, unresolved=unresolved,
-            plan=self._plan(parsed), confidence=round(confidence, 3), status="planned")
-        self.last_state = state
-        self.history.append(state.snapshot())
-        self.history = self.history[-100:]
-        return state
+        if canonical is None:
+            raise RuntimeError("AdvancedCognitiveCore is a compatibility adapter; bind CognitiveSystem before begin()")
+        return canonical.advanced_core_compat(text)
+
 
     def verify(self, state, answer):
         answer = str(answer or "").strip()
