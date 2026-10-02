@@ -141,6 +141,9 @@ class WindowsDesktop:
     def restore(self,hwnd): return self._show(hwnd,9)
     def focus(self,hwnd):
         user32=self._require(); return {"hwnd":int(hwnd),"focused":bool(user32.SetForegroundWindow(int(hwnd)))}
+    def find_window(self,title):
+        wanted=str(title).casefold(); matches=[w for w in self.enumerate_windows() if wanted in str(w.get("title","")).casefold()]
+        return {"matches":matches,"unique":len(matches)==1,"window":matches[0] if len(matches)==1 else None}
     def clipboard_read(self):
         try:
             from PySide6.QtWidgets import QApplication
