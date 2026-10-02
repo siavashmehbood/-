@@ -170,8 +170,29 @@ class CognitivePipeline:
             pass
         if extracted:
             self._emit("user_model_update", {"extracted": extracted, "count": len(extracted), "source": "canonical_pipeline"})
+            # Mirror explicit structured facts into the Rasa foundation tracker.
+            # This is conversational state only; durable fact ownership stays in IRAN Memory/UserModel.
+            try:
+                for fact in extracted:
+                    predicate = str(fact.get("predicate", ""))
+                    if predicate.startswith("owned_name:"):
+                        entity = predicate.split(":", 1)[1]
+                        self.conversation_foundation.set_slot(f"user.owned_name.{entity}", fact.get("object"))
+                        self.conversation_foundation.set_slot("user.last_owned_entity", entity)
+                self.conversation_foundation.save()
+            except Exception:
+                pass
 
         low = text.lower()
+
+        # Structured fact queries outrank raw-history recall. Resolve
+        # reference -> owned entity -> name relation -> stored semantic value.
+        try:
+            owned_answer = self.runtime.user_model.answer_owned_name(text)
+        except Exception:
+            owned_answer = None
+        if owned_answer:
+            return self._persist_answer(text, owned_answer, "MEMORY_FACT", .99)
 
         # Outcome-backed self-correction is part of the canonical turn, before generic correction handling.
         previous_question = getattr(e.state, "last_user_message", "")
@@ -346,7 +367,7 @@ class CognitivePipeline:
         meaning = foundation_meaning
         parsed["dialogue_act"] = meaning.dialogue_act
         parsed["utterance_meaning"] = meaning.to_dict()
-        if "اسم پروژه" in low or "نام پروژه" in low:
+        if any(x in low for x in ("اسم پروژه iran", "نام پروژه iran", "اسم پروژه ایران", "نام پروژه ایران", "اسم این پروژه", "نام این پروژه")):
             return self._persist_answer(text, "نام پروژه IRAN است.")
         if "چرا ساخته شد" in low or "چرا ساختیش" in low:
             answer = "برای ساخت یک معماری شناختی مستقل و آفلاین که حافظه، استدلال، برنامه‌ریزی، یادگیری و راستی‌آزمایی را در یک چرخه واحد کنار هم قرار دهد."
