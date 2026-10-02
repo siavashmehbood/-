@@ -289,14 +289,31 @@ class AutonomousSupervisor:
     def self_awareness_snapshot(self):
         return self.self_awareness.introspect()
 
-    def run(self, cycles: int = 1) -> list[dict[str, Any]]:
+    def run(self, cycles: int = 1, stop_on_failure: bool = True) -> list[dict[str, Any]]:
+        """Run with an explicit cycle budget and observable stop condition."""
+        budget = max(0, int(cycles))
         self.running = True
         results = []
+        stop_reason = "budget_exhausted"
         try:
-            for _ in range(max(0, int(cycles))):
-                results.append(self.step())
+            for _ in range(budget):
+                report = self.step()
+                report["budget"] = {"limit": budget, "used": len(results) + 1,
+                                    "remaining": max(0, budget - len(results) - 1)}
+                results.append(report)
+                if stop_on_failure and not bool(report.get("verified")):
+                    stop_reason = "verification_failure"
+                    break
+                if report.get("long_horizon", {}).get("status") == "completed":
+                    stop_reason = "goal_completed"
+                    break
+            if not results and budget == 0:
+                stop_reason = "zero_budget"
         finally:
             self.running = False
+            if results:
+                results[-1]["stop_reason"] = stop_reason
+                self.last_report = results[-1]
         return results
 
     def stop(self):
