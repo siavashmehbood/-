@@ -16,9 +16,10 @@ class _Runtime:
     memory=_Memory(); knowledge=_Knowledge(); events=_Events(); dialogue=_Dialogue()
 
 class _Canonical:
+    def __init__(self): self.calls=[]
     def advanced_core_compat(self, text):
-        from core.state import CognitiveState
-        return CognitiveState(1, text, "question", .9, text, text, [], {}, [], [], [], [], ["canonical"], .9, "planned")
+        self.calls.append(text)
+        return {"canonical": True, "input": text}
 
 class TestAdvancedCognitiveCore(unittest.TestCase):
     def make_core(self):
@@ -29,8 +30,8 @@ class TestAdvancedCognitiveCore(unittest.TestCase):
     def test_begin_delegates_to_canonical_owner(self):
         c=self.make_core()
         s=c.begin('question')
-        self.assertIsNotNone(s)
-        self.assertEqual(s.plan,['canonical'])
+        self.assertEqual(s, {"canonical": True, "input": "question"})
+        self.assertEqual(c._canonical_system.calls, ["question"])
 
     def test_unbound_begin_fails_closed(self):
         c=AdvancedCognitiveCore(_Runtime())
