@@ -484,6 +484,38 @@ class SoarCognitiveEngine:
                             break
                 if impasse:
                     trace.append({"stage": "impasse", "substate": dict(substate)})
+                    # Bounded substate problem solving: use the already-structured
+                    # candidate/evidence state to choose a preferred candidate,
+                    # feed that preference back through the official Soar input
+                    # link, and let Soar's decision procedure resolve the tie.
+                    if operators and self.input_root is not None:
+                        preferred=max(operators,key=lambda op:float(op.confidence))
+                        self._create_string(self.input_root,"preferred",preferred.name)
+                        self.agent.Commit()
+                        trace.append({
+                            "stage":"substate-problem-solving",
+                            "preferred":preferred.name,
+                            "basis":"candidate-confidence+retrieved-evidence",
+                            "semantic_hits":len(semantic_rows),
+                            "episodic_hits":len(episode_rows),
+                        })
+                        for _ in range(3):
+                            if cycle_count >= self.MAX_CYCLES:
+                                break
+                            cycle_count += 1
+                            self.agent.RunSelf(1)
+                            selected2, _impasse2, substate2 = self._read_commands()
+                            if selected2:
+                                selected=selected2
+                                substate.update(substate2 or {})
+                                substate["resolved"]=True
+                                substate["result"]=selected2
+                                trace.append({
+                                    "stage":"substate-result",
+                                    "operator":selected2,
+                                    "returned_to_superstate":True,
+                                })
+                                break
                 if selected:
                     trace.append({"stage": "operator-selected", "operator": selected})
                 if not selected and not impasse and not safe_abort:
@@ -495,7 +527,10 @@ class SoarCognitiveEngine:
             selected = operators[0].name if operators else ""
             trace.append({"stage": "fallback", "reason": self.init_error})
 
-        status = "IMPASSE" if impasse else "ABORTED" if safe_abort else "SELECTED" if selected else "UNRESOLVED"
+        status = ("RESOLVED_IMPASSE" if impasse and selected else
+                  "IMPASSE" if impasse else
+                  "ABORTED" if safe_abort else
+                  "SELECTED" if selected else "UNRESOLVED")
         if goal.subgoals:
             if impasse:
                 goal.subgoals[0]["status"]="blocked"
