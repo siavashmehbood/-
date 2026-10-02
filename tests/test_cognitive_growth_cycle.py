@@ -88,3 +88,13 @@ def test_growth_cycle_resolves_only_on_positive_delta(tmp_path):
     better = {"capability":"planning","score":3,"total":4}
     out = cycle.conclude(wid, before, better)
     assert out["weakness_status"] == "resolved"
+
+
+def test_benchmark_rejects_case_identity_drift(tmp_path):
+    bench = CapabilityBenchmark(tmp_path / "bench.json")
+    before = bench.run("planning", [{"case_id":"a","input":"x"}], lambda x: False,
+                       lambda output, case: bool(output), "baseline")
+    after = bench.run("planning", [{"case_id":"b","input":"y"}], lambda x: True,
+                      lambda output, case: bool(output), "post_learning")
+    with pytest.raises(ValueError, match="case identity mismatch"):
+        bench.compare(before, after)
