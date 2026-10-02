@@ -90,34 +90,10 @@ class Orchestrator:
 
     def handle(self,text):
         canonical = getattr(self, "_canonical_system", None)
-        if canonical is not None:
-            return canonical.dispatch(text)
-        started=time.perf_counter(); clean=str(text).strip()
-        if not clean:return 'چیزی برای پردازش دریافت نکردم.'
-        brain=getattr(self.agent,'brain',None); language=brain.analyze(clean) if brain else self.language.analyze(clean)
-        cognitive=self.cognition.analyze(clean); self.memory.add('semantic_input',json.dumps({'intent':language.intent,'goal':language.goal,'entities':language.entities},ensure_ascii=False),.55)
-        decision=self.intelligence.decide(clean)
-        self.events.emit('goal_received',{'goal':clean,'intent':cognitive.intent,'language_intent':language.intent,'confidence':max(cognitive.confidence,language.confidence),'needs_model':cognitive.needs_model})
-        if clean.startswith('/run '):
-            verified=self._parse_verified_run(clean)
-            if verified is not None:
-                executor=getattr(self,'verified_executor',None)
-                if executor is None:
-                    raise RuntimeError('verified task execution is not connected')
-                result=executor(**verified)
-                return self._format_verified_result(result)
-            return self.loop.run(clean[5:].strip()).answer
-        if clean.startswith('/tool '):
-            name,kwargs=self._parse_tool(clean); return str(self.run_tool(name,**kwargs))
-        if clean.startswith('/goal '): return str(self.goals.add(clean[6:].strip()) if self.goals else 'Goal store unavailable.')
-        if clean.startswith('/complete '): return str(self.goals.complete(clean.split(maxsplit=1)[1]) if self.goals else 'Goal not found.')
-        if clean.startswith('/reason '): return str(self.reasoner.analyze(clean[8:].strip(),self.memory.working_context(clean,6)))
-        auto=self._auto_tool(clean)
-        if auto is not None:
-            self.memory.add('tool_result',auto,.75); self.metrics.record('auto_tool',time.perf_counter()-started); return auto
-        plan=self.planner.build(clean,brain.analyze(clean) if brain else None); answer=self.agent.respond(clean); self.execute_plan(plan)
-        self.events.emit('response_generated',{'goal':clean,'intent':cognitive.intent,'decision':decision.actions})
-        self.metrics.record('response',time.perf_counter()-started); return answer
+        if canonical is None:
+            raise RuntimeError("Orchestrator.handle is a compatibility adapter; bind CognitiveSystem first")
+        return canonical.dispatch(text)
+
 
     def _user_model_context(self, text):
         model = getattr(self, '_user_model', None) or getattr(getattr(self, 'agent', None), '_user_model', None)
