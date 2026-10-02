@@ -15,6 +15,7 @@ from datetime import datetime
 from typing import Any
 import importlib.util
 import json
+import os
 import re
 import time
 
@@ -171,6 +172,10 @@ class PersianLinguisticAnalyzer:
             "deeppavlov": importlib.util.find_spec("deeppavlov") is not None,
             "haystack": importlib.util.find_spec("haystack") is not None,
         }
+        self.backend_preference=os.environ.get("IRAN_NLP_BACKEND","fallback").strip().lower()
+        self._stanza_pipeline=None
+        self._spacy_nlp=None
+        self.last_backend_error=""
 
     @staticmethod
     def _language(text):
@@ -182,7 +187,89 @@ class PersianLinguisticAnalyzer:
     def _sentences(text):
         return [x.strip() for x in re.split(r"(?<=[.!؟?])\s+|[\n]+", text) if x.strip()] or ([text] if text else [])
 
+    def _analyze_stanza(self,text):
+        if not self.optional["stanza"]:
+            return None
+        try:
+            import stanza
+            if self._stanza_pipeline is None:
+                # Never download at runtime. The backend is opt-in and only works
+                # when Persian resources have already been installed locally.
+                self._stanza_pipeline=stanza.Pipeline(
+                    lang="fa",processors="tokenize,mwt,pos,lemma,depparse,ner",
+                    download_method=None,verbose=False,use_gpu=False)
+            started=time.perf_counter(); doc=self._stanza_pipeline(str(text or ""))
+            tokens=[]; offset=0
+            for sentence in doc.sentences:
+                for word in sentence.words:
+                    raw=str(word.text); pos=str(getattr(word,"upos","") or "")
+                    feats={}
+                    raw_feats=str(getattr(word,"feats","") or "")
+                    for item in raw_feats.split("|"):
+                        if "=" in item:
+                            k,v=item.split("=",1); feats[k]=v
+                    start=normalize_fa(text).find(normalize_fa(raw),offset)
+                    start=max(0,start); end=start+len(raw); offset=end
+                    tokens.append(TokenAnalysis(
+                        raw,normalize_fa(raw).lower(),str(getattr(word,"lemma","") or raw),
+                        pos,feats,int(getattr(word,"head",0) or 0)-1,
+                        str(getattr(word,"deprel","") or ""),start,end))
+            entities=[]
+            for ent in getattr(doc,"ents",[]) or []:
+                entities.append(EntityMention(
+                    f"{str(ent.type).lower()}:{SemanticIntelligence._slug(ent.text)}",
+                    str(ent.text),str(ent.type).lower(),"ner",
+                    int(getattr(ent,"start_char",-1) or -1),int(getattr(ent,"end_char",-1) or -1),
+                    .85,"stanza:fa"))
+            return LinguisticAnalysis(
+                raw_text=str(text or ""),normalized_text=normalize_fa(text),
+                language=self._language(normalize_fa(text)),tokens=tokens,
+                sentences=[str(s.text) for s in doc.sentences],entities=entities,
+                backend="stanza:fa",
+                capabilities={"tokens":True,"sentence_segmentation":True,"pos":True,
+                              "morphology":True,"lemma":True,"dependency":True,"ner":True,
+                              "spacy_available":self.optional["spacy"],
+                              "stanza_available":True},
+                elapsed_ms=round((time.perf_counter()-started)*1000,3))
+        except Exception as exc:
+            self.last_backend_error=f"stanza:{type(exc).__name__}"
+            return None
+
+    def _analyze_spacy(self,text):
+        if not self.optional["spacy"]:
+            return None
+        try:
+            import spacy
+            if self._spacy_nlp is None:
+                self._spacy_nlp=spacy.blank("fa")
+                if "sentencizer" not in self._spacy_nlp.pipe_names:
+                    self._spacy_nlp.add_pipe("sentencizer")
+            started=time.perf_counter(); doc=self._spacy_nlp(str(text or ""))
+            tokens=[TokenAnalysis(
+                t.text,normalize_fa(t.text).lower(),str(t.lemma_ or t.text),
+                str(t.pos_ or ""),{},int(t.head.i) if t.head is not None else -1,
+                str(t.dep_ or ""),int(t.idx),int(t.idx+len(t.text))) for t in doc]
+            return LinguisticAnalysis(
+                raw_text=str(text or ""),normalized_text=normalize_fa(text),
+                language=self._language(normalize_fa(text)),tokens=tokens,
+                sentences=[str(s.text) for s in doc.sents],entities=[],
+                backend="spacy:fa-blank",
+                capabilities={"tokens":True,"sentence_segmentation":True,"pos":False,
+                              "morphology":False,"lemma":False,"dependency":False,"ner":False,
+                              "spacy_available":True,"stanza_available":self.optional["stanza"]},
+                elapsed_ms=round((time.perf_counter()-started)*1000,3))
+        except Exception as exc:
+            self.last_backend_error=f"spacy:{type(exc).__name__}"
+            return None
+
     def analyze(self, text: str) -> LinguisticAnalysis:
+        # Heavy NLP is lazy/opt-in: no model downloads, no startup penalty.
+        if self.backend_preference=="stanza":
+            result=self._analyze_stanza(text)
+            if result is not None:return result
+        elif self.backend_preference=="spacy":
+            result=self._analyze_spacy(text)
+            if result is not None:return result
         started = time.perf_counter()
         normalized = normalize_fa(text)
         tokens = []
@@ -620,8 +707,10 @@ class SemanticIntelligence:
 
     def backend_status(self):
         return {
-            "active":"iran_fallback",
+            "active":getattr(self.linguistic,"backend_preference","fallback"),
             "optional":dict(self.linguistic.optional),
+            "last_backend_error":getattr(self.linguistic,"last_backend_error",""),
+            "runtime_downloads":False,
             "offline":True,
             "decision_owner":"CognitiveSystem",
         }
