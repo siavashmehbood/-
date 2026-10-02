@@ -170,6 +170,50 @@ class SoarCognitiveFoundationAcceptance(unittest.TestCase):
             self.assertIn(decision.get("status"),{"act","safe_stop","goal_complete"})
         finally:r.close()
 
+    def test_jarvis_dispatch_requires_real_soar_operator_then_cognitive_authority(self):
+        r=self.runtime()
+        try:
+            calls=[]
+            original=r.computer_use.execute
+            def fake_execute(goal,tool,args):
+                calls.append((goal,tool,args))
+                return {"success":True,"verification":{"reason":"test-harness","verified":True}}
+            r.computer_use.execute=fake_execute
+            answer=r.handle("open notepad")
+            self.assertEqual(answer,"انجام شد.")
+            self.assertEqual(len(calls),1)
+            self.assertEqual(calls[0][1],"open_application")
+            cycle=r.cognitive_system.pipeline.last_cognitive_cycle
+            self.assertIsNotNone(cycle)
+            self.assertTrue(cycle.real_soar,cycle.to_dict())
+            self.assertEqual(cycle.selected_operator,"open_application",cycle.to_dict())
+            self.assertEqual(r.cognitive_system.architecture_contract()["decision_owner"],"CognitiveSystem")
+            self.assertFalse(hasattr(r.cognitive_system.cognitive_engine,"execute_tool"))
+            r.computer_use.execute=original
+        finally:r.close()
+
+    def test_unknown_and_conflicting_state_are_not_promoted_to_truth(self):
+        r=self.runtime()
+        try:
+            si=r.cognitive_system.pipeline.semantic_intelligence
+            unknown=si.analyze("اسم پروژه‌ای که هرگز نگفتم چیست؟",slots={},source_turn=1)
+            cycle=r.cognitive_system.cognitive_engine.cycle(
+                unknown,r.dialogue.state,parsed={"intent":"question","goal":"resolve absent fact"})
+            self.assertIn(cycle.uncertainty,{"unknown","uncertain"})
+            self.assertNotEqual(cycle.status,"COMPLETED")
+            # Contradictory durable facts stay visible to existing IRAN memory;
+            # Soar receives structured state but never declares either value true.
+            with r.learning_gate.bypass():
+                r.memory.add_semantic_fact("project:x","runtime","3.12",.9,"source-a")
+                r.memory.add_semantic_fact("project:x","runtime","3.14",.95,"source-b")
+            turn=si.analyze("نسخه runtime پروژه x چیست؟",slots={},source_turn=2)
+            cycle2=r.cognitive_system.cognitive_engine.cycle(
+                turn,r.dialogue.state,parsed={"intent":"question","goal":"compare conflicting runtime evidence"})
+            self.assertTrue(cycle2.real_soar)
+            self.assertIn(cycle2.uncertainty,{"unknown","conflicting","inferred"})
+            self.assertEqual(r.cognitive_system.architecture_contract()["decision_owner"],"CognitiveSystem")
+        finally:r.close()
+
     def test_explicit_observable_fallback_if_real_soar_cannot_initialize(self):
         r=self.runtime()
         try:
