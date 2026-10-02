@@ -49,9 +49,9 @@ class ReasoningPlanningTests(unittest.TestCase):
             knowledge=[{"subject": "direct", "predicate": "explanation", "object": "context",
                         "confidence": .55, "source": "test"}],
         )
-        self.assertIn(probable.status, {"PROBABLE", "VERIFIED_CANDIDATE"})
+        self.assertEqual(probable.status, "UNCERTAIN")
         self.assertGreater(probable.confidence, .0)
-        self.assertLess(probable.confidence, .90)
+        self.assertLess(probable.confidence, .45)
 
         uncertain = self.engine.analyze(
             "direct explanation?",
