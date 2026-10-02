@@ -477,6 +477,18 @@ class SemanticIntelligence:
         n=normalize_fa(text); low=n.lower()
         q=SemanticQuery()
         typ=self._entity_type_from_text(n)
+        # Entity linking: mention of a previously stored entity name binds the
+        # query to that semantic entity instead of relying only on recency.
+        try:
+            for subject,predicate,value,confidence,source,updated in self._rows(self.memory):
+                if predicate=="name" and normalize_fa(value) and normalize_fa(value) in n:
+                    q.entity_id=str(subject)
+                    if ":" in q.entity_id:
+                        q.entity_type=q.entity_id.split(":",1)[0]
+                    q.reference="entity_link"
+                    break
+        except Exception:
+            pass
         short_name_reference=bool(re.fullmatch(r"\s*(?:اسمش|نامش)\s*[؟?]?\s*",n,re.I))
         name_question=bool(re.search(r"(?:اسم|نام)(?:ش|\s+[^ ]+)?\s+(?:چی|چیه|چیست|چه|کدوم|کدام|چی\s+بود)",n,re.I))
         if short_name_reference or name_question or re.search(r"(?:اسم|نام)\s+.*?\s+(?:چی|چه)\s+بود",n,re.I):
@@ -498,6 +510,8 @@ class SemanticIntelligence:
             role="colleague" if "همکار" in n else "friend"
             q.reference=role
             q.entity_id=self.retriever.related_entity(role)
+        if any(x in n for x in ("برای چی بود","برای چه بود","کارش چی بود","هدفش چی بود")) and (q.entity_id or typ):
+            q.relation="purpose"; q.entity_type=q.entity_type or typ
         if ("قهوه" in n or "دوست" in n or "ترجیح" in n) and any(x in n for x in ("چطوری","چگونه","چه جوری","چی","یادم")):
             q.subject="user"; q.relation="preference"; q.value_hint="قهوه" if "قهوه" in n else ""
         if re.search(r"(?:منظورم|منظورت)\s+(?:اسم|نام)\s+",n):
@@ -551,6 +565,9 @@ class SemanticIntelligence:
         if q.relation=="name":
             label=self.TYPE_LABELS.get(q.entity_type or active.entity_type,"مورد")
             turn.semantic_answer=f"اسم {label} «{active.value}» است."
+        elif q.relation=="purpose":
+            label=self.TYPE_LABELS.get(q.entity_type or active.entity_type,"مورد")
+            turn.semantic_answer=f"کاربرد ثبت‌شده برای {label} «{active.value}» است."
         elif q.relation=="preference":
             turn.semantic_answer=f"طبق ترجیحی که گفتی، «{active.value}» را دوست داری."
         return turn.semantic_answer
