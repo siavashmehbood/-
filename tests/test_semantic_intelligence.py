@@ -82,11 +82,15 @@ class SemanticIntelligenceAcceptance(unittest.TestCase):
         r=self.runtime()
         try:
             r.handle("من روی پروژه‌ای به اسم باران کار می‌کنم.")
+            r.handle("من روی پروژه‌ای به اسم آذرخش کار می‌کنم.")
             r.handle("یکی از همکارام اسمش کیان است.")
+            r.handle("یکی از دوستام اسمش رادین است.")
             r.handle("اسم محصولمون ماهوره.")
             self.assert_value(r.handle("اسم همکارم چی بود؟"),"کیان")
+            self.assert_value(r.handle("اسم دوستم چی بود؟"),"رادین")
             self.assert_value(r.handle("اسم محصول چیه؟"),"ماهور")
-            self.assert_value(r.handle("اون پروژه اسمش چی بود؟"),"باران")
+            self.assert_value(r.handle("اسم پروژه اول چی بود؟"),"باران")
+            self.assert_value(r.handle("اسم پروژه دوم چی بود؟"),"آذرخش")
         finally:r.close()
 
     def test_scenario_f_topic_switch_and_return(self):
