@@ -341,6 +341,28 @@ class SoarCognitiveEngine:
         active_goal = str(getattr(state, "active_goal", "") or "")
         if active_goal:
             self._create_string(root, "active-goal", active_goal[:500])
+        self._create_string(root, "current-task", goal.description[:500])
+        self._create_string(root, "reasoning-state", "candidate-selection")
+        for constraint in list(getattr(state, "remembered_constraints", []) or [])[:12]:
+            node=self._create_id(root,"constraint")
+            self._create_string(node,"value",str(constraint)[:500])
+        for ent in list(getattr(getattr(semantic_turn,"linguistic",None),"entities",[]) or [])[:16]:
+            node=self._create_id(root,"entity")
+            self._create_string(node,"id",str(getattr(ent,"entity_id","")))
+            self._create_string(node,"type",str(getattr(ent,"entity_type","")))
+            self._create_string(node,"text",str(getattr(ent,"text",""))[:300])
+        for fact in self._semantic_fact_dicts(semantic_turn)[:16]:
+            node=self._create_id(root,"semantic-fact")
+            self._create_string(node,"subject",str(fact.get("subject",""))[:300])
+            self._create_string(node,"relation",str(fact.get("predicate",fact.get("relation","")))[:200])
+            self._create_string(node,"value",str(fact.get("object",fact.get("value","")))[:500])
+            self._create_string(node,"provenance",str(fact.get("source",fact.get("provenance","")))[:300])
+        for ev in self._semantic_evidence_dicts(semantic_turn)[:12]:
+            node=self._create_id(root,"evidence")
+            self._create_string(node,"subject",str(ev.get("subject",""))[:300])
+            self._create_string(node,"relation",str(ev.get("relation",""))[:200])
+            self._create_string(node,"value",str(ev.get("value",""))[:500])
+            self._create_string(node,"provenance",str(ev.get("provenance",""))[:300])
         for index, op in enumerate(operators):
             node = self._create_id(root, "candidate")
             self._create_string(node, "name", op.name)
@@ -474,6 +496,16 @@ class SoarCognitiveEngine:
             trace.append({"stage": "fallback", "reason": self.init_error})
 
         status = "IMPASSE" if impasse else "ABORTED" if safe_abort else "SELECTED" if selected else "UNRESOLVED"
+        if goal.subgoals:
+            if impasse:
+                goal.subgoals[0]["status"]="blocked"
+            elif selected:
+                goal.subgoals[0]["status"]="completed"
+                if len(goal.subgoals)>1:
+                    goal.subgoals[1]["status"]="active"
+            elif safe_abort:
+                goal.subgoals[0]["status"]="failed"
+        trace.append({"stage":"intermediate-state","subgoals":[dict(x) for x in goal.subgoals]})
         result = SoarCycleResult(
             available=self.available, real_soar=self.real_soar, backend=self.backend,
             status=status, goal=goal.to_dict(), working_memory=wm,
