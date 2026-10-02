@@ -70,6 +70,29 @@ class JarvisIntegrationTests(unittest.TestCase):
             self.assertEqual(len(result["steps"]),1)
         finally:r.close()
 
+    def test_remaining_registry_capabilities_exist(self):
+        r=self.make_runtime()
+        try:
+            names={x["name"] for x in r.registry.list()}
+            self.assertTrue({"open_file","open_folder","get_battery","get_volume","set_volume",
+                             "list_windows","focus_window","minimize_window","maximize_window",
+                             "restore_window","clipboard_read","clipboard_write"} <= names)
+        finally:r.close()
+    def test_write_and_input_permissions_are_not_silently_allowed(self):
+        r=self.make_runtime()
+        try:
+            self.assertFalse(r.policy.allows("write"))
+            self.assertFalse(r.policy.allows("input_control"))
+            self.assertFalse(r.policy.allows("destructive"))
+        finally:r.close()
+    def test_real_copy_move_rename_are_confined_and_observable(self):
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d); (root/"a.txt").write_text("x",encoding="utf-8"); tools=DesktopTools(root)
+            copied=tools.copy_file("a.txt","b.txt"); self.assertTrue(copied["exists"])
+            moved=tools.move_file("b.txt","c.txt"); self.assertTrue(moved["exists"])
+            renamed=tools.rename_file("c.txt","d.txt"); self.assertTrue(renamed["exists"])
+            with self.assertRaises(PermissionError): tools.create_folder("../escape")
+
     def test_registry_survives_restart(self):
         r=self.make_runtime(); names={x["name"] for x in r.registry.list()}; r.close()
         r2=IranRuntime(r.root)
