@@ -51,6 +51,25 @@ class JarvisIntegrationTests(unittest.TestCase):
             out=v.handle_audio_file("sample.wav")
             self.assertFalse(out["accepted"])
         finally:r.close()
+    def test_computer_loop_stops_on_verification_failure(self):
+        r=self.make_runtime()
+        try:
+            result=r.computer_use.run("bounded task",[
+                {"tool":"system_info"},
+                {"tool":"definitely_missing_tool"},
+                {"tool":"system_info"}],timeout_seconds=5)
+            self.assertFalse(result["success"]); self.assertEqual(result["stop_reason"],"verification_failure")
+            self.assertEqual(len(result["steps"]),2)
+        finally:r.close()
+    def test_computer_loop_enforces_max_steps(self):
+        r=self.make_runtime()
+        try:
+            r.computer_use.max_steps=1
+            result=r.computer_use.run("bounded task",[{"tool":"system_info"},{"tool":"system_info"}])
+            self.assertFalse(result["success"]); self.assertEqual(result["stop_reason"],"max_steps")
+            self.assertEqual(len(result["steps"]),1)
+        finally:r.close()
+
     def test_registry_survives_restart(self):
         r=self.make_runtime(); names={x["name"] for x in r.registry.list()}; r.close()
         r2=IranRuntime(r.root)
