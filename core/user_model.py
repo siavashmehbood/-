@@ -262,7 +262,7 @@ def _owned_name_entity_from_query(text):
     # Explicit possessive query: اسم پروژه من چیه؟ / اسم شرکتم چی بود؟
     patterns = [
         r"(?:اسم|نام)\s+(?P<entity>[\wآ-ی-]+?)\s+من\s+(?:چی|چیه|چیست|چه|کدام|کدوم)",
-        r"(?:اسم|نام)\s+(?P<entity>[\wآ-ی-]+?)(?:ام|م)\s+(?:چی|چیه|چیست|چه|کدام|کدوم)",
+        r"(?:اسم|نام)\s+(?P<entity>[\wآ-ی-]+?)(?:\s*ام|م)\s+(?:چی|چیه|چیست|چه|کدام|کدوم)",
     ]
     for pat in patterns:
         m = re.search(pat, q, re.I)
