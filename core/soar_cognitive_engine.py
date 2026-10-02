@@ -97,6 +97,7 @@ class SoarCognitiveEngine:
         self.rules_path = self.root / "cognitive" / "iran_phase2.soar"
         self.epmem_path = self.root / "data" / "soar_epmem.sqlite"
         self._initialize()
+        self.init_elapsed_ms = round((time.perf_counter()-self.started_at)*1000, 3)
 
     def _emit(self, name, payload):
         try:
@@ -615,6 +616,8 @@ class SoarCognitiveEngine:
             "chunking": {"mode": "only", "governance": "LearningGate"},
             "rl": {"durable_rewards": "LearningGate_only"},
             "decision_owner": "CognitiveSystem",
+            "init_elapsed_ms": getattr(self, "init_elapsed_ms", 0.0),
+            "limits": {"max_cycles": self.MAX_CYCLES, "max_depth": self.MAX_DEPTH, "timeout_ms": self.TIMEOUT_MS},
             "last_cycle": self._last_cycle.to_dict() if self._last_cycle else {},
         }
 
