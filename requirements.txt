@@ -1,2 +1,5 @@
 # Optional for CLI; required by the single desktop GUI.
 PySide6>=6.8,<7
+
+# Official Soar SML Python bindings; internal cognitive engine (Phase 2).
+soar-sml==9.6.5
