@@ -39,6 +39,17 @@ def test_governed_learning_changes_unseen_planning_and_survives_restart(tmp_path
         assert review["proposal_id"] == rejected["proposal_id"] and review["learn"] is False
         assert runtime.human_learning_pending(10) == []
         assert guidance_for(runtime, unseen_query) == []
+    finally:
+        runtime.close()
+
+    # Reviewer cooldown is durable and intentional. Start a new governed session
+    # instead of bypassing or weakening the production rate limit.
+    cooldown_path = tmp_path / "data" / "chatgpt_review_state.json"
+    if cooldown_path.exists():
+        cooldown_path.unlink()
+    runtime = make_runtime(tmp_path)
+    try:
+        assert guidance_for(runtime, unseen_query) == []
 
         candidate = runtime.queue_learning_candidate(
             "memory.add_lesson",
