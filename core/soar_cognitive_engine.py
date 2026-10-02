@@ -163,15 +163,18 @@ class SoarCognitiveEngine:
             self._cmd("epmem --set learning on")
             self._cmd("epmem --set trigger dc")
             self._cmd("epmem --set phase selection")
-            self._cmd("epmem --set database file")
+            # Configure the file-backed store completely before selecting the
+            # file database. Selecting database=file may initialize/open the
+            # backend immediately; setting path afterwards can therefore leave
+            # EPMem attached to its default location.
             self._cmd(f"epmem --set path {self._cli_symbol(self.epmem_path)}")
             self._cmd("epmem --set append on")
             # Process-owned kernels cannot rely on kernel shutdown to flush the
-            # SQLite cache. Persist each native episode independently so runtime
-            # restart remains durable even though SML Shutdown is intentionally
-            # avoided for Python-binding stability.
+            # SQLite cache. Persist native episodes independently so runtime
+            # restart remains durable while SML Shutdown stays avoided.
             self._cmd("epmem --set lazy-commit off")
             self._cmd("epmem --set optimization safety")
+            self._cmd("epmem --set database file")
             self._cmd("epmem --init")
             # Native chunking is enabled only in states explicitly force-learned
             # by the governed production in iran_phase2.soar.
