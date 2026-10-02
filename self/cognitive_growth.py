@@ -135,6 +135,10 @@ class CapabilityBenchmark:
             raise ValueError("capability mismatch")
         if int(before.get("total", 0)) != int(after.get("total", 0)):
             raise ValueError("benchmark size mismatch")
+        before_ids = [str(r.get("case_id")) for r in before.get("results", [])]
+        after_ids = [str(r.get("case_id")) for r in after.get("results", [])]
+        if before_ids != after_ids:
+            raise ValueError("case identity mismatch")
         delta = int(after.get("score", 0)) - int(before.get("score", 0))
         return {
             "capability": before["capability"], "before": before["score"], "after": after["score"],
