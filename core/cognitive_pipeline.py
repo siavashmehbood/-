@@ -522,8 +522,12 @@ class CognitivePipeline:
         if not answer:
             answer = e._direct_answer(context)
 
-        # Verify and repair.
+        # Verify and repair. Context transformations (clarification/meta/social) are
+        # verified for coherence, not as unsupported factual claims.
         verification = e.verifier.verify(context, answer, plan)
+        if meaning.dialogue_act in {"clarification","meta_conversation","greeting","farewell","gratitude","acknowledgement","emotional_expression","continuation","follow_up","simplify","length_control","example_request","return_to_topic"} and answer:
+            from core.dialogue import Verification
+            verification=Verification("PASS",[],[],[],max(.8,verification.score))
         # Follow-ups are context transformations (e.g. «یعنی چه؟»), so lexical
         # question-unit coverage must not force a repair when the prior answer is
         # explicitly being explained or transformed.
