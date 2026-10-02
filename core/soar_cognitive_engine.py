@@ -167,7 +167,7 @@ class SoarCognitiveEngine:
             # file database. Selecting database=file may initialize/open the
             # backend immediately; setting path afterwards can therefore leave
             # EPMem attached to its default location.
-            self._cmd(f"epmem --set path {self._cli_symbol(self.epmem_path)}")
+            self._cmd(f"epmem --set path {self._cli_path(self.epmem_path)}")
             self._cmd("epmem --set append on")
             # Process-owned kernels cannot rely on kernel shutdown to flush the
             # SQLite cache. Persist native episodes independently so runtime
@@ -176,6 +176,13 @@ class SoarCognitiveEngine:
             self._cmd("epmem --set optimization safety")
             self._cmd("epmem --set database file")
             self._cmd("epmem --init")
+            self.epmem_config = {
+                "database": self._cmd("epmem --get database").strip(),
+                "path": self._cmd("epmem --get path").strip(),
+                "append": self._cmd("epmem --get append").strip(),
+                "lazy_commit": self._cmd("epmem --get lazy-commit").strip(),
+                "optimization": self._cmd("epmem --get optimization").strip(),
+            }
             # Native chunking is enabled only in states explicitly force-learned
             # by the governed production in iran_phase2.soar.
             self._cmd("chunk only")
@@ -205,6 +212,13 @@ class SoarCognitiveEngine:
     def _cli_symbol(value):
         text = str(value).replace("\\", "/").replace("|", "_")
         return f"|{text}|"
+
+    @staticmethod
+    def _cli_path(value):
+        # File-system parameters are CLI words, not Soar symbolic constants.
+        # Normalize separators and quote so spaces remain part of one argument.
+        text = str(value).replace("\\", "/").replace('"', '\\"')
+        return f'"{text}"'
 
     def _cmd(self, command):
         if self.agent is None:
@@ -641,6 +655,7 @@ class SoarCognitiveEngine:
                 "enabled": bool(self.real_soar),
                 "persistent_path": str(self.epmem_path),
                 "exists": self.epmem_path.exists(),
+                "config": dict(getattr(self, "epmem_config", {}) or {}),
             },
             "chunking": {"mode": "only", "governance": "LearningGate"},
             "rl": {"durable_rewards": "LearningGate_only"},
