@@ -147,6 +147,46 @@ class JarvisIntegrationTests(unittest.TestCase):
             self.assertTrue(r.computer_use._cancel.is_set())
         finally:r.close()
 
+    def test_canonical_next_action_is_single_decision_owner(self):
+        r=self.make_runtime()
+        try:
+            decision=r.cognitive_system.decide_computer_action("open notepad",{"signature":"s"},[],None,4)
+            self.assertEqual(decision["tool"],"open_application")
+            self.assertEqual(decision["status"],"act")
+            self.assertFalse(hasattr(r.computer_use,"decide"))
+        finally:r.close()
+    def test_filesystem_goal_observe_decide_execute_verify(self):
+        r=self.make_runtime(); name="adaptive-test-folder"
+        class O:
+            def __init__(self,n):self.n=n
+            def to_dict(self):return {"signature":str(self.n),"elements":[]}
+        state={"n":0}
+        def observe():
+            state["n"]+=1; return O(state["n"])
+        try:
+            def decide(goal,obs,actions,last,remaining):
+                if (r.root/name).is_dir():return {"status":"goal_complete"}
+                return {"status":"act","tool":"create_folder","arguments":{"path":name},
+                        "permission_granted":True,"verification":{"type":"file_exists","path":str(r.root/name)}}
+            # safe mode deliberately blocks write: no autonomous permission bypass.
+            blocked=r.computer_use.adaptive_run("create folder",observe,decide,max_consecutive_failures=1)
+            self.assertFalse(blocked["success"]); self.assertFalse((r.root/name).exists())
+            r.policy.safe_mode=False
+            result=r.computer_use.adaptive_run("create folder",observe,decide)
+            self.assertTrue(result["success"]); self.assertTrue((r.root/name).is_dir())
+        finally:r.close()
+    def test_episode_failure_reaches_growth_without_auto_approval(self):
+        r=self.make_runtime()
+        class O:
+            def to_dict(self):return {"signature":"unchanged","elements":[]}
+        try:
+            before=len(r.cognitive_system.growth.ledger.all())
+            result=r.computer_use.adaptive_run("impossible desktop task",lambda:O(),
+                lambda *a:{"status":"act","tool":"missing_tool","arguments":{}},max_consecutive_failures=1)
+            self.assertFalse(result["success"])
+            self.assertGreaterEqual(len(r.cognitive_system.growth.ledger.all()),before)
+        finally:r.close()
+
     def test_registry_survives_restart(self):
         r=self.make_runtime(); names={x["name"] for x in r.registry.list()}; r.close()
         r2=IranRuntime(r.root)
