@@ -12,7 +12,7 @@ import time
 class ConversationEvent:
     type:str
     data:dict=field(default_factory=dict)
-    timestamp:float=field(default_factory=time.time)
+    timestamp:float=0.0
     source:str="iran"
     def to_dict(self): return asdict(self)
 
@@ -55,7 +55,7 @@ class RasaFoundationAdapter:
         self.state.previous_action=str(answer_type or "")
         self._event("assistant_outcome",{"answer_type":answer_type,"verification":verification})
     def _event(self,event_type,data):
-        self.state.events.append(ConversationEvent(event_type,dict(data)).to_dict())
+        self.state.events.append({"type":event_type,"data":dict(data),"source":"iran"})
         self.state.events=self.state.events[-self.max_events:]
     def current_state(self):
         return {"slots":dict(self.state.slots),"latest_message":dict(self.state.latest_message),
