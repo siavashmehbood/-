@@ -1,4 +1,5 @@
-import unittest
+import unittest,tempfile
+from pathlib import Path
 from core.rasa_foundation import RasaFoundationAdapter
 from core.conversational_understanding import ConversationalUnderstanding
 
@@ -14,6 +15,13 @@ class RasaFoundationTests(unittest.TestCase):
         restored=RasaFoundationAdapter.replay(a.current_state()["events"])
         self.assertEqual(restored.current_state()["slots"]["focus"],"windows")
         self.assertEqual(restored.current_state()["previous_action"],"FOLLOW_UP")
+
+    def test_persistence_replays_after_restart(self):
+        path=Path(tempfile.mkdtemp())/"events.json"
+        a=RasaFoundationAdapter(path=path); a.set_slot("topic","پایتون"); a.record_outcome("DIRECT","PASS"); a.save()
+        b=RasaFoundationAdapter(path=path)
+        self.assertEqual(b.current_state()["slots"]["topic"],"پایتون")
+        self.assertEqual(b.current_state()["previous_action"],"DIRECT")
 
     def test_foundation_has_no_decision_api(self):
         a=RasaFoundationAdapter()
