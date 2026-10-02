@@ -41,7 +41,7 @@ class CognitivePipeline:
         from core.self_correction import SelfCorrectionEngine
         from core.rasa_foundation import RasaFoundationAdapter
         self.self_correction = SelfCorrectionEngine(__import__("pathlib").Path(self.runtime.root) / "data" / "self_corrections.json")
-        self.conversation_foundation = RasaFoundationAdapter()
+        self.conversation_foundation = RasaFoundationAdapter(path=__import__("pathlib").Path(self.runtime.root)/"data"/"conversation_events.json")
 
     def _emit(self, event, data):
         try:
@@ -620,6 +620,7 @@ class CognitivePipeline:
             evidence_sources=list(dict.fromkeys(list(semantic_check.evidence_sources) + list(final_check.evidence_sources))),
         )
         self.conversation_foundation.record_outcome(plan.answer_type, verification.status)
+        self.conversation_foundation.save()
         e.last_trace = trace
         e.memory_context = memory_context
         e.context_snapshot = context_snapshot.__dict__
