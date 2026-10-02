@@ -36,3 +36,18 @@ sp {iran*surface*tie-impasse
    (<cmd> ^status tie
           ^resolution retrieve-evidence)
 }
+
+# Chunking is configured as "only". This rule is the sole place that can
+# authorize learning, and it requires CognitiveSystem to put an approved
+# governance signal on the input link. The result is created in the superstate,
+# allowing Soar EBBS/chunking to summarize the substate problem solving.
+sp {iran*governed*substate-result
+   (state <sub> ^superstate <super>
+                ^impasse tie)
+   (<super> ^io.input-link <il>)
+   (<il> ^iran <root>)
+   (<root> ^learning-authorized yes)
+-->
+   (force-learn <sub>)
+   (<super> ^governed-substate-result learned)
+}
