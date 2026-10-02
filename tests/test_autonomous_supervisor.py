@@ -405,6 +405,31 @@ class AutonomousSupervisorTests(unittest.TestCase):
         self.assertTrue(result["success"])
 
 
+    def test_run_budget_and_failure_stop_are_explicit(self):
+        with tempfile.TemporaryDirectory() as directory:
+            runtime = self.make_runtime(directory)
+            supervisor = runtime.autonomous_supervisor
+            original = supervisor.step
+            calls = []
+            try:
+                supervisor.step = lambda: calls.append(1) or {"verified": True, "long_horizon": {"status": "active"}}
+                reports = supervisor.run(cycles=3)
+                self.assertEqual(len(reports), 3)
+                self.assertEqual(reports[-1]["budget"]["used"], 3)
+                self.assertEqual(reports[-1]["budget"]["remaining"], 0)
+                self.assertEqual(reports[-1]["stop_reason"], "budget_exhausted")
+
+                calls.clear()
+                supervisor.step = lambda: calls.append(1) or {"verified": False, "long_horizon": {"status": "active"}}
+                reports = supervisor.run(cycles=5)
+                self.assertEqual(len(reports), 1)
+                self.assertEqual(reports[-1]["stop_reason"], "verification_failure")
+                self.assertEqual(reports[-1]["budget"]["remaining"], 4)
+            finally:
+                supervisor.step = original
+                runtime.close()
+
+
 if __name__ == "__main__":
     unittest.main()
 
