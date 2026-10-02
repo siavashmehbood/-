@@ -32,6 +32,40 @@ class DesktopTools:
         src=(self.root/str(source)).resolve(); dst=src.with_name(str(name)).resolve()
         if not (_inside(self.root,src) and _inside(self.root,dst)): raise PermissionError("path outside assistant root")
         src.rename(dst); return {"path":str(dst),"exists":dst.exists()}
+    def open_file(self,path):
+        p=(self.root/str(path)).resolve()
+        if not _inside(self.root,p) or not p.is_file(): raise FileNotFoundError(str(path))
+        if os.name=="nt": os.startfile(str(p))
+        else: subprocess.Popen(["xdg-open",str(p)])
+        return {"path":str(p),"opened":True}
+    def open_folder(self,path="."):
+        p=(self.root/str(path)).resolve()
+        if not _inside(self.root,p) or not p.is_dir(): raise FileNotFoundError(str(path))
+        if os.name=="nt": os.startfile(str(p))
+        else: subprocess.Popen(["xdg-open",str(p)])
+        return {"path":str(p),"opened":True}
+    def battery(self):
+        try:
+            import psutil
+            value=psutil.sensors_battery()
+        except ImportError:
+            value=None
+        return {"available":value is not None,"percent":None if value is None else value.percent,
+                "plugged":None if value is None else value.power_plugged}
+    def volume(self):
+        if os.name!="nt": raise OSError("volume control requires Windows")
+        import ctypes
+        VK_VOLUME_MUTE,VK_VOLUME_DOWN,VK_VOLUME_UP=0xAD,0xAE,0xAF
+        return {"supported":True,"keys":{"mute":VK_VOLUME_MUTE,"down":VK_VOLUME_DOWN,"up":VK_VOLUME_UP}}
+    def change_volume(self,direction,steps=2):
+        if os.name!="nt": raise OSError("volume control requires Windows")
+        import ctypes
+        keys={"mute":0xAD,"down":0xAE,"up":0xAF}; key=keys.get(str(direction).lower())
+        if key is None: raise ValueError("direction must be up/down/mute")
+        user32=ctypes.windll.user32
+        for _ in range(max(1,min(50,int(steps)))):
+            user32.keybd_event(key,0,0,0); user32.keybd_event(key,0,2,0)
+        return {"requested":True,"direction":direction,"steps":max(1,min(50,int(steps)))}
     def open_application(self,name):
         if os.name!="nt": raise OSError("application control requires Windows")
         aliases={"calculator":"calc.exe","calc":"calc.exe","notepad":"notepad.exe","vscode":"code.exe","vs code":"code.exe"}
