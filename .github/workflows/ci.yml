@@ -33,7 +33,7 @@ jobs:
       - name: Runtime evaluation
         run: python evaluation/runtime_suite.py
       - name: General conversation benchmark
-        run: python self/general_conversation_benchmark.py
+        run: python -m self.general_conversation_benchmark
       - name: CLI smoke
         run: printf '/health\n/exit\n' | python main.py
 
