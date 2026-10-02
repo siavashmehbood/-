@@ -485,10 +485,43 @@ class LocalDialogueEngine:
                 "next_actions":["بازیابی حافظه مرتبط", "بررسی شواهد محلی", "پاسخ و راستی‌آزمایی"],
                 "conclusion":"پاسخ بر اساس شواهد محلی ساخته می‌شود." if evidence else "شاهد کافی محلی پیدا نشد."}
 
+    def _compose_conversational(self, context):
+        act=str(context.intent or "unknown"); topic=self.state.current_topic or context.current_topic
+        previous=context.previous_answer.strip()
+        if act=="greeting": return "سلام! خوبی؟"
+        if act=="farewell": return "فعلاً خداحافظ؛ هر وقت خواستی ادامه می‌دهیم."
+        if act=="gratitude": return "خواهش می‌کنم."
+        if act=="apology": return "اشکالی ندارد؛ ادامه بده."
+        if act=="acknowledgement": return "باشه."
+        if act=="emotional_expression":
+            return "می‌فهمم. اگر دوست داری می‌توانیم درباره‌اش حرف بزنیم، یا موضوع را عوض کنیم."
+        if act=="meta_conversation":
+            low=bare(context.user_message).lower()
+            if "من چی پرسیدم" in low:return f"آخرین چیزی که پرسیدی/گفتی این بود: «{self.state.last_user_message}»." if self.state.last_user_message else "هنوز پیام قبلی ثبت نشده."
+            if "تو چی جواب دادی" in low:return f"آخرین جوابم این بود: «{previous}»." if previous else "هنوز پاسخ قبلی ثبت نشده."
+            if "بحثمون" in low or "موضوع" in low:return f"موضوع فعلی «{topic}» است." if topic else "هنوز موضوع مشخصی نداریم."
+        if act=="return_to_topic":
+            target=self.state.restore_previous_topic()
+            return f"باشه؛ برگردیم به «{target}»." if target else "موضوع قبلی مشخصی برای برگشتن پیدا نکردم."
+        if act=="simplify" and previous:
+            core=re.sub(r"^(پاسخ مستقیم:|خلاصه:)\s*","",previous)
+            return "ساده‌تر بگم: "+core
+        if act=="length_control" and previous:
+            low=bare(context.user_message).lower()
+            if "کوتاه" in low:return "خلاصه: "+previous.split("؛")[0].split("\n")[0][:220]
+            return previous+" اگر بخش مشخصی مدنظرت است، همان را بازتر توضیح می‌دهم."
+        if act=="example_request" and topic:
+            return f"مثلاً برای «{topic}»، یک نمونه کوچک و مشخص را در همان زمینه بررسی می‌کنیم تا تفاوت نتیجه روشن شود."
+        if act=="continuation" and topic:return f"باشه؛ از همان موضوع «{topic}» ادامه می‌دهیم."
+        if act=="clarification" and previous:return "منظورم از جواب قبلی این بود: "+previous
+        return ""
+
     def _direct_answer(self, context):
         text = context.user_message
         low = bare(text).lower()
         ref = ""
+        composed=self._compose_conversational(context)
+        if composed:return composed
         if context.references.get("resolved"):
             ref = context.references["resolved"].get("candidate", "")
         if low in {"سلام", "درود", "hello", "hi"}:
