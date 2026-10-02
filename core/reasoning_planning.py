@@ -104,7 +104,14 @@ class ReasoningPlanningEngine:
             decisions.append("قطعیت پایین است؛ قبل از ادعای قطعی شواهد بیشتری لازم است.")
 
         subgoals = self._subgoals(goal, intent, constraints)
-        status = "VERIFIED_CANDIDATE" if inference.confidence >= .65 and raw_evidence else ("PARTIAL" if raw_evidence else "UNKNOWN")
+        if not raw_evidence:
+            status = "UNKNOWN"
+        elif inference.confidence >= .65:
+            status = "VERIFIED_CANDIDATE"
+        elif inference.confidence >= .45:
+            status = "PROBABLE"
+        else:
+            status = "UNCERTAIN"
         if chain_result is not None and getattr(chain_result, "status", "") == "VERIFIED_CANDIDATE":
             status = "VERIFIED_CANDIDATE"
             decisions.append("زنجیره استدلال محلی نیز یک نامزد راستی‌آزمایی‌شده ارائه کرده است.")
