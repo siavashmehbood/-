@@ -4,15 +4,20 @@ on:
   pull_request:
     branches: [master]
     paths:
-      - "core/rasa_foundation.py"
+      - "core/voice.py"
+      - "core/computer_use.py"
       - "core/cognitive_pipeline.py"
-      - "core/rasa_foundation.py"
       - "core/cognitive_system.py"
+      - "core/rasa_foundation.py"
       - "runtime/app.py"
-      - "tests/test_rasa_foundation.py"
+      - "learning/missions.py"
+      - "core/dialogue.py"
+      - "core/conversational_understanding.py"
+      - "tools/desktop.py"
+      - "tools/builtin.py"
+      - "tests/test_jarvis_integration.py"
       - "tests/test_general_conversation.py"
       - "tests/test_rasa_foundation.py"
-      - "tests/test_jarvis_integration.py"
       - "tests/test_windows_jarvis_acceptance.py"
       - ".github/workflows/windows-jarvis-acceptance.yml"
   push:
@@ -22,6 +27,7 @@ on:
       - "core/computer_use.py"
       - "core/cognitive_pipeline.py"
       - "core/cognitive_system.py"
+      - "core/rasa_foundation.py"
       - "runtime/app.py"
       - "learning/missions.py"
       - "core/dialogue.py"
@@ -30,6 +36,7 @@ on:
       - "tools/builtin.py"
       - "tests/test_jarvis_integration.py"
       - "tests/test_general_conversation.py"
+      - "tests/test_rasa_foundation.py"
       - "tests/test_windows_jarvis_acceptance.py"
       - ".github/workflows/windows-jarvis-acceptance.yml"
 jobs:
