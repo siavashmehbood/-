@@ -46,3 +46,17 @@ Voice hardware/model acceptance remains environment-dependent by design. The
 fully operational. Unit/integration acceptance proves audio transport enters the
 canonical runtime and only the canonical answer is passed to TTS. No microphone,
 speech model, or voice output is fabricated in CI.
+
+
+## Autonomous screen understanding extension
+
+The screen-understanding stage uses Windows native window metadata and optional
+`pywinauto` UI Automation on Windows acceptance runners. UI Automation is structured
+accessibility data, not an external vision model. OCR remains optional/not configured;
+when structured information is unavailable the observation records unknown/unavailable
+rather than fabricating pixels into UI meaning.
+
+The real Windows suite now exercises a multi-step Notepad workflow using observed windows,
+explicit input permission, a grounded UI Automation editor target, post-action observation
+and document-content evidence. The coordinator does not receive the full workflow from a
+separate agent brain; the decision callback is the canonical CognitiveSystem boundary.
