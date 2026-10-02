@@ -57,8 +57,8 @@ def test_governed_learning_changes_unseen_planning_and_survives_restart(tmp_path
         ]
         solve = lambda query: bool(guidance_for(runtime, query))
         before = benchmark.run("approved lesson transfer", cases, solve,
-                               lambda output, case: output is False, "baseline")
-        assert before["score"] == 2
+                               lambda output, case: output is True, "baseline")
+        assert before["score"] == 0
 
         candidate = runtime.queue_learning_candidate(
             "memory.add_lesson",
@@ -87,10 +87,7 @@ def test_governed_learning_changes_unseen_planning_and_survives_restart(tmp_path
         assert "apply_approved_lesson" in AnswerPlanner().plan(ctx).steps
         after = benchmark.run("approved lesson transfer", cases, solve,
                               lambda output, case: output is True, "post_learning")
-        comparison = benchmark.compare(
-            {**before, "score": 0},
-            after,
-        )
+        comparison = benchmark.compare(before, after)
         assert after["score"] == 2
         assert comparison["delta"] == 2
         assert comparison["mastery_eligible"] is True
