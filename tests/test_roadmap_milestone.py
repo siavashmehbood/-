@@ -23,7 +23,7 @@ class RoadmapMilestoneTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             runtime = self.make_runtime(directory)
             result = PersianRoadmapBenchmark().run(runtime)
-            self.assertGreaterEqual(result.score, .75)
+            self.assertGreaterEqual(result.score, .75, [(c.name,c.passed,c.answer) for c in result.cases])
             self.assertGreaterEqual(len(result.cases), 8)
             runtime.close()
 
