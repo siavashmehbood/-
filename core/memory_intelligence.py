@@ -14,6 +14,8 @@ class MemoryCandidate:
     importance: float = 0.5
     relevance: float = 0.0
     freshness: float = 0.0
+    usefulness: float = 0.0
+    contradiction: bool = False
     status: str = "active"
     source: str = "local"
     score: float = 0.0
@@ -81,6 +83,11 @@ class MemoryIntelligence:
             return "superseded"
         return "active"
 
+    @staticmethod
+    def _usefulness(access_count, status):
+        base = min(1.0, max(0, int(access_count or 0)) / 5)
+        return min(1.0, base + (.25 if status == "accepted" else 0.0))
+
     def retrieve(self, query, state=None, limit=8, min_score=0.0):
         """Return ranked, outcome-aware candidates; rejected memories are excluded."""
         q = self._norm(query)
@@ -104,18 +111,20 @@ class MemoryIntelligence:
                 relevance = max(relevance, .45)
             freshness = self._freshness(created_at)
             meta = self.memory.conn.execute(
-                "SELECT importance,confidence,source FROM memories WHERE kind=? AND content=? LIMIT 1",
+                "SELECT importance,confidence,source,access_count FROM memories WHERE kind=? AND content=? LIMIT 1",
                 (kind, content),
             ).fetchone()
-            importance, confidence, source = meta or (.5, .5, "local")
+            importance, confidence, source, access_count = meta or (.5, .5, "local", 0)
+            usefulness = self._usefulness(access_count, status)
+            contradiction = status in {"rejected", "superseded"}
             status_bonus = {"accepted": .10, "active": .0, "superseded": -.18}.get(status, 0.0)
-            score = (.52 * relevance + .18 * freshness + .16 * float(confidence)
-                     + .09 * float(importance) + status_bonus)
+            score = (.47 * relevance + .16 * freshness + .15 * float(confidence)
+                     + .08 * float(importance) + .09 * usefulness + status_bonus)
             if score < float(min_score):
                 continue
-            reason = f"relevance={relevance:.2f}; freshness={freshness:.2f}; confidence={float(confidence):.2f}; status={status}"
+            reason = f"relevance={relevance:.2f}; freshness={freshness:.2f}; confidence={float(confidence):.2f}; usefulness={usefulness:.2f}; contradiction={contradiction}; status={status}"
             candidates.append(MemoryCandidate(kind, content, created_at, float(confidence),
-                                              float(importance), relevance, freshness, status,
+                                              float(importance), relevance, freshness, usefulness, contradiction, status,
                                               str(source), round(score, 4), reason))
         # Semantic facts and procedural lessons are durable memory layers too.
         for fact in self.memory.semantic_search(q, max(4, int(limit))):
@@ -125,7 +134,7 @@ class MemoryIntelligence:
             candidates.append(MemoryCandidate(
                 "semantic_fact", content, fact.get("updated_at", ""),
                 float(fact.get("confidence", .5)), .75, relevance,
-                self._freshness(fact.get("updated_at", "")), "active",
+                self._freshness(fact.get("updated_at", "")), 0.0, False, "active",
                 str(fact.get("source", "local")), round(score, 4),
                 f"semantic relevance={relevance:.2f}; confidence={float(fact.get('confidence', .5)):.2f}",
             ))
