@@ -189,6 +189,15 @@ class ChatWindow(QMainWindow):
         for button in (self.lesson_view_button, self.lesson_review_button, self.lesson_approve_button, self.lesson_reject_button):
             lesson_buttons.addWidget(button)
         ll.addLayout(lesson_buttons)
+        lesson_bulk_buttons = QHBoxLayout()
+        self.lesson_review_ready_button = QPushButton("بازبینی تکی درس‌های آماده")
+        self.lesson_approve_all_button = QPushButton("تأیید همه درس‌های آماده")
+        self.lesson_approve_all_button.setObjectName("primaryButton")
+        self.lesson_review_ready_button.clicked.connect(self.review_ready_lessons)
+        self.lesson_approve_all_button.clicked.connect(self.approve_all_ready_lessons_ui)
+        lesson_bulk_buttons.addWidget(self.lesson_review_ready_button)
+        lesson_bulk_buttons.addWidget(self.lesson_approve_all_button)
+        ll.addLayout(lesson_bulk_buttons)
         self.learning_queue_status = QLabel("صف درس‌ها هنوز بارگذاری نشده است."); self.learning_queue_status.setObjectName("metric"); self.learning_queue_status.setWordWrap(True)
         ll.addWidget(self.learning_queue_status)
         ll.addWidget(QLabel("نتیجه‌های ناظر", objectName="sectionTitle"))
@@ -427,10 +436,10 @@ class ChatWindow(QMainWindow):
             visible.append(row)
         return visible
 
-    def review_pending_learning(self):
-        """نمایش همه درخواست‌های یادگیری در انتظار تأیید."""
+    def review_pending_learning(self, rows_override=None):
+        """نمایش درخواست‌های یادگیری در انتظار تأیید؛ می‌تواند به درس‌های آماده محدود شود."""
         try:
-            rows = self._dedupe_human_pending_rows(self.runtime.human_learning_pending(50))
+            rows = list(rows_override) if rows_override is not None else self._dedupe_human_pending_rows(self.runtime.human_learning_pending(50))
         except Exception as e:
             QMessageBox.warning(self, "بازبینی یادگیری", f"خطا: {e}")
             return
@@ -708,6 +717,73 @@ class ChatWindow(QMainWindow):
             self.reviewer_result_rows.clear()
             self.reviewer_result_status.setText(f"خطا در نمایش نتیجه ناظر: {type(exc).__name__}")
 
+    def _ready_lesson_rows(self, limit=100000):
+        rows = self._dedupe_human_pending_rows(self.runtime.human_learning_pending(limit))
+        result = []
+        for row in rows:
+            payload = row.get("payload", {}) or {}
+            if row.get("source") != "learning_candidate":
+                continue
+            if payload.get("source") != "direct_user_requested_teaching_100_batch":
+                continue
+            if row.get("status") not in {"pending", "human_pending"}:
+                continue
+            review = self.runtime.chatgpt_learning_review_status(row.get("proposal_id")).get("row", {})
+            if review.get("chatgpt_decision") != "learn" or review.get("status") != "human_pending":
+                continue
+            result.append(row)
+        return result
+
+    def review_ready_lessons(self):
+        try:
+            rows = self._ready_lesson_rows(100000)
+        except Exception as exc:
+            QMessageBox.warning(self, "بازبینی درس‌ها", str(exc))
+            return
+        if not rows:
+            QMessageBox.information(self, "بازبینی درس‌ها", "فعلاً درس آماده‌ای برای تأیید وجود ندارد.")
+            return
+        # Reuse the existing detailed human-review dialog, but feed it only the
+        # governed ready-lesson subset.
+        self.review_pending_learning(rows_override=rows)
+
+    def approve_all_ready_lessons_ui(self):
+        try:
+            rows = self._ready_lesson_rows(100000)
+        except Exception as exc:
+            QMessageBox.warning(self, "تأیید درس‌ها", str(exc))
+            return
+        if not rows:
+            QMessageBox.information(self, "تأیید درس‌ها", "فعلاً هیچ درس آماده‌ای برای تأیید وجود ندارد.")
+            return
+        count = len(rows)
+        answer = QMessageBox.question(
+            self, "تأیید همه درس‌های آماده",
+            f"{count} درس توسط ناظر LEARN شده و منتظر تأیید توست. همه همین {count} درس تأیید شوند؟",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        proposal_ids = [row.get("proposal_id") for row in rows if row.get("proposal_id")]
+        def approve_ready():
+            approved = failed = 0
+            failures = []
+            for proposal_id in proposal_ids:
+                result = self.runtime.approve_learning(
+                    proposal_id, human_confirmed=True, source="gui_lessons_bulk")
+                if result.get("ok"):
+                    approved += 1
+                else:
+                    failed += 1
+                    failures.append({"proposal_id": proposal_id, "reason": result.get("reason")})
+            return {"approved": approved, "failed": failed, "failures": failures}
+        def finish(result):
+            self.status.setText(
+                f"درس‌های تأییدشده: {result.get('approved', 0)} | ناموفق: {result.get('failed', 0)}")
+            self.refresh_learning_stats()
+        self._start_job("approve_ready_lessons", approve_ready, finish)
+
     def _selected_lesson_row(self):
         item = self.learning_queue_rows.currentItem() if hasattr(self, "learning_queue_rows") else None
         if item is None:
@@ -842,6 +918,13 @@ class ChatWindow(QMainWindow):
             self.learning_queue_status.setText(
                 f"کل ۱۰۰ درس: {len(lesson_rows)} | منتظر ناظر: {counts.get('pending', 0) + counts.get('waiting_for_reviewer', 0)} | "
                 f"منتظر تأیید تو: {counts.get('human_pending', 0)} | یادگرفته‌شده: {counts.get('approved', 0)} | ردشده: {counts.get('rejected', 0)}")
+            try:
+                ready_count = len(self._ready_lesson_rows(100000))
+            except Exception:
+                ready_count = int(counts.get('human_pending', 0) or 0)
+            self.lesson_approve_all_button.setText(f"تأیید همه درس‌های آماده ({ready_count})")
+            self.lesson_approve_all_button.setEnabled(ready_count > 0)
+            self.lesson_review_ready_button.setEnabled(ready_count > 0)
             if self.learning_queue_rows.currentItem() is None and self.learning_queue_rows.count():
                 self.learning_queue_rows.setCurrentRow(0)
             self.update_lesson_action_buttons()
