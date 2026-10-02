@@ -205,3 +205,5 @@ class SoarCognitiveFoundationAcceptance(unittest.TestCase):
 
 if __name__=="__main__":
     unittest.main()
+
+# Validation marker for Phase 2 Soar SML smoke gate.
