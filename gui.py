@@ -86,11 +86,11 @@ class ChatWindow(QMainWindow):
         self.build(); self.load_session()
         self.autonomy_timer = QTimer(self)
         self.autonomy_timer.timeout.connect(self.run_autonomous_learning)
-        self.autonomy_timer.start(7000)
+        self.autonomy_timer.start(30000)
         self.chatgpt_review_timer = QTimer(self)
         self.chatgpt_review_timer.timeout.connect(self.run_chatgpt_review_once)
-        self.chatgpt_review_timer.start(1000)
-        QTimer.singleShot(1200, self.run_autonomous_learning)
+        self.chatgpt_review_timer.start(15000)
+        QTimer.singleShot(5000, self.run_autonomous_learning)
     def build(self):
         root = QWidget(); self.setCentralWidget(root)
         outer = QVBoxLayout(root); outer.setContentsMargins(18, 16, 18, 16); outer.setSpacing(12)
@@ -304,7 +304,18 @@ class ChatWindow(QMainWindow):
             QTimer.singleShot(0, self.close)
 
     def run_chatgpt_review_once(self):
-        self._start_job("review", self.runtime.process_one_chatgpt_learning_review)
+        # Do not create a background thread when the reviewer is cooling down or
+        # there is nothing to review. The old 1-second polling loop caused
+        # needless thread churn, file reads and UI refreshes.
+        try:
+            status = self.runtime.chatgpt_review_status()
+            if int(status.get("pending", 0) or 0) <= 0:
+                return False
+            if status.get("cooldown"):
+                return False
+        except Exception:
+            return False
+        return self._start_job("review", self.runtime.process_one_chatgpt_learning_review)
 
     def refresh_internet(self):
         enabled = self.runtime.internet_access.status()["enabled"]
