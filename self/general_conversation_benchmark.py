@@ -54,4 +54,6 @@ class GeneralConversationBenchmark:
             check("long_stability",lambda:((r.conversation_snapshot().get("turns",0)>=10),r.conversation_snapshot().get("turns")))
         finally:r.close()
         passed=sum(int(x["ok"]) for x in details); return {"cases":len(details),"passed":passed,"score":round(100*passed/len(details),2),"pass":passed==len(details),"details":details}
-if __name__=="__main__": print(json.dumps(GeneralConversationBenchmark().run(),ensure_ascii=False,indent=2))
+if __name__=="__main__":
+    result=GeneralConversationBenchmark().run(); print(json.dumps(result,ensure_ascii=False,indent=2))
+    raise SystemExit(0 if result["pass"] else 1)
