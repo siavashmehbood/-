@@ -21,7 +21,9 @@ def test_governed_learning_changes_unseen_planning_and_survives_restart(tmp_path
     unseen_query = "برای ورودی کاربر ناشناخته چه بررسی‌ای انجام شود؟"
     lesson = "برای ورودی کاربر ناشناخته ابتدا اعتبارسنجی انجام بده و سپس نتیجه را مستقل بررسی کن."
 
-    runtime = make_runtime(tmp_path)
+    rejected_root = tmp_path / "rejected"
+    rejected_root.mkdir()
+    runtime = make_runtime(rejected_root)
     try:
         assert guidance_for(runtime, unseen_query) == []
 
@@ -42,11 +44,8 @@ def test_governed_learning_changes_unseen_planning_and_survives_restart(tmp_path
     finally:
         runtime.close()
 
-    # Reviewer cooldown is durable and intentional. Start a new governed session
-    # instead of bypassing or weakening the production rate limit.
-    cooldown_path = tmp_path / "data" / "chatgpt_review_state.json"
-    if cooldown_path.exists():
-        cooldown_path.unlink()
+    # The accepted path uses an independent runtime so production reviewer
+    # cooldown remains intact; the rejection path above still proves zero effect.
     runtime = make_runtime(tmp_path)
     try:
         assert guidance_for(runtime, unseen_query) == []
