@@ -31,6 +31,20 @@ class ComputerUse:
             round((perf_counter()-started)*1000,3),success,datetime.now().isoformat(timespec="seconds"))
         self._record(outcome)
         return asdict(outcome)
+    def run(self,goal,steps,timeout_seconds=30):
+        """Execute a preselected canonical plan with strict bounds and stop-on-failure."""
+        started=perf_counter(); reports=[]
+        for index,step in enumerate(list(steps or [])[:self.max_steps]):
+            if perf_counter()-started > float(timeout_seconds):
+                return {"success":False,"stop_reason":"timeout","steps":reports}
+            report=self.execute(goal,step["tool"],step.get("arguments",{}),step.get("verify"))
+            reports.append(report)
+            if not report.get("success"):
+                return {"success":False,"stop_reason":"verification_failure","steps":reports}
+        truncated=len(list(steps or []))>self.max_steps
+        return {"success":bool(reports) and not truncated,
+                "stop_reason":"max_steps" if truncated else "goal_complete","steps":reports}
+
     def _verify(self,tool,result,verify):
         if callable(verify):
             try:return {"verified":bool(verify(result)),"reason":"custom_verifier"}
