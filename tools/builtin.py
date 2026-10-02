@@ -87,6 +87,7 @@ def build_registry(root, memory, internet_access=None):
     registry.register(Tool('list_windows', 'فهرست پنجره‌های قابل مشاهده Windows', windows.enumerate_windows, True, 'read'))
     registry.register(Tool('find_window', 'پیدا کردن پنجره با عنوان معنایی', windows.find_window, True, 'read'))
     registry.register(Tool('window_text', 'خواندن متن قابل مشاهده child controls پنجره', windows.window_text, True, 'read'))
+    registry.register(Tool('automation_text', 'خواندن متن کنترل Windows با پیام native', windows.automation_text, True, 'read'))
     registry.register(Tool('focus_window', 'تمرکز روی پنجره Windows', windows.focus, False, 'input_control'))
     registry.register(Tool('minimize_window', 'کوچک کردن پنجره Windows', windows.minimize, False, 'input_control'))
     registry.register(Tool('maximize_window', 'بزرگ کردن پنجره Windows', windows.maximize, False, 'input_control'))
