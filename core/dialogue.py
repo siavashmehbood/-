@@ -518,6 +518,10 @@ class LocalDialogueEngine:
             return previous+" اگر بخش مشخصی مدنظرت است، همان را بازتر توضیح می‌دهم."
         if act=="example_request" and topic:
             return f"مثلاً برای «{topic}»، یک نمونه کوچک و مشخص را در همان زمینه بررسی می‌کنیم تا تفاوت نتیجه روشن شود."
+        if act=="learning_request":
+            subject=re.sub(r"^(می‌خواهم|میخوام|می‌خوام)?\s*","",bare(context.user_message))
+            self.state.active_goal=subject or bare(context.user_message)
+            return f"هدف یادگیری را گرفتم: «{self.state.active_goal}». آن را به‌عنوان هدف فعال مکالمه نگه می‌دارم و مسیر یادگیری باید از Learning Mission و Gate موجود عبور کند."
         if act=="continuation" and topic:return f"باشه؛ از همان موضوع «{topic}» ادامه می‌دهیم."
         if act=="clarification" and previous:return "منظورم از جواب قبلی این بود: "+previous
         return ""
