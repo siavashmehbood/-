@@ -691,10 +691,32 @@ class SoarCognitiveEngine:
                     "path": str(self.epmem_path),
                     "canonical": True,
                 })
+        kernel=self.kernel
+        agent=self.agent
         try:
             self._clear_input()
         except Exception:
             pass
+        # The kernel is process-owned, but the runtime agent is not. Official
+        # SML explicitly supports DestroyAgent when only an agent should be
+        # released while the Kernel remains alive; this prevents inactive
+        # agents accumulating across short-lived IRAN runtimes and slowing every
+        # subsequent decision cycle.
+        if kernel is not None and agent is not None:
+            try:
+                destroyed=bool(kernel.DestroyAgent(agent))
+                self._emit("soar_agent_released",{
+                    "destroyed":destroyed,
+                    "kernel_lifecycle":"process_owned",
+                    "canonical":True,
+                })
+            except Exception as exc:
+                self._emit("soar_agent_release_error",{
+                    "error_type":type(exc).__name__,
+                    "error":str(exc),
+                    "kernel_lifecycle":"process_owned",
+                    "canonical":True,
+                })
         self.input_root = None
         self.agent = None
         self.kernel = None
