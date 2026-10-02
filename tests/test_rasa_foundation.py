@@ -101,4 +101,28 @@ class RasaFoundationTests(unittest.TestCase):
             self.assertFalse(hasattr(r.cognitive_system.pipeline.conversation_foundation,"choose_tool"))
         finally:r.close()
 
+    def test_legacy_runtime_entrypoints_delegate_to_cognitive_system(self):
+        r=self.make_runtime()
+        try:
+            self.assertIs(getattr(r.brain,"_canonical_system",None),r.cognitive_system)
+            self.assertIs(getattr(r.orchestrator,"_canonical_system",None),r.cognitive_system)
+            self.assertIs(getattr(r.dialogue,"_canonical_system",None),r.cognitive_system)
+            a=r.brain.ask([{"role":"user","content":"سلام"}])
+            b=r.orchestrator.handle("درود")
+            c=r.dialogue.handle("hello")
+            self.assertTrue(a.strip() and b.strip() and c.strip())
+            self.assertEqual(r.cognitive_system.architecture_contract()["decision_owner"],"CognitiveSystem")
+        finally:r.close()
+
+    def test_detached_legacy_decision_paths_fail_closed(self):
+        from core.brain import Brain
+        from core.orchestrator import Orchestrator
+        class Provider:
+            def generate(self,*a,**k): return "parallel-answer"
+        with self.assertRaises(RuntimeError):
+            Brain(Provider()).ask([{"role":"user","content":"test"}])
+        # Runtime-bound adapters are tested above; the foundation itself also has
+        # no decision API, so no alternate final-answer owner exists.
+        self.assertFalse(hasattr(RasaFoundationAdapter(),"generate_answer"))
+
 if __name__=="__main__":unittest.main()
