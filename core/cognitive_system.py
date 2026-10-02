@@ -99,7 +99,7 @@ class CognitiveSystem:
         routed = getattr(getattr(self.runtime, "orchestrator", None), "router", None)
         if routed is not None:
             tool_name, arguments = routed.choose(clean_text)
-            if tool_name and tool_name in {"open_application","screenshot"}:
+            if tool_name and tool_name in {"open_application","screenshot","set_volume","get_battery"}:
                 outcome = self.runtime.computer_use.execute(clean_text, tool_name, arguments)
                 self.last_answer = ("انجام شد." if outcome.get("success") else
                                     f"عملیات تأیید نشد: {outcome.get('verification',{}).get('reason','unknown')}")
