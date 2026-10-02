@@ -6,7 +6,8 @@ policies are intentionally not used: CognitiveSystem remains the sole decision o
 """
 from dataclasses import dataclass,field,asdict
 from typing import Any
-import time
+import time, json
+from pathlib import Path
 
 @dataclass(frozen=True)
 class ConversationEvent:
@@ -31,8 +32,11 @@ class RasaFoundationAdapter:
     """
     SOURCE="RasaHQ/rasa 3.6.x concepts"
     LICENSE="Apache-2.0"
-    def __init__(self,max_events=120):
-        self.max_events=max(10,int(max_events)); self.state=FoundationState()
+    def __init__(self,max_events=120,path=None):
+        self.max_events=max(10,int(max_events)); self.path=Path(path) if path else None; self.state=FoundationState()
+        if self.path and self.path.exists():
+            try:self.state=self.replay(json.loads(self.path.read_text(encoding="utf-8")),self.max_events).state
+            except (OSError,ValueError,TypeError):pass
     def ingest(self,meaning:Any,parsed:dict|None=None):
         parsed=parsed or {}
         intent={"name":getattr(meaning,"dialogue_act","unknown"),
@@ -57,6 +61,10 @@ class RasaFoundationAdapter:
     def _event(self,event_type,data):
         self.state.events.append({"type":event_type,"data":dict(data),"source":"iran"})
         self.state.events=self.state.events[-self.max_events:]
+    def save(self):
+        if not self.path:return
+        self.path.parent.mkdir(parents=True,exist_ok=True)
+        tmp=self.path.with_suffix(".tmp"); tmp.write_text(json.dumps(self.state.events,ensure_ascii=False),encoding="utf-8"); tmp.replace(self.path)
     def current_state(self):
         return {"slots":dict(self.state.slots),"latest_message":dict(self.state.latest_message),
                 "active_loop":self.state.active_loop,"previous_action":self.state.previous_action,
