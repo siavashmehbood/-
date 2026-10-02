@@ -524,6 +524,7 @@ class LocalDialogueEngine:
             subject=re.sub(r"^(می‌خواهم|میخوام|می‌خوام)?\s*","",bare(context.user_message))
             self.state.active_goal=subject or bare(context.user_message)
             return f"هدف یادگیری را گرفتم: «{self.state.active_goal}». آن را به‌عنوان هدف فعال مکالمه نگه می‌دارم و مسیر یادگیری باید از Learning Mission و Gate موجود عبور کند."
+        if act=="follow_up" and topic:return f"در ادامه موضوع «{topic}»، سؤال جدیدت را با همان زمینه در نظر می‌گیرم."
         if act=="continuation" and topic:return f"باشه؛ از همان موضوع «{topic}» ادامه می‌دهیم."
         if act=="clarification":
             low=bare(context.user_message).lower()
