@@ -273,3 +273,5 @@ class SoarCognitiveFoundationAcceptance(unittest.TestCase):
 
 if __name__=="__main__":
     unittest.main()
+
+# Final Phase 2 validation v8 marker: quoted native epmem backup path.
