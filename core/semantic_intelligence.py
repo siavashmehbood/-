@@ -329,7 +329,7 @@ class SemanticIntelligence:
 
         # Generic possessive-name frame: "اسم محصولمون سپهره", "اسم شرکت من آریاست".
         m = re.search(
-            r"(?:اسم|نام)\s+(?P<label>[آ-یA-Za-z]+?)(?:\s+من|مون|مان|م|ام)?\s+"
+            r"(?:اسم|نام)\s+(?P<label>[آ-یA-Za-z]+?)(?:\s+من|\s*(?:مون|مان|ام|م))?\s+"
             r"(?P<name>[A-Za-z0-9آ-ی][A-Za-z0-9آ-ی _-]{1,80}?)"
             r"(?=[،,.!?؟]|\s+(?:است|هست|بود|شد)|$)",
             n, re.I,
