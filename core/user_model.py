@@ -103,15 +103,30 @@ class UserModel:
         return stored
 
     def record_from_facts(self, facts):
+        """Persist explicit structured user facts immediately.
+
+        Inferred/autonomous knowledge still goes through LearningGate. Facts
+        extracted directly from the user's own utterance follow the same
+        authoritative bypass already used by record().
+        """
         stored=[]
-        for fact in facts or []:
-            meta=dict(fact); meta["timestamp"]=datetime.now().isoformat(timespec="seconds")
-            self.memory.add_semantic_fact(fact["subject"],fact["predicate"],fact["object"],fact["confidence"],fact["source"])
-            if self.knowledge is not None:
-                try: self.knowledge.contradict(fact["subject"],fact["predicate"],fact["object"],fact["confidence"],fact["source"])
-                except Exception: pass
-            self.memory.add("user_fact",str(meta),importance=.92,confidence=fact["confidence"],source=fact["source"])
-            stored.append(meta)
+        gate_ctx = self.gate.bypass() if self.gate is not None else None
+        if gate_ctx is not None:
+            gate_ctx.__enter__()
+        try:
+            for fact in facts or []:
+                meta=dict(fact); meta["timestamp"]=datetime.now().isoformat(timespec="microseconds")
+                self.memory.add_semantic_fact(fact["subject"],fact["predicate"],fact["object"],fact["confidence"],fact["source"])
+                if self.knowledge is not None:
+                    try: self.knowledge.contradict(fact["subject"],fact["predicate"],fact["object"],fact["confidence"],fact["source"])
+                    except Exception: pass
+                self.memory.add("user_fact",str(meta),importance=.92,confidence=fact["confidence"],source=fact["source"])
+                self.memory.add("semantic_fact_record",__import__("json").dumps(meta,ensure_ascii=False,sort_keys=True),
+                                importance=.90,confidence=fact["confidence"],source=fact["source"])
+                stored.append(meta)
+        finally:
+            if gate_ctx is not None:
+                gate_ctx.__exit__(None, None, None)
         return stored
 
     def facts(self, predicate=None, limit=20):
