@@ -62,6 +62,39 @@ class DesktopTools:
         return {"path":str(target),"exists":target.is_file(),"width":geo.width(),"height":geo.height(),
                 "timestamp":datetime.now().isoformat(timespec="seconds")}
 
+class WindowsDesktop:
+    def __init__(self,root): self.root=Path(root)
+    @staticmethod
+    def _require():
+        if os.name!="nt": raise OSError("Windows desktop API requires Windows")
+        try:
+            import ctypes
+            return ctypes.windll.user32
+        except Exception as exc: raise OSError("Windows user32 unavailable") from exc
+    def active_window(self):
+        user32=self._require(); hwnd=user32.GetForegroundWindow()
+        length=user32.GetWindowTextLengthW(hwnd); import ctypes
+        buf=ctypes.create_unicode_buffer(length+1); user32.GetWindowTextW(hwnd,buf,length+1)
+        return {"hwnd":int(hwnd),"title":buf.value}
+    def _show(self,hwnd,code):
+        user32=self._require(); ok=bool(user32.ShowWindow(int(hwnd),int(code)))
+        return {"hwnd":int(hwnd),"requested":True,"previously_visible":ok}
+    def minimize(self,hwnd): return self._show(hwnd,6)
+    def maximize(self,hwnd): return self._show(hwnd,3)
+    def restore(self,hwnd): return self._show(hwnd,9)
+    def focus(self,hwnd):
+        user32=self._require(); return {"hwnd":int(hwnd),"focused":bool(user32.SetForegroundWindow(int(hwnd)))}
+    def clipboard_read(self):
+        try:
+            from PySide6.QtWidgets import QApplication
+            app=QApplication.instance() or QApplication([])
+            return app.clipboard().text()
+        except Exception as exc: raise RuntimeError("clipboard unavailable") from exc
+    def clipboard_write(self,text):
+        from PySide6.QtWidgets import QApplication
+        app=QApplication.instance() or QApplication([]); app.clipboard().setText(str(text))
+        return {"written":True,"length":len(str(text))}
+
 class InputController:
     """Optional input-control adapter; registry permission must gate every call."""
     @staticmethod
