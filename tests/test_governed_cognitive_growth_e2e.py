@@ -80,6 +80,7 @@ def test_governed_learning_changes_unseen_planning_and_survives_restart(tmp_path
         review = runtime.process_one_chatgpt_learning_review()
         assert review["proposal_id"] == candidate["proposal_id"] and review["learn"] is True
         assert runtime.learning_gate.stats()["total"] == 0
+        assert guidance_for(runtime, unseen_query) == []
         assert [x["proposal_id"] for x in runtime.human_learning_pending(10)] == [candidate["proposal_id"]]
 
         approved = runtime.approve_learning(candidate["proposal_id"], human_confirmed=True, source="growth_e2e_human")
