@@ -5,6 +5,8 @@ on:
     branches: [master]
     paths:
       - "core/voice.py"
+      - "core/brain.py"
+      - "core/orchestrator.py"
       - "core/computer_use.py"
       - "core/cognitive_pipeline.py"
       - "core/cognitive_system.py"
