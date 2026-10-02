@@ -180,11 +180,11 @@ class JarvisIntegrationTests(unittest.TestCase):
         class O:
             def to_dict(self):return {"signature":"unchanged","elements":[]}
         try:
-            before=len(r.cognitive_system.growth.ledger.all())
+            before=len(r.cognitive_system.growth.weaknesses.rows)
             result=r.computer_use.adaptive_run("impossible desktop task",lambda:O(),
                 lambda *a:{"status":"act","tool":"missing_tool","arguments":{}},max_consecutive_failures=1)
             self.assertFalse(result["success"])
-            self.assertGreaterEqual(len(r.cognitive_system.growth.ledger.all()),before)
+            self.assertGreaterEqual(len(r.cognitive_system.growth.weaknesses.rows),before)
         finally:r.close()
 
     def test_registry_survives_restart(self):
