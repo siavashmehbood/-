@@ -19,6 +19,15 @@ import json
 import time
 
 
+# soar-sml 9.6.5 can segfault when native Kernel shutdown is repeated inside
+# one Python interpreter. IRAN therefore owns one official SML Kernel for the
+# process lifetime and creates isolated agents per runtime. This remains an
+# in-process official SML integration; no subprocess or terminal parsing is used.
+_PROCESS_SML = None
+_PROCESS_KERNEL = None
+_PROCESS_AGENT_SEQ = 0
+
+
 @dataclass
 class CognitiveOperator:
     name: str
@@ -112,19 +121,24 @@ class SoarCognitiveEngine:
                 import soar_sml as sml
             except Exception:
                 import Python_sml_ClientInterface as sml
+            global _PROCESS_SML, _PROCESS_KERNEL, _PROCESS_AGENT_SEQ
             self.sml = sml
-            # The Python 9.6.5 binding is substantially safer for repeated
-            # in-process runtime construction when the kernel shares the caller
-            # thread: no SML kernel/event thread needs to be torn down between
-            # short-lived IRAN runtimes. IRAN does not attach the Soar debugger,
-            # so external-command polling is not required in the cognition path.
-            create_current=getattr(sml.Kernel,"CreateKernelInCurrentThread",None)
-            kernel = create_current() if callable(create_current) else sml.Kernel.CreateKernelInNewThread()
-            if kernel is None:
-                raise RuntimeError("soar_kernel_none")
-            if hasattr(kernel, "HadError") and kernel.HadError():
-                raise RuntimeError(str(kernel.GetLastErrorDescription()))
-            agent = kernel.CreateAgent("iran-cognitive-engine")
+            if _PROCESS_KERNEL is None:
+                create_current=getattr(sml.Kernel,"CreateKernelInCurrentThread",None)
+                kernel = create_current() if callable(create_current) else sml.Kernel.CreateKernelInNewThread()
+                if kernel is None:
+                    raise RuntimeError("soar_kernel_none")
+                if hasattr(kernel, "HadError") and kernel.HadError():
+                    raise RuntimeError(str(kernel.GetLastErrorDescription()))
+                try:
+                    kernel.thisown = False
+                except Exception:
+                    pass
+                _PROCESS_KERNEL = kernel
+                _PROCESS_SML = sml
+            kernel = _PROCESS_KERNEL
+            _PROCESS_AGENT_SEQ += 1
+            agent = kernel.CreateAgent(f"iran-cognitive-engine-{_PROCESS_AGENT_SEQ}")
             if agent is None:
                 raise RuntimeError("soar_agent_none")
             if hasattr(kernel, "HadError") and kernel.HadError():
@@ -622,28 +636,25 @@ class SoarCognitiveEngine:
             "chunking": {"mode": "only", "governance": "LearningGate"},
             "rl": {"durable_rewards": "LearningGate_only"},
             "decision_owner": "CognitiveSystem",
+            "kernel_lifecycle": "process_owned",
             "init_elapsed_ms": getattr(self, "init_elapsed_ms", 0.0),
             "limits": {"max_cycles": self.MAX_CYCLES, "max_depth": self.MAX_DEPTH, "timeout_ms": self.TIMEOUT_MS},
             "last_cycle": self._last_cycle.to_dict() if self._last_cycle else {},
         }
 
     def close(self):
-        """Shutdown the SML kernel exactly once.
+        """Detach this runtime from the process-owned SML kernel.
 
-        SML owns Agent lifetime. Kernel.Shutdown() destroys its agents; calling
-        DestroyAgent first can double-release native objects in the Python
-        bindings and has caused process-level segmentation faults in regression
-        teardown.
+        The official 9.6.5 Python wheel reproducibly crashes when native Kernel
+        shutdown is repeated in one interpreter. The process-owned kernel keeps
+        native lifetime stable; the OS reclaims it at process exit. Production
+        normally has one runtime, while tests may create isolated agents.
         """
         try:
             self._clear_input()
         except Exception:
             pass
-        kernel=self.kernel
-        self.agent=None
-        self.kernel=None
-        try:
-            if kernel is not None and hasattr(kernel, "Shutdown"):
-                kernel.Shutdown()
-        except Exception:
-            pass
+        self.input_root = None
+        self.agent = None
+        self.kernel = None
+        self.available = False
