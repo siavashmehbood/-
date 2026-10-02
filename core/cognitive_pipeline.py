@@ -381,6 +381,12 @@ class CognitivePipeline:
             reference = recent_users[0]
             references["resolved"] = {"candidate": reference, "confidence": .9}
 
+        # Elliptical questions inherit the active conversational topic instead of
+        # becoming unrelated standalone fact questions.
+        if not reference and re.match(r"^(و\s+)?برای\s+.+[؟?]?$", text):
+            reference=e.state.current_topic or e.state.references.get("latest","")
+            if reference: references["resolved"]={"candidate":reference,"confidence":.88,"source":"ellipsis_context"}
+
         # Local retrieval.
         memory_context = self.memory_intelligence.build_context(text, e.state, limit=8)
         memory = [(c["kind"], c["content"], c["created_at"]) for c in memory_context["selected"]]
