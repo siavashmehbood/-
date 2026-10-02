@@ -107,6 +107,26 @@ class CognitiveSystem:
                 return self.last_answer
         return self.turn(clean_text)
 
+    def decide_computer_action(self, goal, observation, previous_actions=None, previous_verification=None, remaining_steps=1):
+        """Canonical next-action decision boundary for interactive computer tasks."""
+        previous_actions=list(previous_actions or [])
+        router=getattr(getattr(self.runtime,"orchestrator",None),"router",None)
+        text=str(goal)
+        if router is None:return {"status":"safe_stop","reason":"router_unavailable"}
+        # Re-observe every step; only select one action. Successful verified actions alter the next decision.
+        tool,args=router.choose(text)
+        if not tool:return {"status":"safe_stop","reason":"no_grounded_action"}
+        if previous_actions and previous_actions[-1].get("tool")==tool:
+            last=previous_actions[-1].get("transition_verification",{})
+            if last.get("verified"):return {"status":"goal_complete","confidence":1.0}
+        expected={"open_application":"window/process appears","screenshot":"artifact exists",
+                  "create_folder":"folder exists"}.get(tool,"observable state change")
+        verification={"type":"state_change"}
+        if tool=="open_application":
+            name=str(args.get("name","")); verification={"type":"element_present","label":name}
+        return {"status":"act","tool":tool,"arguments":args,"expected":expected,
+                "verification":verification,"confidence":.8,"remaining_steps":int(remaining_steps)}
+
     def turn(self, text: str) -> str:
         """Canonical natural-language turn: perceive -> reason -> act -> verify -> learn."""
         try:
