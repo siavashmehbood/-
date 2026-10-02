@@ -89,6 +89,7 @@ def build_registry(root, memory, internet_access=None):
     registry.register(Tool('window_text', 'خواندن متن قابل مشاهده child controls پنجره', windows.window_text, True, 'read'))
     registry.register(Tool('automation_text', 'خواندن متن کنترل Windows با پیام native', windows.automation_text, True, 'read'))
     registry.register(Tool('uia_elements', 'مشاهده ساختاری عناصر Windows UI Automation', windows.uia_elements, True, 'read'))
+    registry.register(Tool('uia_text', 'خواندن متن Windows UI Automation ValuePattern', windows.uia_text, True, 'read'))
     registry.register(Tool('focus_window', 'تمرکز روی پنجره Windows', windows.focus, False, 'input_control'))
     registry.register(Tool('minimize_window', 'کوچک کردن پنجره Windows', windows.minimize, False, 'input_control'))
     registry.register(Tool('maximize_window', 'بزرگ کردن پنجره Windows', windows.maximize, False, 'input_control'))
