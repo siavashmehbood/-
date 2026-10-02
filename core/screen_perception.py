@@ -28,6 +28,9 @@ class WindowsUIPerception:
         elements=[asdict(UIElement("window",str(w.get("title","")),None,True,
                   w.get("hwnd")==active.get("hwnd"),str(w.get("title","")),1.0,"win32"))
                   for w in visible]
+        if active and active.get("hwnd"):
+            try: elements.extend(self.windows.uia_elements(active["hwnd"]))
+            except Exception: pass
         return active,visible,elements
 
 class ScreenPerception:
