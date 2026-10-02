@@ -56,12 +56,13 @@ class ConversationalUnderstanding:
         if act=="unknown" and any(x in low for x in ("فرق ","تفاوت ","مقایسه")):act="comparison"
         if act=="unknown" and any(x in low for x in ("مطمئنی","از کجا فهمیدی","چرا این جواب")):act="meta_conversation"
         if act=="unknown" and any(x in low for x in ("باز کن","ببند","اجرا کن","بنویس","کلیک","اسکرین")):act="tool_request"
-        if act=="unknown" and any(x in low for x in ("یاد بگیر","یادگیری","از صفر تا صد یاد")):act="learning_request"
+        if act=="unknown" and any(x in low for x in ("یاد بگیر","یادگیری","از صفر تا صد یاد","می‌خواهم یاد بگیر","میخوام یاد بگیر")):act="learning_request"
+        if act=="unknown" and any(x in low for x in ("واقعیت","اطلاعات","بگو","توضیح بده")) and ("؟" not in norm and "?" not in norm):act="information_request"
         if act=="unknown" and ("؟" in norm or "?" in norm or any(low.startswith(x) for x in ("چرا","چی","چه ","کدام","کدوم","آیا","کی ","کجا"))):act="factual_question"
         if act=="unknown" and any(x in low for x in ("حوصله ندارم","خوشحالم","ناراحتم","خسته ام","خسته‌ام")):act="emotional_expression"
         if act=="unknown":act="casual_statement"
         answer_type={"explanation_request":"explanation","example_request":"example","simplify":"simpler",
-                     "comparison":"comparison","tool_request":"action","learning_request":"learning",
+                     "comparison":"comparison","tool_request":"action","learning_request":"learning","information_request":"information",
                      "greeting":"social","meta_conversation":"meta"}.get(act,"")
         refs=[x for x in ("این","اون","همون","قبلی","اولی","دومی","بعدی","این موضوع","اون برنامه") if x in low]
         incomplete=bool(len(bare.split())<=3 and act in {"follow_up","continuation","explanation_request","clarification","example_request","simplify"})
