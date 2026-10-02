@@ -31,24 +31,18 @@ class IranCoreTests(unittest.TestCase):
         self.assertIn('ایران', answer)
         self.assertTrue(provider.health()['ok'])
 
-    def test_auto_tool_and_goal(self):
+    def test_orchestrator_handle_requires_canonical_owner(self):
         from core.orchestrator import Orchestrator
         from runtime.events import EventLog
-        from runtime.goals import GoalStore
-        from security.policy import SecurityPolicy
         with tempfile.TemporaryDirectory() as tmp:
             memory = Memory(Path(tmp) / 'm.db')
             events = EventLog(Path(tmp) / 'events.jsonl')
-            goals = GoalStore(Path(tmp) / 'goals.json')
-            config = {'security': {'safe_mode': True, 'allow_shell': False, 'allow_network_tools': True}}
-            registry = build_registry(tmp, memory)
             agent = type('A', (), {'respond': lambda self, text: 'ok'})()
-            orch = Orchestrator(agent, memory, events, registry, SecurityPolicy(config), goals)
-            self.assertIn('زمان سیستم', orch.handle('ساعت را بگو'))
-            item = goals.add('test goal')
-            done = orch.handle('/complete ' + str(item['id']))
-            self.assertIn('completed', done)
+            orch = Orchestrator(agent, memory, events)
+            with self.assertRaisesRegex(RuntimeError, 'compatibility adapter'):
+                orch.handle('time please')
             memory.close()
+
 
     def test_memory_persists(self):
         with tempfile.TemporaryDirectory() as tmp:
