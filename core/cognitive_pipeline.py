@@ -479,7 +479,7 @@ class CognitivePipeline:
         answer = e._compose_conversational(context) if meaning.dialogue_act in {
             "greeting","farewell","gratitude","apology","acknowledgement","emotional_expression",
             "meta_conversation","return_to_topic","simplify","length_control","example_request",
-            "continuation","clarification","learning_request"
+            "continuation","follow_up","clarification","learning_request"
         } else ""
         if 'چرا سیستم کند' in low or 'چرا سیستم کنده' in low:
             answer = 'برای تشخیص کندی، اول زمان هر مرحله را جدا اندازه بگیر، بعد گلوگاه را پیدا کن و همان بخش را با یک تست ثابت مقایسه کن؛ بدون اندازه‌گیری نمی‌شود علت قطعی را تعیین کرد.'
