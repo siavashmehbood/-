@@ -124,3 +124,4 @@ class ComputerUse:
                 "verified successful action",str(outcome.execution),outcome.verification.get("reason","failure"),
                 .9,[str(payload)],["ComputerUse",outcome.tool])
             except Exception:pass
+
