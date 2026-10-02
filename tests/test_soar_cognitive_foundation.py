@@ -249,3 +249,5 @@ class SoarCognitiveFoundationAcceptance(unittest.TestCase):
 
 if __name__=="__main__":
     unittest.main()
+
+# Final Phase 2 validation marker: exact master implementation exercised by PR CI.
