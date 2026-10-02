@@ -177,8 +177,9 @@ class SemanticIntelligenceAcceptance(unittest.TestCase):
         try:
             status=r.cognitive_system.pipeline.semantic_intelligence.backend_status()
             self.assertTrue(status["offline"])
+            self.assertFalse(status["runtime_downloads"])
             self.assertEqual(status["decision_owner"],"CognitiveSystem")
-            self.assertEqual(status["active"],"iran_fallback")
+            self.assertEqual(status["active"],"fallback")
             for name in ("spacy","stanza","deeppavlov","haystack"):
                 self.assertIn(name,status["optional"])
         finally:r.close()
