@@ -7,6 +7,7 @@ from pathlib import Path
 from core.cognitive_pipeline import CognitivePipeline
 from core.grounded_synthesizer import GroundedSynthesizer
 from core.self_correction import SelfCorrectionEngine
+from self.cognitive_growth import CognitiveGrowthCycle
 
 
 @dataclass(frozen=True)
@@ -66,6 +67,7 @@ class CognitiveSystem:
         self.last_answer = ""
         self.last_trace = None
         self.last_output = {}
+        self.growth = CognitiveGrowthCycle(Path(runtime.root))
 
     def _get_pipeline(self) -> CognitivePipeline:
         pipeline = getattr(self.dialogue, "cognitive_pipeline", None)
@@ -131,7 +133,7 @@ class CognitiveSystem:
             if self.last_trace is not None:
                 self.last_trace.verification_status = "UNKNOWN"
                 self.last_trace.confidence = min(.35, self.last_trace.confidence)
-        elif self.last_trace is not None and (self.last_trace.confidence < .5 or self.last_trace.verification_status in {"REPAIR", "CLARIFY"}):
+        self.growth.evaluate_failure(\n            capability="uncertainty_or_knowledge", task=str(text),\n            expected="grounded answer or calibrated UNKNOWN", actual=str(answer),\n            reason="canonical turn ended UNKNOWN",\n            evidence=list(getattr(self.last_trace, "verification_reasons", []) if self.last_trace is not None else []),\n            confidence=.85,\n        )\n        elif self.last_trace is not None and (self.last_trace.confidence < .5 or self.last_trace.verification_status in {"REPAIR", "CLARIFY"}):
             self.runtime.self_directed_learning.observe_gap(text, "verification_or_confidence_gap")
         self._post_turn_learning(text, answer, self.last_trace)
         self.runtime.observe_knowledge_use(text, answer)
