@@ -86,11 +86,15 @@ class ChatWindow(QMainWindow):
         self.build(); self.load_session()
         self.autonomy_timer = QTimer(self)
         self.autonomy_timer.timeout.connect(self.run_autonomous_learning)
-        self.autonomy_timer.start(30000)
+        self.autonomy_timer.start(300000)
         self.chatgpt_review_timer = QTimer(self)
         self.chatgpt_review_timer.timeout.connect(self.run_chatgpt_review_once)
-        self.chatgpt_review_timer.start(15000)
-        QTimer.singleShot(5000, self.run_autonomous_learning)
+        # Keep external reviewer manual in the GUI process. Network review can
+        # temporarily allocate hundreds of MB; running it on a timer made the
+        # desktop app balloon past 1 GB. The existing review button still runs
+        # exactly one governed review on demand.
+        self.chatgpt_review_timer.setInterval(30000)
+        QTimer.singleShot(300000, self.run_autonomous_learning)
     def build(self):
         root = QWidget(); self.setCentralWidget(root)
         outer = QVBoxLayout(root); outer.setContentsMargins(18, 16, 18, 16); outer.setSpacing(12)
