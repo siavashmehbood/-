@@ -159,6 +159,8 @@ class InputController:
         try: import pyautogui
         except ImportError as exc: raise RuntimeError("pyautogui optional dependency is not installed") from exc
         return pyautogui
+    def position(self):
+        p=self._api().position(); return (int(p.x),int(p.y))
     def move(self,x,y): self._api().moveTo(int(x),int(y)); return {"moved":True}
     def click(self,x=None,y=None,button="left",clicks=1):
         self._api().click(x=x,y=y,button=button,clicks=int(clicks)); return {"clicked":True}
@@ -168,5 +170,9 @@ class InputController:
     def hotkey(self,*keys): self._api().hotkey(*[str(x) for x in keys]); return {"hotkey":list(keys)}
 
 class ScreenObserver:
-    def __init__(self,desktop): self.desktop=desktop
+    def __init__(self,desktop,windows=None,input_controller=None):
+        self.desktop=desktop; self.windows=windows; self.input_controller=input_controller
     def capture(self): return self.desktop.screenshot()
+    def observe(self,capture=True):
+        from core.screen_perception import ScreenPerception
+        return ScreenPerception(self.desktop,self.windows,self.input_controller).observe(capture=capture)
