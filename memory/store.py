@@ -117,6 +117,11 @@ def _search_v2(self,query,limit=8,kind=None):
     rows=_old_search(self,query,max(12,int(limit)*3),kind)
     clean=[]
     for row in rows:
+        # Cognitive episodes are a separate retrieval domain. They must never
+        # become ordinary conversation references/topics merely because their
+        # serialized payload shares words with the user's current question.
+        if kind is None and row[0] == "soar_episode":
+            continue
         content=str(row[1])
         if content.startswith(_META_PREFIXES):continue
         if content==self._norm(query):continue
