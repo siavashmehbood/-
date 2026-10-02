@@ -249,3 +249,5 @@ class SoarCognitiveFoundationAcceptance(unittest.TestCase):
 
 if __name__=="__main__":
     unittest.main()
+
+# Validation marker for exact master 6ccecfab Phase 2 Soar gates.
