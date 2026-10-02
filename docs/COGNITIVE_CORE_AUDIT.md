@@ -128,3 +128,23 @@ Cognitive Growth; they do not bypass Reviewer/Human/LearningGate governance.
 Roles remain: ScreenObserver=observer; ScreenPerception=perception; UIGrounder=resolver;
 ComputerUse=bounded coordinator/executor; ToolRegistry=capabilities; InputController=adapter;
 Voice=transport; CognitiveGrowth=evaluation/improvement; CognitiveSystem=sole Decision Owner.
+
+
+## General conversational intelligence audit
+
+General dialogue remains inside ONE BRAIN. `ConversationalUnderstanding` is a meaning
+mechanics layer only: it normalizes Persian variants and emits structured `UtteranceMeaning`
+(dialogue act, references, requested response/action type, ambiguity and confidence). It
+cannot answer, plan independently, persist a second memory, approve learning or invoke an
+external model.
+
+The sole visible route remains `IranRuntime.handle -> CognitiveSystem.dispatch ->
+CognitivePipeline`. ConversationState, reference resolution, bounded memory/knowledge
+retrieval, reasoning, AnswerPlanner, local realization, verification/repair and learning
+evidence all execute beneath that owner. Context transformations (greeting, clarification,
+meta dialogue, ellipsis, continuation and style requests) are explicitly distinguished
+from factual claims so factual evidence verification cannot erase a valid conversational
+state transformation. Unsupported information requests still fail closed as UNKNOWN.
+
+Corrections remain evidence, not automatic permanent truth. Existing reviewer -> human ->
+LearningGate governance is unchanged. Voice continues to feed the same public runtime path.
