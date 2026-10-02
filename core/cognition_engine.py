@@ -6,6 +6,7 @@ class CognitiveEngine:
     """Structured cognition with local semantic features and uncertainty."""
     def __init__(self):
         self.language=PersianLanguageEngine(); self.semantic=LocalSemanticModel()
+        self._canonical_system=None
 
     def analyze(self,text):
         a=self.language.analyze(text); frame=self.semantic.frame(a.normalized)
@@ -22,6 +23,11 @@ class CognitiveEngine:
         elif state.intent=='build': state.hypotheses=['smallest viable implementation','reuse existing component','refactor then implement']
         else: state.hypotheses=['primary interpretation','contextual interpretation']
         return state.hypotheses
+
+    def dispatch(self,text):
+        if self._canonical_system is None:
+            raise RuntimeError("CognitiveEngine is an analysis component; bind CognitiveSystem for decisions")
+        return self._canonical_system.dispatch(text)
 
     def enrich(self,text):
         a=self.language.analyze(text); state=self.analyze(text)
