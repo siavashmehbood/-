@@ -113,7 +113,13 @@ class SoarCognitiveEngine:
             except Exception:
                 import Python_sml_ClientInterface as sml
             self.sml = sml
-            kernel = sml.Kernel.CreateKernelInNewThread()
+            # The Python 9.6.5 binding is substantially safer for repeated
+            # in-process runtime construction when the kernel shares the caller
+            # thread: no SML kernel/event thread needs to be torn down between
+            # short-lived IRAN runtimes. IRAN does not attach the Soar debugger,
+            # so external-command polling is not required in the cognition path.
+            create_current=getattr(sml.Kernel,"CreateKernelInCurrentThread",None)
+            kernel = create_current() if callable(create_current) else sml.Kernel.CreateKernelInNewThread()
             if kernel is None:
                 raise RuntimeError("soar_kernel_none")
             if hasattr(kernel, "HadError") and kernel.HadError():
