@@ -111,7 +111,7 @@ class JarvisIntegrationTests(unittest.TestCase):
         class O:
             def __init__(self,n):self.n=n
             def to_dict(self):return {"signature":str(self.n),"elements":[]}
-        states=iter([O(0),O(0),O(1),O(2)])
+        states=iter([O(0),O(0),O(1),O(2),O(2)])
         decisions=iter([
             {"status":"act","tool":"definitely_missing_tool","arguments":{}},
             {"status":"act","tool":"system_info","arguments":{}},
