@@ -503,9 +503,11 @@ class LocalDialogueEngine:
             return "می‌فهمم. اگر دوست داری می‌توانیم درباره‌اش حرف بزنیم، یا موضوع را عوض کنیم."
         if act=="meta_conversation":
             low=bare(context.user_message).lower()
-            if "من چی پرسیدم" in low:return f"آخرین چیزی که پرسیدی/گفتی این بود: «{self.state.last_user_message}»." if self.state.last_user_message else "هنوز پیام قبلی ثبت نشده."
-            if "تو چی جواب دادی" in low:return f"آخرین جوابم این بود: «{previous}»." if previous else "هنوز پاسخ قبلی ثبت نشده."
+            if "من چی پرسیدم" in low:return f"آخرین پیام قبلی تو این بود: «{self.state.last_user_message}»." if self.state.last_user_message else "هنوز پیام قبلی ثبت نشده."
+            if "تو چی جواب دادی" in low:return f"آخرین جواب قبلی من این بود: «{previous}»." if previous else "هنوز جواب قبلی ثبت نشده."
             if "بحثمون" in low or "موضوع" in low:return f"موضوع فعلی «{topic}» است." if topic else "هنوز موضوع مشخصی نداریم."
+            if "مطمئنی" in low:return "تا جایی که شواهد فعلی اجازه می‌دهد؛ اگر بخواهی می‌توانم مبنای جواب قبلی را بررسی کنم."
+            if "از کجا فهمیدی" in low:return "از زمینه همین مکالمه و شواهدی که در مسیر canonical بازیابی شده بود؛ اگر شاهد کافی نباشد باید صریح بگویم نامطمئنم."
         if act=="return_to_topic":
             target=self.state.restore_previous_topic()
             return f"باشه؛ برگردیم به «{target}»." if target else "موضوع قبلی مشخصی برای برگشتن پیدا نکردم."
@@ -523,7 +525,11 @@ class LocalDialogueEngine:
             self.state.active_goal=subject or bare(context.user_message)
             return f"هدف یادگیری را گرفتم: «{self.state.active_goal}». آن را به‌عنوان هدف فعال مکالمه نگه می‌دارم و مسیر یادگیری باید از Learning Mission و Gate موجود عبور کند."
         if act=="continuation" and topic:return f"باشه؛ از همان موضوع «{topic}» ادامه می‌دهیم."
-        if act=="clarification" and previous:return "منظورم از جواب قبلی این بود: "+previous
+        if act=="clarification":
+            low=bare(context.user_message).lower()
+            if any(x in low for x in ("اون یکی","کدوم یکی","کدام یکی")):return "منظورت کدام مورد است؟ یک نشانه کوتاه از همان مورد بگو تا اشتباه انتخاب نکنم."
+            if previous:return "منظورم از جواب قبلی این بود: "+previous
+            return "منظورت دقیقاً کدام بخش است؟"
         return ""
 
     def _direct_answer(self, context):
