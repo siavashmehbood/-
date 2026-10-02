@@ -198,3 +198,5 @@ class SemanticIntelligenceAcceptance(unittest.TestCase):
 
 if __name__=="__main__":
     unittest.main()
+
+# Semantic Phase 1 validation marker: implementation is identical to master.
