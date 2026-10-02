@@ -311,7 +311,13 @@ class AnswerPlanner:
     def plan(self, context):
         units = context.question_units or [context.user_message]
         qtype = context.question_type
-        if qtype == "correction": answer_type = "CORRECTION"
+        conversational={"greeting":"SOCIAL","farewell":"SOCIAL","gratitude":"SOCIAL","apology":"SOCIAL",
+                        "acknowledgement":"SOCIAL","emotional_expression":"SOCIAL","meta_conversation":"META",
+                        "return_to_topic":"REFERENCE","simplify":"REEXPLAIN","example_request":"EXAMPLE",
+                        "length_control":"STYLE","continuation":"FOLLOW_UP","tool_request":"ACTION",
+                        "learning_request":"LEARNING"}
+        if context.intent in conversational: answer_type=conversational[context.intent]
+        elif qtype == "correction": answer_type = "CORRECTION"
         elif qtype == "follow_up": answer_type = "FOLLOW_UP"
         elif context.relevant_knowledge: answer_type = "DIRECT_FACT"
         elif context.evidence: answer_type = "GROUNDED"
