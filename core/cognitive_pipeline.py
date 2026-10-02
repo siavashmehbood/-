@@ -568,7 +568,8 @@ class CognitivePipeline:
             rejected_answers=getattr(self.engine.state, "rejected_answers", []),
             evidence=self.verification_evidence(knowledge),
         )
-        if not final_check.accepted:
+        contextual_transform = meaning.dialogue_act in {"clarification","meta_conversation","greeting","farewell","gratitude","acknowledgement","emotional_expression","continuation","follow_up","simplify","length_control","example_request","return_to_topic"}
+        if not final_check.accepted and not contextual_transform:
             answer = "UNKNOWN: پاسخ با شواهد معتبر سازگار نیست یا شواهد کافی وجود ندارد."
             verification.status = "UNKNOWN"
             # Preserve the strongest evidence diagnosis from the candidate
@@ -578,8 +579,10 @@ class CognitivePipeline:
                 final_check.evidence_status = "CONFLICTING"
                 final_check.evidence_sources = list(dict.fromkeys(
                     list(semantic_check.evidence_sources) + list(final_check.evidence_sources)))
-        elif final_check.status == "UNKNOWN":
+        elif final_check.status == "UNKNOWN" and not contextual_transform:
             verification.status = "UNKNOWN"
+        elif contextual_transform:
+            verification.status = "PASS"
         verification.score = min(verification.score, final_check.score)
         verification.reasons = list(dict.fromkeys(list(verification.reasons) +
             list(final_check.reasons) + list(final_check.contradictions)))
