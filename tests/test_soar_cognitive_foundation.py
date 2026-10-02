@@ -230,6 +230,30 @@ class SoarCognitiveFoundationAcceptance(unittest.TestCase):
             finally:engine.close()
         finally:r.close()
 
+    def test_repeated_runtime_lifecycle_uses_real_soar_without_native_teardown_crash(self):
+        # This regression used to crash the entire Python process in the SML
+        # native binding during runtime.close().
+        for _ in range(3):
+            r=self.runtime()
+            self.assertTrue(r.cognitive_system.cognitive_engine.status()["real_soar"])
+            r.handle("یک چرخه شناختی کوتاه اجرا کن.")
+            r.close()
+
+    def test_soar_episode_is_not_a_conversation_topic_but_remains_retrievable(self):
+        r=self.runtime()
+        try:
+            r.handle("پایتون چیه؟")
+            first=r.conversation_snapshot().get("current_topic","")
+            r.handle("Django چیه؟")
+            second=r.conversation_snapshot().get("current_topic","")
+            self.assertNotEqual(first,second)
+            self.assertFalse(str(second).lstrip().startswith("{"),second)
+            generic=r.memory.search("Django",20)
+            self.assertFalse(any(row[0]=="soar_episode" for row in generic),generic)
+            episodes=r.memory.search("Django",20,kind="soar_episode")
+            self.assertTrue(episodes)
+        finally:r.close()
+
     def test_restart_preserves_native_epmem_and_iran_episode_bridge(self):
         r=self.runtime(); root=r.root
         try:
