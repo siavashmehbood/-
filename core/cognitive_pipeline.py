@@ -63,25 +63,23 @@ class CognitivePipeline:
         # resolver as resolved; this does not bypass factual verification.
         try:
             semantic_turn=getattr(self,"last_semantic_turn",None)
-            query=getattr(semantic_turn,"query",None)
-            target=str(getattr(query,"entity_id","") or "")
-            # Resolution is singular evidence selection, not a blanket trust
-            # flag on every ranked candidate. The remaining candidates are
-            # still present below as ordinary stored evidence.
+            semantic_answer=str(getattr(semantic_turn,"semantic_answer","") or "")
+            # Verification consumes the exact evidence used to realize the
+            # semantic answer. This keeps coreference/entity linking and
+            # verification on one evidence path instead of re-resolving twice.
             for item in getattr(semantic_turn,"evidence",[]) or []:
                 row=item.to_dict() if hasattr(item,"to_dict") else dict(item)
                 if bool(row.get("superseded",False)):
                     continue
-                if target and str(row.get("subject","")) != target:
+                value=str(row.get("value","") or "")
+                if semantic_answer and value and value not in semantic_answer:
                     continue
                 provenance=str(row.get("provenance","stored_fact") or "stored_fact")
                 facts.append({
                     "subject":row.get("subject",""),
                     "predicate":row.get("relation",""),
-                    "object":row.get("value",""),
+                    "object":value,
                     "confidence":row.get("confidence",0),
-                    # Distinct provenance preserves the resolved evidence through
-                    # deduplication while retaining the underlying source.
                     "source":"semantic_resolver:"+provenance,
                     "resolved":True,
                     "superseded":False,
