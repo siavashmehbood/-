@@ -141,6 +141,18 @@ class WindowsDesktop:
     def restore(self,hwnd): return self._show(hwnd,9)
     def focus(self,hwnd):
         user32=self._require(); return {"hwnd":int(hwnd),"focused":bool(user32.SetForegroundWindow(int(hwnd)))}
+    def window_text(self,hwnd):
+        user32=self._require(); import ctypes
+        texts=[]
+        callback_type=ctypes.WINFUNCTYPE(ctypes.c_bool,ctypes.c_int,ctypes.c_int)
+        def collect(child,lparam):
+            length=user32.GetWindowTextLengthW(child)
+            if length:
+                buf=ctypes.create_unicode_buffer(length+1); user32.GetWindowTextW(child,buf,length+1)
+                if buf.value:texts.append(buf.value)
+            return True
+        user32.EnumChildWindows(int(hwnd),callback_type(collect),0)
+        return {"hwnd":int(hwnd),"texts":texts,"text":"\n".join(texts)}
     def find_window(self,title):
         wanted=str(title).casefold(); matches=[w for w in self.enumerate_windows() if wanted in str(w.get("title","")).casefold()]
         return {"matches":matches,"unique":len(matches)==1,"window":matches[0] if len(matches)==1 else None}
