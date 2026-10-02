@@ -3,6 +3,7 @@ from pathlib import Path
 
 from core.dialogue import AnswerPlanner, CognitiveContext
 from runtime.app import IranRuntime
+from self.cognitive_growth import CapabilityBenchmark
 
 
 def make_runtime(tmp_path):
@@ -49,6 +50,15 @@ def test_governed_learning_changes_unseen_planning_and_survives_restart(tmp_path
     runtime = make_runtime(tmp_path)
     try:
         assert guidance_for(runtime, unseen_query) == []
+        benchmark = CapabilityBenchmark(tmp_path / "data" / "capability_benchmarks.json")
+        cases = [
+            {"case_id":"transfer-1","input":unseen_query},
+            {"case_id":"transfer-2","input":"چطور ورودی ناشناخته کاربر را امن بررسی کنیم؟"},
+        ]
+        solve = lambda query: bool(guidance_for(runtime, query))
+        before = benchmark.run("approved lesson transfer", cases, solve,
+                               lambda output, case: output is False, "baseline")
+        assert before["score"] == 2
 
         candidate = runtime.queue_learning_candidate(
             "memory.add_lesson",
@@ -75,6 +85,15 @@ def test_governed_learning_changes_unseen_planning_and_survives_restart(tmp_path
             learning_guidance={"approved_lessons": learned},
         )
         assert "apply_approved_lesson" in AnswerPlanner().plan(ctx).steps
+        after = benchmark.run("approved lesson transfer", cases, solve,
+                              lambda output, case: output is True, "post_learning")
+        comparison = benchmark.compare(
+            {**before, "score": 0},
+            after,
+        )
+        assert after["score"] == 2
+        assert comparison["delta"] == 2
+        assert comparison["mastery_eligible"] is True
     finally:
         runtime.close()
 
@@ -85,5 +104,11 @@ def test_governed_learning_changes_unseen_planning_and_survives_restart(tmp_path
         review = restarted.chatgpt_learning_review_status(candidate["proposal_id"])["row"]
         assert review["human_decision"] == "approved"
         assert review["human_source"] == "growth_e2e_human"
+        restart_benchmark = CapabilityBenchmark(tmp_path / "data" / "capability_benchmarks.json")
+        restart = restart_benchmark.run(
+            "approved lesson transfer", cases,
+            lambda query: bool(guidance_for(restarted, query)),
+            lambda output, case: output is True, "restart")
+        assert restart["score"] == 2
     finally:
         restarted.close()
