@@ -6,6 +6,9 @@ on:
     paths:
       - "core/voice.py"
       - "core/computer_use.py"
+      - "core/cognitive_pipeline.py"
+      - "core/dialogue.py"
+      - "core/conversational_understanding.py"
       - "tools/desktop.py"
       - "tools/builtin.py"
       - "tests/test_jarvis_integration.py"
