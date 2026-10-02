@@ -133,13 +133,23 @@ class CognitiveSystem:
             if self.last_trace is not None:
                 self.last_trace.verification_status = "UNKNOWN"
                 self.last_trace.confidence = min(.35, self.last_trace.confidence)
-            self.growth.evaluate_failure(
+            growth = self.growth.evaluate_failure(
                 capability="uncertainty_or_knowledge", task=str(text),
                 expected="grounded answer or calibrated UNKNOWN", actual=str(answer),
                 reason="canonical turn ended UNKNOWN",
                 evidence=list(getattr(self.last_trace, "verification_reasons", []) if self.last_trace is not None else []),
                 confidence=.85,
             )
+            proposed = growth.get("mission")
+            if proposed:
+                # A detected weakness may create a bounded learning mission, but it
+                # never creates an approved learning object. Reviewer -> human ->
+                # LearningGate remains the only path that can change cognition.
+                self.runtime.learning_missions.create(
+                    proposed["goal"], "narrow",
+                    source_request=f"weakness:{proposed['weakness_id']}",
+                    domain=self.runtime.self_directed_learning.detect_domain(str(text)),
+                )
         elif self.last_trace is not None and (self.last_trace.confidence < .5 or self.last_trace.verification_status in {"REPAIR", "CLARIFY"}):
             self.runtime.self_directed_learning.observe_gap(text, "verification_or_confidence_gap")
         self._post_turn_learning(text, answer, self.last_trace)
