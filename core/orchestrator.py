@@ -111,4 +111,8 @@ class Orchestrator:
                 'goals':c.goals,'actions':d.actions,'reasons':c.reasons,
                 'user_model':self._user_model_context(text)}
 
-    def run_smart(self,goal): return self.loop.run(goal)
+    def run_smart(self,goal):
+        canonical = getattr(self, "_canonical_system", None)
+        if canonical is None:
+            raise RuntimeError("Orchestrator.run_smart is a compatibility adapter; bind CognitiveSystem first")
+        return canonical.dispatch(str(goal))

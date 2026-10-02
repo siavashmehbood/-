@@ -30,6 +30,10 @@ jobs:
         run: python -m pytest -q
       - name: Unittest discovery
         run: python -m unittest discover -s tests -q
+      - name: Rasa foundation unit + black-box runtime acceptance
+        run: python -m pytest -q tests/test_rasa_foundation.py tests/test_general_conversation.py
+      - name: Rasa 40-turn CURRENT vs FOUNDATION A-B and performance evidence
+        run: python -m self.rasa_foundation_ab
       - name: Runtime evaluation
         run: python evaluation/runtime_suite.py
       - name: General conversation benchmark

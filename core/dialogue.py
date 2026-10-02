@@ -1573,12 +1573,12 @@ _LOCAL_PIPELINE_HANDLE = LocalDialogueEngine.handle
 
 def _canonical_pipeline_handle(self, text):
     from core.cognitive_pipeline import CognitivePipeline
-    pipeline = getattr(self, "cognitive_pipeline", None)
-    if pipeline is None:
-        pipeline = CognitivePipeline(self)
-        self.cognitive_pipeline = pipeline
-    self._canonical_pipeline = pipeline
-    return pipeline.run(text)
+    # Keep the historical lazy-import contract for compatibility, but never
+    # instantiate or invoke a parallel pipeline here. CognitiveSystem owns turns.
+    canonical = getattr(self, "_canonical_system", None)
+    if canonical is None:
+        raise RuntimeError("LocalDialogueEngine.handle is a compatibility adapter; bind CognitiveSystem first")
+    return canonical.dispatch(str(text))
 
 LocalDialogueEngine.handle = _canonical_pipeline_handle
 

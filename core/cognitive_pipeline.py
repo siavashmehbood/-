@@ -39,7 +39,9 @@ class CognitivePipeline:
         self.reasoning_planning = ReasoningPlanningEngine()
         self.semantic_verifier = SemanticVerifier()
         from core.self_correction import SelfCorrectionEngine
+        from core.rasa_foundation import RasaFoundationAdapter
         self.self_correction = SelfCorrectionEngine(__import__("pathlib").Path(self.runtime.root) / "data" / "self_corrections.json")
+        self.conversation_foundation = RasaFoundationAdapter(path=__import__("pathlib").Path(self.runtime.root)/"data"/"conversation_events.json")
 
     def _emit(self, event, data):
         try:
@@ -111,6 +113,13 @@ class CognitivePipeline:
         e.last_trace = trace
         e.turn_traces.append(trace.__dict__)
         e.turn_traces = e.turn_traces[-50:]
+        # Deterministic/early routes commit the same bounded foundation outcome as the
+        # full reasoning path so restart/replay never has holes in conversational state.
+        try:
+            self.conversation_foundation.record_outcome(answer_type, checked.status if checked.accepted else "UNKNOWN")
+            self.conversation_foundation.save()
+        except Exception:
+            pass
         return answer
 
     def _preflight_conversation_route(self, text):
@@ -143,6 +152,14 @@ class CognitivePipeline:
         if not text:
             return "چیزی برای پردازش دریافت نکردم."
         self._preflight_conversation_route(text)
+
+        # Rasa foundation observes every natural-language turn before any deterministic
+        # early return. It contributes only NLU/state events; CognitiveSystem remains
+        # the sole decision owner and all answer/tool/learning decisions stay below.
+        foundation_parsed = e._parse(text)
+        foundation_parsed.update(e.analyzer.analyze(text, foundation_parsed))
+        foundation_meaning = e.understanding.analyze(text, e.state, foundation_parsed)
+        self.conversation_foundation.ingest(foundation_meaning, foundation_parsed)
 
         # Explicit user facts are learned before interpretation; questions do not create facts.
         extracted = []
@@ -320,14 +337,13 @@ class CognitivePipeline:
                 lines.append(f"{str(index).translate(str.maketrans('0123456789','۰۱۲۳۴۵۶۷۸۹'))}) {value}")
             return self._persist_answer(text, "\n".join(lines), "MULTI_INTENT", .98)
 
-        # Parse the turn once.
-        parsed = e._parse(text)
-        parsed.update(e.analyzer.analyze(text, parsed))
+        # Reuse the parse/meaning already observed by the foundation at turn ingress.
+        parsed = foundation_parsed
         context_snapshot = self.context_tracker.observe(text, parsed)
 
         # General utterance meaning is classified before retrieval/reasoning; social turns
         # still pass through the same canonical planning/generation/verification path.
-        meaning = e.understanding.analyze(text, e.state, parsed)
+        meaning = foundation_meaning
         parsed["dialogue_act"] = meaning.dialogue_act
         parsed["utterance_meaning"] = meaning.to_dict()
         if "اسم پروژه" in low or "نام پروژه" in low:
@@ -616,6 +632,8 @@ class CognitivePipeline:
             evidence_status=("CONFLICTING" if (semantic_check.evidence_status == "CONFLICTING" or final_check.evidence_status == "CONFLICTING") else final_check.evidence_status),
             evidence_sources=list(dict.fromkeys(list(semantic_check.evidence_sources) + list(final_check.evidence_sources))),
         )
+        self.conversation_foundation.record_outcome(plan.answer_type, verification.status)
+        self.conversation_foundation.save()
         e.last_trace = trace
         e.memory_context = memory_context
         e.context_snapshot = context_snapshot.__dict__
