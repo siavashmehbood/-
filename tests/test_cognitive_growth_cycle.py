@@ -1,3 +1,4 @@
+import pytest
 from self.cognitive_growth import CapabilityBenchmark, CognitiveGrowthCycle, WeaknessLedger
 
 
