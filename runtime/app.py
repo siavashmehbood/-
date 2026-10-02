@@ -1,6 +1,6 @@
 """Canonical local runtime for the IRAN cognitive architecture."""
 from pathlib import Path
-from persistence import json_transaction, file_lock, load_json_with_backup, load_critical_json, acquire_runtime_ownership
+from persistence import json_transaction, file_lock, load_json_with_backup, load_critical_json, acquire_runtime_ownership, StateCorruptionError
 import json
 import hashlib
 import threading
@@ -59,6 +59,7 @@ from runtime.task_runtime import TaskRuntime, TaskStatus
 from runtime.conversation_router import ConversationRouter
 from security.policy import SecurityPolicy
 from security.learning_gate import LearningGate
+from security.review_decision_journal import ReviewDecisionJournal
 from security.internet_access import InternetAccessManager
 from tools.builtin import build_registry
 from self.evaluator import Evaluator
@@ -610,6 +611,39 @@ class IranRuntime:
     def _chatgpt_review_path(self):
         return self.root / "data" / "chatgpt_reviews.json"
 
+    def _review_decision_journal_path(self):
+        return self.root / "data" / "review_decision_journal.json"
+
+    def _review_decision_journal_store(self):
+        journal = getattr(self, "_review_decision_journal_instance", None)
+        path = self._review_decision_journal_path()
+        if journal is None or journal.path != path:
+            journal = ReviewDecisionJournal(path)
+            self._review_decision_journal_instance = journal
+        return journal
+
+    def review_decision_journal_status(self):
+        """Strict read-only validation; journal state never authorizes learning."""
+        return self._review_decision_journal_store().status()
+
+    def review_decision_journal_page(self, limit=50, cursor=None):
+        """Return a stable audit page without changing any learning decision."""
+        return self._review_decision_journal_store().page(limit, cursor)
+
+    def review_decision_journal_health(self):
+        """Dashboard-safe health; strict callers still fail closed on corruption."""
+        try:
+            return self.review_decision_journal_status()
+        except StateCorruptionError:
+            return {
+                "valid": False,
+                "count": None,
+                "head_hash": None,
+                "source": "corrupt",
+                "recovered_from_backup": False,
+                "error": "journal_integrity_error",
+            }
+
     def queue_learning_candidate(self, kind, payload, summary=''):
         """Stage a candidate for external review before it reaches LearningGate."""
         def stable(value):
@@ -792,6 +826,7 @@ class IranRuntime:
             "improvement_cases": len(improvements),
             "improved_cases": sum(x > 0 for x in improvements),
             "mean_improvement": round(sum(improvements) / len(improvements), 3) if improvements else 0.0,
+            "review_decision_journal": self.review_decision_journal_health(),
         })
         return status
 
@@ -1308,7 +1343,9 @@ class IranRuntime:
         return self.cognitive_system.architecture_contract()
 
     def inspect(self):
-        return self.cognitive_system.inspect()
+        snapshot = dict(self.cognitive_system.inspect())
+        snapshot["review_decision_journal"] = self.review_decision_journal_health()
+        return snapshot
     def _handle_command(self, text):
         import shlex
         parts = shlex.split(text)
