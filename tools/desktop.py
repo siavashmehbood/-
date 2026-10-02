@@ -141,6 +141,20 @@ class WindowsDesktop:
     def restore(self,hwnd): return self._show(hwnd,9)
     def focus(self,hwnd):
         user32=self._require(); return {"hwnd":int(hwnd),"focused":bool(user32.SetForegroundWindow(int(hwnd)))}
+    def automation_text(self,hwnd):
+        self._require(); import ctypes
+        OBJID_CLIENT=0xFFFFFFFC; UiaRootObjectId=-25
+        # Native WM_GETTEXT works for classic controls; modern controls may expose no text.
+        user32=ctypes.windll.user32; texts=[]
+        callback_type=ctypes.WINFUNCTYPE(ctypes.c_bool,ctypes.c_int,ctypes.c_int)
+        def collect(child,lparam):
+            length=user32.SendMessageW(child,0x000E,0,0)
+            if length:
+                buf=ctypes.create_unicode_buffer(length+1); user32.SendMessageW(child,0x000D,length+1,buf)
+                if buf.value:texts.append(buf.value)
+            return True
+        user32.EnumChildWindows(int(hwnd),callback_type(collect),0)
+        return {"hwnd":int(hwnd),"texts":texts,"text":"\n".join(texts),"source":"win32_message"}
     def window_text(self,hwnd):
         user32=self._require(); import ctypes
         texts=[]
