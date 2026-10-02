@@ -20,4 +20,12 @@ class ToolRouter:
             return 'memory_search', {'query': str(text), 'limit': 8}
         if any(self._has_token(t, x) for x in ('cpu','ram','رم','پردازنده')):
             return 'system_info', {}
+        if any(x in t for x in ('اسکرین شات','اسکرین‌شات','screenshot')):
+            return 'screenshot', {}
+        if any(x in t for x in ('ماشین حساب رو باز','ماشین حساب را باز','open calculator')):
+            return 'open_application', {'name':'calculator'}
+        if any(x in t for x in ('نوت پد رو باز','نوت پد را باز','open notepad')):
+            return 'open_application', {'name':'notepad'}
+        if any(x in t for x in ('وی اس کد رو باز','وی‌اس‌کد رو باز','open vscode','open vs code')):
+            return 'open_application', {'name':'vscode'}
         return None, {}
