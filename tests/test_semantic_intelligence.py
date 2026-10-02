@@ -157,4 +157,4 @@ class SemanticIntelligenceAcceptance(unittest.TestCase):
 if __name__=="__main__":
     unittest.main()
 
-# Validation marker: exercise exact master semantic Phase 1 implementation through PR CI.
+# Validation marker: exercise exact master implementation through PR CI.
