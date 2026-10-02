@@ -490,7 +490,9 @@ class CognitivePipeline:
         unknown_candidate = (not knowledge and not memory and
             (context.question_type in {"what", "why", "how", "where", "yes_no"} or meaning.dialogue_act in {"information_request","factual_question"}) and
             not is_follow_up(text) and not is_correction(text))
-        if not answer and unknown_candidate:
+        if not knowledge and meaning.dialogue_act=="information_request" and not is_follow_up(text) and not is_correction(text):
+            answer = "UNKNOWN: برای این درخواست اطلاعات قابل اتکای محلی ندارم؛ نمی‌خواهم چیزی را بدون شاهد بسازم."
+                if not answer and unknown_candidate:
             answer = "UNKNOWN: برای این سؤال در دانش و شواهد محلی اطلاعات کافی ندارم؛ نمی‌خواهم حدس را به‌عنوان واقعیت بگویم."
         if not answer and getattr(e, "grounded_synthesizer", None):
             try:
