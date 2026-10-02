@@ -87,3 +87,20 @@ Legacy decision-capable classes now fail closed when detached from the canonical
 - `Orchestrator.handle` contains no fallback response path and delegates only to `CognitiveSystem.dispatch`.
 
 Standalone component methods for parsing, verification, tools, planning, metrics and learning remain reusable where they are not public decision owners. Compatibility tests now assert both delegation and fail-closed behavior, preventing a future detached instance from silently becoming a second brain.
+
+
+## JARVIS capability integration audit
+
+Desktop capability integration preserves ONE BRAIN. Voice adapters are transport,
+`ScreenObserver` is perception, the existing `ToolRegistry` owns capabilities, and
+`ComputerUse` is a bounded executor/verifier. None owns response generation,
+memory, planning, learning, or autonomous cognition.
+
+Natural desktop requests enter `CognitiveSystem.dispatch`, which may select a
+registered desktop action and send it through policy and `ComputerUse`. Outcomes
+are observed, verified, emitted to the event log and InputFabric, and failures are
+eligible for WeaknessLedger growth handling. Success is never inferred merely from
+an attempted call.
+
+Decision owner remains exactly `CognitiveSystem`; no Jarvis agent loop or external
+LLM orchestration was imported.
