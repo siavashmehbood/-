@@ -31,3 +31,18 @@ unavailable/error result rather than disabling text cognition.
 Windows GUI acceptance must run on a real Windows runner/machine. Linux CI validates
 platform-independent filesystem/system behavior, permission denial, failure honesty,
 voice-to-canonical routing using a transport test double, and restart persistence.
+
+
+## Acceptance status
+
+The Windows acceptance workflow executes on a real `windows-latest` GitHub runner.
+It validates an actual Calculator launch (including Windows process handoff), a real
+desktop screenshot artifact, real Windows system information, and the full natural
+request path `IranRuntime.handle -> CognitiveSystem.dispatch -> ToolRouter ->
+ComputerUse -> open_application -> verification`.
+
+Voice hardware/model acceptance remains environment-dependent by design. The
+`/voice` startup mode requires `IRAN_VOSK_MODEL`; when absent, text mode remains
+fully operational. Unit/integration acceptance proves audio transport enters the
+canonical runtime and only the canonical answer is passed to TTS. No microphone,
+speech model, or voice output is fabricated in CI.
