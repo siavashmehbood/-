@@ -42,6 +42,25 @@ class ReasoningPlanningTests(unittest.TestCase):
         self.assertGreaterEqual(trace.uncertainty, .51)
         self.assertTrue(trace.contradictions)
 
+    def test_evidence_strength_maps_to_calibrated_states(self):
+        probable = self.engine.analyze(
+            "direct explanation?",
+            {"intent": "question", "goal": "direct explanation", "constraints": []},
+            knowledge=[{"subject": "direct", "predicate": "explanation", "object": "context",
+                        "confidence": .55, "source": "test"}],
+        )
+        self.assertIn(probable.status, {"PROBABLE", "VERIFIED_CANDIDATE"})
+        self.assertGreater(probable.confidence, .0)
+        self.assertLess(probable.confidence, .90)
+
+        uncertain = self.engine.analyze(
+            "direct explanation?",
+            {"intent": "question", "goal": "direct explanation", "constraints": []},
+            memory=[("event", "unrelated weak context", "now")],
+        )
+        self.assertIn(uncertain.status, {"UNCERTAIN", "PROBABLE"})
+        self.assertGreater(uncertain.uncertainty, .35)
+
     def test_reference_becomes_explicit_decision_input(self):
         trace = self.engine.analyze(
             "ادامه بده",
