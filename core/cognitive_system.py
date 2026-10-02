@@ -152,9 +152,13 @@ class CognitiveSystem:
             trace.verification_reasons = list(dict.fromkeys(
                 list(trace.verification_reasons) + list(checked.reasons) + list(checked.contradictions)))
             trace.confidence = min(trace.confidence, checked.score)
-        if not checked.accepted:
+        nonfactual = bool(trace is not None and getattr(trace,"answer_status","") in {"SOCIAL","META","REFERENCE","REEXPLAIN","EXAMPLE","STYLE","FOLLOW_UP","CORRECTION","LEARNING"})
+        if not checked.accepted and not nonfactual:
             answer = "UNKNOWN: پاسخ تولیدشده بررسی سازگاری را نگذرانده است."
             self.dialogue.last_answer = answer
+        elif not checked.accepted and nonfactual and trace is not None:
+            trace.verification_status="PASS"
+            trace.verification_reasons=list(dict.fromkeys(list(trace.verification_reasons)+["nonfactual_context_transform"]))
         self.last_answer = answer
         self.last_trace = getattr(self.dialogue, "last_trace", None)
         if str(answer).startswith("UNKNOWN:"):
