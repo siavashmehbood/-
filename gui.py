@@ -395,10 +395,42 @@ class ChatWindow(QMainWindow):
         except Exception as e:
             QMessageBox.warning(self, "خطا در پاک‌سازی", str(e))
 
+    def _dedupe_human_pending_rows(self, rows):
+        """Hide Gate shadows for candidates already approved by the human."""
+        try:
+            from persistence import load_critical_json
+            reviews = load_critical_json(self.runtime._chatgpt_review_path(), [])
+            approved_gate_ids = {
+                row.get("gate_proposal_id")
+                for row in reviews
+                if row.get("source") == "learning_candidate"
+                and row.get("status") == "approved"
+                and row.get("gate_proposal_id")
+            }
+        except Exception:
+            approved_gate_ids = set()
+        visible = []
+        seen = set()
+        for row in rows or []:
+            proposal_id = row.get("proposal_id")
+            if proposal_id in approved_gate_ids:
+                continue
+            payload = row.get("payload", {}) or {}
+            stable_key = (
+                row.get("source"), row.get("kind"),
+                payload.get("mission_id"), payload.get("unit_id"),
+                payload.get("unit_title"), proposal_id,
+            )
+            if stable_key in seen:
+                continue
+            seen.add(stable_key)
+            visible.append(row)
+        return visible
+
     def review_pending_learning(self):
         """نمایش همه درخواست‌های یادگیری در انتظار تأیید."""
         try:
-            rows = self.runtime.human_learning_pending(50)
+            rows = self._dedupe_human_pending_rows(self.runtime.human_learning_pending(50))
         except Exception as e:
             QMessageBox.warning(self, "بازبینی یادگیری", f"خطا: {e}")
             return
@@ -508,7 +540,10 @@ class ChatWindow(QMainWindow):
         try:
             status = self.runtime.chatgpt_review_status()
             pending = int(status.get("pending", 0) or 0)
-            human_pending = int(status.get("human_pending", 0) or 0)
+            try:
+                human_pending = len(self._dedupe_human_pending_rows(self.runtime.human_learning_pending(100000)))
+            except Exception:
+                human_pending = int(status.get("human_pending", 0) or 0)
             waiting = int(status.get("waiting", 0) or 0)
             if status.get("state") == "ERROR":
                 self.chatgpt_pending.setText(
