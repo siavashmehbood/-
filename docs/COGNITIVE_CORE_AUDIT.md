@@ -74,3 +74,16 @@ Autonomy is bounded to read-only registered actions, explicit cycle budgets, ver
 - `ReasoningPlanningEngine`: reasoning/planning stage used behind the canonical pipeline.
 - `AutonomousSupervisor`: bounded supervisor; it does not own conversational responses.
 - `LearnedActionRanker`: small persisted-experience ranking core; advisory only.
+
+
+## Legacy Cognitive Consolidation
+
+Legacy decision-capable classes now fail closed when detached from the canonical owner.
+
+- `Brain.ask` delegates response generation to `CognitiveSystem.dispatch` when runtime-bound.
+- `CognitiveEngine` remains an analysis component; its decision dispatch requires the canonical system.
+- `CognitiveKernel.cycle` contains no standalone cognition loop and delegates only to `CognitiveSystem.kernel_cycle_compat`.
+- `AdvancedCognitiveCore.begin` contains no fallback planning/retrieval loop and delegates only to `CognitiveSystem.advanced_core_compat`.
+- `Orchestrator.handle` contains no fallback response path and delegates only to `CognitiveSystem.dispatch`.
+
+Standalone component methods for parsing, verification, tools, planning, metrics and learning remain reusable where they are not public decision owners. Compatibility tests now assert both delegation and fail-closed behavior, preventing a future detached instance from silently becoming a second brain.
