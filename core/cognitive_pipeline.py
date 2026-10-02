@@ -330,6 +330,7 @@ class CognitivePipeline:
         # General utterance meaning is classified before retrieval/reasoning; social turns
         # still pass through the same canonical planning/generation/verification path.
         meaning = e.understanding.analyze(text, e.state, parsed)
+        foundation_message = self.conversation_foundation.ingest(meaning, parsed)
         parsed["dialogue_act"] = meaning.dialogue_act
         parsed["utterance_meaning"] = meaning.to_dict()
         if "اسم پروژه" in low or "نام پروژه" in low:
@@ -618,6 +619,7 @@ class CognitivePipeline:
             evidence_status=("CONFLICTING" if (semantic_check.evidence_status == "CONFLICTING" or final_check.evidence_status == "CONFLICTING") else final_check.evidence_status),
             evidence_sources=list(dict.fromkeys(list(semantic_check.evidence_sources) + list(final_check.evidence_sources))),
         )
+        self.conversation_foundation.record_outcome(plan.answer_type, verification.status)
         e.last_trace = trace
         e.memory_context = memory_context
         e.context_snapshot = context_snapshot.__dict__
