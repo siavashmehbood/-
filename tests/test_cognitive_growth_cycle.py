@@ -78,17 +78,33 @@ def test_real_unseen_improvement_is_measured_and_survives_restart(tmp_path):
     assert len(restarted.state["runs"]) == 3
 
 
-def test_growth_cycle_resolves_only_on_positive_delta(tmp_path):
+def test_growth_cycle_requires_learning_and_retest_before_conclusion(tmp_path):
     cycle = CognitiveGrowthCycle(tmp_path)
     failure = cycle.evaluate_failure("planning", "u", "plan", "none", "no decomposition")
     wid = failure["weakness"]["weakness_id"]
-    before = {"capability":"planning","score":1,"total":4}
-    flat = {"capability":"planning","score":1,"total":4}
+    cases = [{"case_id":"p1","input":"u"}]
+    before = cycle.benchmark.run("planning", cases, lambda _: False, bool, "baseline")
+    after = cycle.benchmark.run("planning", cases, lambda _: True, bool, "post_learning")
+
+    with pytest.raises(ValueError, match="retest"):
+        cycle.conclude(wid, before, after)
+    assert cycle.begin_learning(wid)["status"] == "learning"
+    assert cycle.begin_retest(wid)["status"] == "retest"
+    out = cycle.conclude(wid, before, after)
+    assert out["weakness_status"] == "resolved"
+
+
+def test_growth_cycle_no_improvement_returns_to_remediation(tmp_path):
+    cycle = CognitiveGrowthCycle(tmp_path)
+    failure = cycle.evaluate_failure("planning", "flat", "plan", "none", "no decomposition")
+    wid = failure["weakness"]["weakness_id"]
+    cases = [{"case_id":"p1","input":"flat"}]
+    before = cycle.benchmark.run("planning", cases, lambda _: False, bool, "baseline")
+    flat = cycle.benchmark.run("planning", cases, lambda _: False, bool, "post_learning")
+    cycle.begin_learning(wid)
+    cycle.begin_retest(wid)
     out = cycle.conclude(wid, before, flat)
     assert out["weakness_status"] == "remediation"
-    better = {"capability":"planning","score":3,"total":4}
-    out = cycle.conclude(wid, before, better)
-    assert out["weakness_status"] == "resolved"
 
 
 def test_benchmark_rejects_case_identity_drift(tmp_path):
