@@ -79,8 +79,9 @@ class SemanticVerifier:
                 if not value <= words:
                     continue
                 short_answer = not (words - value - filler)
-                anchored = profile_query or short_answer or (bool(predicate) and bool(subject)
-                                                            and predicate <= words and subject <= words)
+                anchored = (bool(fact.get('resolved')) or profile_query or short_answer or
+                            (bool(predicate) and bool(subject)
+                             and predicate <= words and subject <= words))
                 if not anchored:
                     continue
                 if words & negatives or re.search(r'نمی[‌\s]+باشد', clause):
