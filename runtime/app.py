@@ -135,6 +135,8 @@ class IranRuntime:
         self.runner = BackgroundRunner(self.scheduler, self.events)
         self.tasks = TaskRuntime(self.root / "data/tasks.json")
         self.actions = ActionExecutor(self.registry, self.policy, self.events)
+        from core.computer_use import ComputerUse
+        self.computer_use = ComputerUse(self)
         self.observer = ObservationEngine(self.events)
         self.verifier = VerificationEngine(self.events)
         self.failure = FailureIntelligence()
