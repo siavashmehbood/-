@@ -66,4 +66,22 @@ def build_registry(root, memory, internet_access=None):
             f.write(json.dumps(record, ensure_ascii=False) + '\n')
         return record
     registry.register(Tool('save_note', 'ذخیره یادداشت کاربر', save_note, safe=False, permission='write'))
+
+    from .desktop import DesktopTools, InputController
+    desktop, inputs = DesktopTools(root), InputController()
+    registry.register(Tool('find_file', 'جستجوی فایل در محدوده پروژه', desktop.find_file, True, 'read'))
+    registry.register(Tool('create_folder', 'ساخت پوشه در محدوده پروژه', desktop.create_folder, False, 'write'))
+    registry.register(Tool('copy_file', 'کپی فایل در محدوده پروژه', desktop.copy_file, False, 'write'))
+    registry.register(Tool('move_file', 'انتقال فایل در محدوده پروژه', desktop.move_file, False, 'write'))
+    registry.register(Tool('rename_file', 'تغییر نام فایل در محدوده پروژه', desktop.rename_file, False, 'write'))
+    registry.register(Tool('open_application', 'اجرای برنامه دسکتاپ در Windows', desktop.open_application, False, 'execute'))
+    registry.register(Tool('close_application', 'بستن برنامه با شناسه فرایند', desktop.close_application, False, 'destructive'))
+    registry.register(Tool('list_running_apps', 'فهرست برنامه‌های در حال اجرا', desktop.list_running_apps, True, 'read'))
+    registry.register(Tool('screenshot', 'ثبت تصویر واقعی صفحه', desktop.screenshot, True, 'read'))
+    registry.register(Tool('mouse_move', 'حرکت نشانگر ماوس', inputs.move, False, 'input_control'))
+    registry.register(Tool('mouse_click', 'کلیک ماوس', inputs.click, False, 'input_control'))
+    registry.register(Tool('mouse_scroll', 'اسکرول ماوس', inputs.scroll, False, 'input_control'))
+    registry.register(Tool('keyboard_type', 'تایپ با صفحه‌کلید', inputs.type_text, False, 'input_control'))
+    registry.register(Tool('key_press', 'فشردن کلید', inputs.press, False, 'input_control'))
+    registry.register(Tool('hotkey', 'فشردن ترکیب کلیدها', inputs.hotkey, False, 'input_control'))
     return registry
