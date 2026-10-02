@@ -83,8 +83,8 @@ def test_growth_cycle_requires_learning_and_retest_before_conclusion(tmp_path):
     failure = cycle.evaluate_failure("planning", "u", "plan", "none", "no decomposition")
     wid = failure["weakness"]["weakness_id"]
     cases = [{"case_id":"p1","input":"u"}]
-    before = cycle.benchmark.run("planning", cases, lambda _: False, bool, "baseline")
-    after = cycle.benchmark.run("planning", cases, lambda _: True, bool, "post_learning")
+    before = cycle.benchmark.run("planning", cases, lambda _: False, lambda output, case: bool(output), "baseline")
+    after = cycle.benchmark.run("planning", cases, lambda _: True, lambda output, case: bool(output), "post_learning")
 
     with pytest.raises(ValueError, match="retest"):
         cycle.conclude(wid, before, after)
@@ -99,8 +99,8 @@ def test_growth_cycle_no_improvement_returns_to_remediation(tmp_path):
     failure = cycle.evaluate_failure("planning", "flat", "plan", "none", "no decomposition")
     wid = failure["weakness"]["weakness_id"]
     cases = [{"case_id":"p1","input":"flat"}]
-    before = cycle.benchmark.run("planning", cases, lambda _: False, bool, "baseline")
-    flat = cycle.benchmark.run("planning", cases, lambda _: False, bool, "post_learning")
+    before = cycle.benchmark.run("planning", cases, lambda _: False, lambda output, case: bool(output), "baseline")
+    flat = cycle.benchmark.run("planning", cases, lambda _: False, lambda output, case: bool(output), "post_learning")
     cycle.begin_learning(wid)
     cycle.begin_retest(wid)
     out = cycle.conclude(wid, before, flat)
