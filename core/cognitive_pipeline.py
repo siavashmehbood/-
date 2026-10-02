@@ -211,9 +211,6 @@ class CognitivePipeline:
                 e.state.references["latest"] = previous
                 e.state.save(e.state_path)
                 return self._persist_answer(text, f"حتماً؛ موضوع قبلی «{previous}» را ادامه می‌دهم.", "REFERENCE", .99)
-        if low.startswith("موضوع اصلی ما ") and " است" in low:
-            reference=e.state.current_topic
-            if reference: references["resolved"]={"candidate":reference,"confidence":.99,"source":"explicit_topic"}
         if "موضوع قبلی" in low:
             current = clean(e.state.current_topic)
             previous = next((clean(x) for x in reversed(e.state.topic_stack)
@@ -390,6 +387,9 @@ class CognitivePipeline:
             reference=e.state.current_topic or e.state.references.get("latest","")
             if reference: references["resolved"]={"candidate":reference,"confidence":.88,"source":"ellipsis_context"}
 
+        if low.startswith("موضوع اصلی ما ") and " است" in low:
+            reference=e.state.current_topic
+            if reference: references["resolved"]={"candidate":reference,"confidence":.99,"source":"explicit_topic"}
         # Local retrieval.
         memory_context = self.memory_intelligence.build_context(text, e.state, limit=8)
         memory = [(c["kind"], c["content"], c["created_at"]) for c in memory_context["selected"]]
