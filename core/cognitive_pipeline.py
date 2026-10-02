@@ -317,10 +317,11 @@ class CognitivePipeline:
         parsed.update(e.analyzer.analyze(text, parsed))
         context_snapshot = self.context_tracker.observe(text, parsed)
 
-        # Stable local identity/project facts.
-        if low in {"سلام", "درود", "سلام ایران", "هی", "hello", "hi"}:
-            answer = "سلام 👋 من ایران هستم؛ یک معماری شناختی مستقل و کاملاً آفلاین. بگو روی چه موضوعی کار کنیم."
-            return self._persist_answer(text, answer, "SOCIAL", .99)
+        # General utterance meaning is classified before retrieval/reasoning; social turns
+        # still pass through the same canonical planning/generation/verification path.
+        meaning = e.understanding.analyze(text, e.state, parsed)
+        parsed["dialogue_act"] = meaning.dialogue_act
+        parsed["utterance_meaning"] = meaning.to_dict()
         if "اسم پروژه" in low or "نام پروژه" in low:
             return self._persist_answer(text, "نام پروژه IRAN است.")
         if "چرا ساخته شد" in low or "چرا ساختیش" in low:
@@ -439,7 +440,7 @@ class CognitivePipeline:
             previous_answer=e.state.last_assistant_answer,
             conversation_history=history,
             confidence=float(parsed.get("intent_score", .5)),
-            intent=parsed.get("intent", "general"),
+            intent=meaning.dialogue_act if meaning.dialogue_act != "unknown" else parsed.get("intent", "general"),
             correction=text if is_correction(text) else "",
             learning_guidance=learning_adaptation or {},
         )
