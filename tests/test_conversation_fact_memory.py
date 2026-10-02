@@ -56,7 +56,7 @@ class ConversationFactMemoryRegression(unittest.TestCase):
         try:
             self.assert_value_answer(r2.handle("اسم پروژه من چی بود؟"), "دانا")
             fs = r2.cognitive_system.pipeline.conversation_foundation.current_state()
-            self.assertEqual(fs.get("slots", {}).get("user.project_name"), "دانا")
+            self.assertEqual(fs.get("slots", {}).get("user.owned_name.پروژه"), "دانا")
             self.assertEqual(r2.cognitive_system.architecture_contract()["decision_owner"], "CognitiveSystem")
         finally:
             r2.close()
