@@ -1,0 +1,38 @@
+# IRAN Phase 2 — bounded operator bridge.
+# CognitiveSystem remains final authority. These rules only operate on
+# structured candidate operators placed on the input-link by IRAN.
+
+sp {iran*propose*operator
+   (state <s> ^superstate nil
+              ^io.input-link <il>)
+   (<il> ^iran <root>)
+   (<root> ^candidate <c>)
+   (<c> ^name <name>
+        ^eligible yes)
+-->
+   (<s> ^operator <o> +)
+   (<o> ^name <name>)
+}
+
+sp {iran*apply*operator
+   (state <s> ^superstate nil
+              ^operator <o>
+              ^io.output-link <ol>)
+   (<o> ^name <name>)
+-->
+   (<ol> ^decision <cmd>)
+   (<cmd> ^operator <name>)
+}
+
+# A true Soar tie impasse creates a substate. We surface that through the
+# output link so IRAN can perform bounded deeper problem solving, then feed
+# the result back through a subsequent controlled cycle.
+sp {iran*surface*tie-impasse
+   (state <sub> ^superstate <super>
+                ^impasse tie)
+   (<super> ^io.output-link <ol>)
+-->
+   (<ol> ^impasse <cmd>)
+   (<cmd> ^status tie
+          ^resolution retrieve-evidence)
+}
