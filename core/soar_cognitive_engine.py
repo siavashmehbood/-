@@ -652,13 +652,30 @@ class SoarCognitiveEngine:
         }
 
     def close(self):
-        """Detach this runtime from the process-owned SML kernel.
+        """Commit native EPMem, then detach from the process-owned SML kernel.
 
-        The official 9.6.5 Python wheel reproducibly crashes when native Kernel
-        shutdown is repeated in one interpreter. The process-owned kernel keeps
-        native lifetime stable; the OS reclaims it at process exit. Production
-        normally has one runtime, while tests may create isolated agents.
+        Soar's official epmem --backup command commits outstanding EPMem
+        changes before copying the database. This gives IRAN durable native
+        episodic state without invoking Kernel.Shutdown(), which is unsafe in
+        repeated Python 9.6.5 runtime teardown.
         """
+        if self.real_soar and self.agent is not None:
+            try:
+                self.epmem_path.parent.mkdir(parents=True, exist_ok=True)
+                self._cmd(f"epmem --backup {self._cli_symbol(self.epmem_path)}")
+                self._emit("soar_epmem_persisted", {
+                    "path": str(self.epmem_path),
+                    "exists": self.epmem_path.exists(),
+                    "native": True,
+                    "canonical": True,
+                })
+            except Exception as exc:
+                self._emit("soar_epmem_persist_error", {
+                    "error_type": type(exc).__name__,
+                    "error": str(exc),
+                    "path": str(self.epmem_path),
+                    "canonical": True,
+                })
         try:
             self._clear_input()
         except Exception:
