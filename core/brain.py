@@ -10,7 +10,12 @@ class Brain:
         self.discourse=DiscourseMemory()
         self.semantic=LocalSemanticModel()
 
-    def ask(self,messages,**kwargs): return self.provider.generate(messages,**kwargs)
+    def ask(self,messages,**kwargs):
+        canonical = getattr(self, "_canonical_system", None)
+        if canonical is not None:
+            text = messages[-1].get("content", "") if messages and isinstance(messages[-1], dict) else str(messages)
+            return canonical.dispatch(text)
+        return self.provider.generate(messages,**kwargs)
 
     def analyze(self,text):
         analysis=self.language.analyze(text)
