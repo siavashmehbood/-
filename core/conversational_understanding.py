@@ -33,7 +33,7 @@ class ConversationalUnderstanding:
     FOLLOW={"چرا":"explanation_request","چطور":"follow_up","چگونه":"follow_up","بعدش":"continuation",
             "ادامه بده":"continuation","مثال بزن":"example_request","یعنی چی":"clarification",
             "ساده تر بگو":"simplify","ساده‌تر بگو":"simplify","کوتاه بگو":"length_control",
-            "کامل توضیح بده":"length_control"}
+            "کامل توضیح بده":"length_control","بعدش":"continuation","بعدش؟":"continuation"}
     def __init__(self,language_engine=None): self.language_engine=language_engine
     def normalize(self,text):
         t=str(text or "").strip().replace("ي","ی").replace("ك","ک")
@@ -54,7 +54,9 @@ class ConversationalUnderstanding:
         if act=="unknown" and re.match(r"^(نه|منظورم|اشتباه فهمیدی|نه منظورم)",low):act="correction"
         if act=="unknown" and any(x in low for x in ("برگردیم","برگرد بحث","بحث قبلی","موضوع قبلی")):act="return_to_topic"
         if act=="unknown" and any(x in low for x in ("فرق ","تفاوت ","مقایسه")):act="comparison"
-        if act=="unknown" and any(x in low for x in ("مطمئنی","از کجا فهمیدی","چرا این جواب")):act="meta_conversation"
+        if act=="unknown" and any(x in low for x in ("مطمئنی","از کجا فهمیدی","چرا این جواب","تو چی جواب دادی","من چی پرسیدم","بحثمون سر چی بود")):act="meta_conversation"
+        if act=="unknown" and any(x in low for x in ("یعنی چی","یعنی چه","منظورت چیه","منظورت چیست")):act="clarification"
+        if act=="unknown" and any(x in low for x in ("اون یکی","کدوم یکی","کدام یکی")):act="clarification"
         if act=="unknown" and any(x in low for x in ("باز کن","ببند","اجرا کن","بنویس","کلیک","اسکرین")):act="tool_request"
         if act=="unknown" and any(x in low for x in ("یاد بگیر","یادگیری","از صفر تا صد یاد","می‌خواهم یاد بگیر","میخوام یاد بگیر")):act="learning_request"
         if act=="unknown" and any(x in low for x in ("واقعیت","اطلاعات","بگو","توضیح بده")) and not any(x in low for x in ("همون","قبلی","ادامه","بیشتر")) and ("؟" not in norm and "?" not in norm):act="information_request"
