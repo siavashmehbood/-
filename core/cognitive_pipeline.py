@@ -39,7 +39,9 @@ class CognitivePipeline:
         self.reasoning_planning = ReasoningPlanningEngine()
         self.semantic_verifier = SemanticVerifier()
         from core.self_correction import SelfCorrectionEngine
+        from core.rasa_foundation import RasaFoundationAdapter
         self.self_correction = SelfCorrectionEngine(__import__("pathlib").Path(self.runtime.root) / "data" / "self_corrections.json")
+        self.conversation_foundation = RasaFoundationAdapter()
 
     def _emit(self, event, data):
         try:
