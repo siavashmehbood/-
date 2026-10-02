@@ -194,3 +194,5 @@ class JarvisIntegrationTests(unittest.TestCase):
         finally:r2.close()
 
 if __name__=="__main__": unittest.main()
+
+# Validation marker: trigger Windows Jarvis acceptance for conversation-memory changes.
