@@ -300,6 +300,50 @@ class SemanticIntelligence:
             return str(slots[f"semantic.entity.{typ}"])
         return str(slots.get("semantic.last_entity") or "")
 
+    def _token_frame(self, linguistic, slots, turn):
+        """Extract generic relation frames from token structure, not test phrases.
+
+        This is the deterministic fallback equivalent of matcher/dependency
+        concepts from spaCy/Stanza: downstream code consumes the same internal
+        token/entity/fact contract regardless of backend.
+        """
+        toks=[t.normalized for t in linguistic.tokens]
+        if not toks:
+            return [],[]
+        entities=[]; facts=[]
+        # Find a known entity-type noun, then an open-class name after an
+        # explicit naming relation (اسم/نام). The name token is unrestricted.
+        for i,tok in enumerate(toks):
+            typ=self._entity_type_from_text(tok)
+            if not typ:
+                continue
+            name_idx=-1
+            for j in range(i+1,min(len(toks),i+8)):
+                if toks[j] in {"اسم","نام"}:
+                    name_idx=j+1
+                    break
+            if name_idx<0 or name_idx>=len(toks):
+                continue
+            while name_idx<len(toks) and toks[name_idx] in {"ش","من","به","رو","را"}:
+                name_idx+=1
+            if name_idx>=len(toks):
+                continue
+            candidate=toks[name_idx]
+            if candidate in self.QUESTION_MARKERS or candidate in {"چی","چیه","چیست","چه","کدام","کدوم"}:
+                continue
+            candidate=self._strip_copula(candidate)
+            if not candidate:
+                continue
+            eid=self._entity_id(typ,candidate,slots)
+            entities.append(EntityMention(eid,candidate,typ,"token_relation",-1,-1,.82,"iran_token_frame"))
+            facts.append(SemanticFact(eid,"name",candidate,typ,source_turn=turn,
+                                      confidence=.84,provenance="explicit_user_statement:token_frame"))
+            if typ=="project" and any(x in toks for x in ("کار","دارم")):
+                facts.append(SemanticFact("user","works_on",eid,"user",source_turn=turn,
+                                          confidence=.82,provenance="explicit_user_statement:token_frame"))
+            break
+        return entities,facts
+
     def _extract_named_entity(self, text, linguistic, slots, turn):
         n = normalize_fa(text)
         facts=[]; entities=[]
@@ -409,6 +453,8 @@ class SemanticIntelligence:
         # Questions, commands, speculation and uncertainty are context, never facts.
         if utterance in {"statement","preference","correction"}:
             a,b=self._extract_named_entity(text,linguistic,slots,source_turn); entities+=a; facts+=b
+            if not b:
+                a,b=self._token_frame(linguistic,slots,source_turn); entities+=a; facts+=b
             a,b=self._extract_person(text,slots,source_turn); entities+=a; facts+=b
             if utterance in {"preference","statement"}:
                 facts+=self._extract_preference(text,source_turn)
