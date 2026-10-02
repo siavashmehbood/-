@@ -45,10 +45,25 @@ def run_cli():
                 print(runtime.knowledge.query(text[11:].strip(), limit=20))
                 continue
             if cmd=='/tools': print(runtime.registry.list()); continue
+            if cmd=='/voice':
+                try:
+                    from core.voice import VoskSpeechToText, WindowsTextToSpeech, VoiceAssistant, WakeWord
+                    import os
+                    model=os.environ.get("IRAN_VOSK_MODEL","")
+                    if not model: print("IRAN_VOSK_MODEL تنظیم نشده؛ text mode فعال است."); continue
+                    assistant=VoiceAssistant(runtime,VoskSpeechToText(model),
+                        WindowsTextToSpeech() if sys.platform=="win32" else None,WakeWord(os.environ.get("IRAN_WAKE_WORD","ایران"),True))
+                    transcript=assistant.stt.listen()
+                    if assistant.wake_word.detect(transcript):
+                        answer=runtime.handle(transcript); print("ایران > "+answer)
+                        if assistant.tts: assistant.tts.speak(answer)
+                    else: print("Wake word detected نشد.")
+                except Exception as exc: print(f"Voice unavailable: {type(exc).__name__}: {exc}")
+                continue
             if cmd=='/evaluate': print(evaluator.smoke_test()); continue
             if cmd=='/sandbox': snap=improver.create_snapshot(); print(snap); print(evaluator.evaluate_candidate(snap['snapshot'])); continue
             if cmd=='/reason': print(reasoner.analyze(input('Goal > ').strip())); continue
-            if cmd=='/help': print('/status /health /metrics /memory /events /trace /quality /benchmark /knowledge QUERY /tools /evaluate /sandbox /reason /goal TITLE /complete ID /tool NAME /run TEXT /exit'); continue
+            if cmd=='/help': print('/status /health /metrics /memory /events /trace /quality /benchmark /knowledge QUERY /tools /voice /evaluate /sandbox /reason /goal TITLE /complete ID /tool NAME /run TEXT /exit'); continue
             if text: print('ایران > '+runtime.handle(text))
     finally: runtime.close()
 if __name__=='__main__': run_cli()
