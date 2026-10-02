@@ -314,7 +314,7 @@ class AnswerPlanner:
         conversational={"greeting":"SOCIAL","farewell":"SOCIAL","gratitude":"SOCIAL","apology":"SOCIAL",
                         "acknowledgement":"SOCIAL","emotional_expression":"SOCIAL","meta_conversation":"META",
                         "return_to_topic":"REFERENCE","simplify":"REEXPLAIN","example_request":"EXAMPLE",
-                        "length_control":"STYLE","continuation":"FOLLOW_UP","tool_request":"ACTION",
+                        "length_control":"STYLE","continuation":"FOLLOW_UP","follow_up":"FOLLOW_UP","tool_request":"ACTION",
                         "learning_request":"LEARNING"}
         if context.intent in conversational: answer_type=conversational[context.intent]
         elif qtype == "correction": answer_type = "CORRECTION"
