@@ -400,6 +400,9 @@ class LocalDialogueEngine:
         self.state_path = Path(runtime.root) / "data" / "conversation_state.json"
         self.state = ConversationState.load(self.state_path)
         self.analyzer = QuestionAnalyzer()
+        from core.conversational_understanding import ConversationalUnderstanding
+        language_engine=getattr(getattr(runtime,"brain",None),"language",None)
+        self.understanding=ConversationalUnderstanding(language_engine)
         self.resolver = ReferenceResolver()
         self.planner = AnswerPlanner()
         self.verifier = AnswerVerifier()
@@ -542,6 +545,9 @@ class LocalDialogueEngine:
         if not clean_text:
             return "چیزی برای پردازش دریافت نکردم."
         parsed = self._parse(clean_text)
+        meaning=self.understanding.analyze(clean_text,self.state,parsed)
+        parsed["dialogue_act"]=meaning.dialogue_act
+        parsed["utterance_meaning"]=meaning.to_dict()
         history = self.runtime.memory.recent(20)
         refs, resolved = self._references(clean_text, parsed, history)
         memory = self._memory(clean_text)
@@ -571,6 +577,7 @@ class LocalDialogueEngine:
             intent=parsed.get("intent", "general"),
             correction=clean_text if is_correction(clean_text) else "",
         )
+        context.intent = meaning.dialogue_act if meaning.dialogue_act != "unknown" else context.intent
         # Retrieve learned guidance before planning so persisted experience changes
         # the actual response strategy on the next turn.
         try:
