@@ -49,6 +49,19 @@ class GeneralConversationTests(unittest.TestCase):
             r.handle("پایتون چیه؟"); a=r.handle("تو چی جواب دادی؟")
             self.assertNotIn("تاریخچه",a); self.assertTrue(len(a)>5)
         finally:r.close()
+    def test_learning_request_routes_to_governed_mission(self):
+        r=self.runtime()
+        try:
+            before=len(r.learning_missions.list())
+            a=r.handle("پایتون رو از صفر تا صد یاد بگیر")
+            after=r.learning_missions.list()
+            self.assertGreater(len(after),before)
+            self.assertIn("مأموریت یادگیری",a)
+            self.assertIn("learning:",r.conversation_snapshot().get("active_goal",""))
+            self.assertEqual(after[-1].get("status"),"active")
+            self.assertEqual(after[-1].get("approved_learning_ids"),[])
+        finally:r.close()
+
     def test_restart_restores_conversation_state(self):
         r=self.runtime(); root=r.root
         try:r.handle("پایتون چیه؟")
