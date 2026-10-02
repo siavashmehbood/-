@@ -12,10 +12,10 @@ class Brain:
 
     def ask(self,messages,**kwargs):
         canonical = getattr(self, "_canonical_system", None)
-        if canonical is not None:
-            text = messages[-1].get("content", "") if messages and isinstance(messages[-1], dict) else str(messages)
-            return canonical.dispatch(text)
-        return self.provider.generate(messages,**kwargs)
+        if canonical is None:
+            raise RuntimeError("Brain.ask is a compatibility facade; bind CognitiveSystem before requesting a final answer")
+        text = messages[-1].get("content", "") if messages and isinstance(messages[-1], dict) else str(messages)
+        return canonical.dispatch(text)
 
     def analyze(self,text):
         analysis=self.language.analyze(text)
