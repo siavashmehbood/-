@@ -71,8 +71,18 @@ class DesktopTools:
         aliases={"calculator":"calc.exe","calc":"calc.exe","notepad":"notepad.exe","vscode":"code.exe","vs code":"code.exe"}
         exe=aliases.get(str(name).strip().lower(),str(name).strip())
         proc=subprocess.Popen([exe],creationflags=getattr(subprocess,"CREATE_NO_WINDOW",0))
-        time.sleep(.4)
-        return {"application":exe,"pid":proc.pid,"running":proc.poll() is None}
+        time.sleep(.6)
+        running=proc.poll() is None
+        observed=[]
+        if not running:
+            try:
+                out=subprocess.run(["tasklist","/FO","CSV","/NH"],capture_output=True,text=True,check=True,timeout=10).stdout.lower()
+                stems={"calc.exe":("calculatorapp.exe","calculator.exe","win32calc.exe"),
+                       "notepad.exe":("notepad.exe",),"code.exe":("code.exe",)}
+                observed=[candidate for candidate in stems.get(exe.lower(),(exe.lower(),)) if candidate in out]
+                running=bool(observed)
+            except Exception: pass
+        return {"application":exe,"pid":proc.pid,"running":running,"observed_processes":observed}
     def list_running_apps(self):
         if os.name!="nt": raise OSError("application enumeration requires Windows")
         out=subprocess.run(["tasklist","/FO","CSV","/NH"],capture_output=True,text=True,check=True,timeout=15)
