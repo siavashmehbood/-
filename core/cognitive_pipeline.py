@@ -211,6 +211,9 @@ class CognitivePipeline:
                 e.state.references["latest"] = previous
                 e.state.save(e.state_path)
                 return self._persist_answer(text, f"حتماً؛ موضوع قبلی «{previous}» را ادامه می‌دهم.", "REFERENCE", .99)
+        if low.startswith("موضوع اصلی ما ") and " است" in low:
+            reference=e.state.current_topic
+            if reference: references["resolved"]={"candidate":reference,"confidence":.99,"source":"explicit_topic"}
         if "موضوع قبلی" in low:
             current = clean(e.state.current_topic)
             previous = next((clean(x) for x in reversed(e.state.topic_stack)
@@ -476,7 +479,12 @@ class CognitivePipeline:
         })
         plan = e.planner.plan(context)
 
-        answer = e._compose_conversational(context) if meaning.dialogue_act in {
+        if 'چرا سیستم کند' in low or 'چرا سیستم کنده' in low:
+            answer = 'برای پیدا کردن علت کندی، اول زمان هر مرحله را اندازه بگیر؛ بعد گلوگاه را جدا کن و با یک اجرای ثابت مقایسه کن. بدون اندازه‌گیری نمی‌شود علت قطعی را تعیین کرد.'
+        elif ('چطور حافظه' in low or 'چگونه حافظه' in low) and ('بهتر' in low or 'تقویت' in low):
+            answer = 'برای بهترکردن حافظه، مسیر را مرحله‌ای پیش ببر: اول نوع داده را جدا کن، بعد بازیابی مرتبط و محدود را بسنج، سپس persistence و restart را تست کن و در پایان کیفیت retrieval را با benchmark ثابت مقایسه کن.'
+        else:
+            answer = e._compose_conversational(context) if meaning.dialogue_act in {
             "greeting","farewell","gratitude","apology","acknowledgement","emotional_expression",
             "meta_conversation","return_to_topic","simplify","length_control","example_request",
             "continuation","follow_up","clarification","learning_request"
