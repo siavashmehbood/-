@@ -1285,6 +1285,11 @@ class IranRuntime:
         except Exception:
             pass
         try:
+            if getattr(self, "cognitive_system", None) is not None:
+                self.cognitive_system.close()
+        except Exception:
+            pass
+        try:
             self.memory.close()
         except Exception:
             pass
