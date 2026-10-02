@@ -103,17 +103,15 @@ class CognitiveSystem:
             learning_intent=LearningMissionManager.parse_intent(clean_text)
         except Exception:
             learning_intent=None
-        if learning_intent and learning_intent.get("action")=="create":
-            topic=str(learning_intent.get("topic") or "").strip()
-            if topic:
-                mission=self.runtime.learning_missions.create(
-                    topic, learning_intent.get("scope","full"), source_request=clean_text,
-                    domain=self.runtime.self_directed_learning.detect_domain(topic))
-                self.dialogue.state.active_goal=f"learning:{mission['mission_id']}:{topic}"
+        if learning_intent:
+            result=self.runtime._handle_learning_mission_intent(learning_intent,clean_text)
+            mission=self.runtime.learning_missions.find(learning_intent.get("topic",""))
+            if mission:
+                self.dialogue.state.active_goal=f"learning:{mission['mission_id']}:{mission['title']}"
                 self.dialogue.state.save(self.dialogue.state_path)
-                self.last_answer=f"مأموریت یادگیری «{topic}» ساخته شد و از مسیر curriculum، assessment، reviewer، تأیید انسانی و Learning Gate ادامه پیدا می‌کند."
-                self.last_output={"learning_mission":mission["mission_id"],"answer":self.last_answer}
-                return self.last_answer
+            self.last_answer=str(result)
+            self.last_output={"learning_mission":mission.get("mission_id") if mission else None,"answer":self.last_answer}
+            return self.last_answer
         routed = getattr(getattr(self.runtime, "orchestrator", None), "router", None)
         if routed is not None:
             tool_name, arguments = routed.choose(clean_text)
