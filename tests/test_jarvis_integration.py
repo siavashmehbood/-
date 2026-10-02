@@ -117,9 +117,11 @@ class JarvisIntegrationTests(unittest.TestCase):
             {"status":"act","tool":"system_info","arguments":{}},
         ])
         try:
-            result=r.computer_use.adaptive_run("recover",lambda:next(states),lambda *a:next(decisions),
-                max_consecutive_failures=3)
-            self.assertEqual(result["final_outcome"],"goal_complete" if result["success"] else result["final_outcome"])
+            def decide(*args):
+                try:return next(decisions)
+                except StopIteration:return {"status":"goal_complete"}
+            result=r.computer_use.adaptive_run("recover",lambda:next(states),decide,max_consecutive_failures=3)
+            self.assertTrue(result["success"]); self.assertEqual(result["final_outcome"],"goal_complete")
             self.assertTrue(result["recoveries"])
         except StopIteration:
             self.fail("adaptive loop did not complete through replanning")
