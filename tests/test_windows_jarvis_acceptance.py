@@ -43,7 +43,10 @@ class WindowsJarvisAcceptance(unittest.TestCase):
                 windows=[w for w in obs.get("visible_windows",[]) if "notepad" in str(w.get("title","")).lower()]
                 if not windows:return {"status":"safe_stop"}
                 return {"status":"act","tool":"focus_window","arguments":{"hwnd":windows[0]["hwnd"]},"permission_granted":True,"verification":{"type":"window_title","contains":"Notepad"}}
-            if n==2:return {"status":"act","tool":"keyboard_type","arguments":{"text":sentence},"permission_granted":True}
+            if n==2:
+                windows=[w for w in obs.get("visible_windows",[]) if "notepad" in str(w.get("title","")).lower()]
+                if not windows:return {"status":"safe_stop"}
+                return {"status":"act","tool":"uia_type_text","arguments":{"hwnd":windows[0]["hwnd"],"text":sentence},"permission_granted":True}
             if n==3:
                 windows=[w for w in obs.get("visible_windows",[]) if "notepad" in str(w.get("title","")).lower()]
                 if not windows:return {"status":"safe_stop"}
@@ -51,7 +54,7 @@ class WindowsJarvisAcceptance(unittest.TestCase):
             return {"status":"goal_complete"}
         try:
             result=runtime.computer_use.adaptive_run("Open Notepad and type: "+sentence,lambda:observer.observe(capture=False),decide,timeout_seconds=30,max_consecutive_failures=4)
-            self.assertTrue(any(a["tool"]=="keyboard_type" for a in result["actions"]))
+            self.assertTrue(any(a["tool"]=="uia_type_text" for a in result["actions"]))
             observed=[a for a in result["actions"] if a["tool"]=="uia_document_text"]
             self.assertTrue(observed)
             self.assertIn(sentence,observed[-1]["outcome"]["execution"]["result"]["text"])
