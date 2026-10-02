@@ -25,13 +25,20 @@ class Memory:
         if row:
             self.conn.execute('UPDATE memories SET importance=MAX(importance,?),confidence=MAX(confidence,?),access_count=access_count+1,last_access=?,source=? WHERE id=?',(float(importance),conf,now,str(source),row[0])); self.conn.commit(); return row[0]
         cur=self.conn.execute('INSERT INTO memories(kind,content,importance,created_at,last_access,confidence,source) VALUES(?,?,?,?,?,?,?)',(str(kind),content,max(0,min(1,float(importance))),now,now,max(0,min(1,conf)),str(source))); self.conn.commit(); return cur.lastrowid
-    def recent(self,limit=8): return list(reversed(self.conn.execute('SELECT kind,content,created_at FROM memories ORDER BY id DESC LIMIT ?',(int(limit),)).fetchall()))
+    def recent(self,limit=8):
+        # Internal cognitive episodes are deliberately excluded from generic
+        # conversation recency. They remain available through explicit
+        # kind='soar_episode' retrieval for episodic reasoning.
+        return list(reversed(self.conn.execute(
+            'SELECT kind,content,created_at FROM memories WHERE kind != ? ORDER BY id DESC LIMIT ?',
+            ('soar_episode',int(limit))).fetchall()))
     def search(self,query,limit=8,kind=None):
         query=self._norm(query)
         if not query:return self.recent(limit)
         q=self._tokens(query); rows=self.conn.execute('SELECT id,kind,content,importance,access_count,created_at,confidence FROM memories ORDER BY id DESC LIMIT 20000').fetchall(); now=datetime.now(); scored=[]
         for _,k,c,imp,access,created,conf in rows:
             if kind and k!=kind:continue
+            if kind is None and k=='soar_episode':continue
             toks=self._tokens(c); inter=q&toks
             if not inter:continue
             overlap=len(inter)/max(1,len(q)); phrase=float(query.lower() in c.lower())
