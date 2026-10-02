@@ -8,15 +8,17 @@ class SecurityPolicy:
         self.allow_shell = bool(security.get('allow_shell', False))
         self.config_network = bool(security.get('allow_network_tools', False))
 
-    def allows(self, permission):
+    def allows(self, permission, explicit=False):
         if permission == 'read':
             return True
         if permission == 'network':
             if self.internet_access is not None:
                 return bool(self.internet_access.status().get('enabled'))
             return bool(self.config_network)
-        if permission in {'destructive', 'input_control'}:
-            return False
+        if permission == 'destructive':
+            return bool(explicit) and not self.safe_mode
+        if permission == 'input_control':
+            return bool(explicit)
         if self.safe_mode and permission in {'write', 'shell', 'deploy'}:
             return False
         if permission == 'shell':
