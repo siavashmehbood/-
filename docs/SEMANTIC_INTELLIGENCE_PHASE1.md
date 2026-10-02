@@ -34,11 +34,27 @@ Stanza is not a mandatory runtime dependency. If Stanza and Persian resources ar
 
 ### DeepPavlov
 
-No DeepPavlov dependency/model is installed. Phase 1 adopts its structured-NLU concepts only: entity extraction, relation/fact representation, entity linking and contextual query interpretation. It is not used as a dialogue manager or answer generator.
+DeepPavlov documents NER, slot filling and classification/intent components, but
+the published pretrained examples do not establish a sufficiently strong Persian,
+offline, dependency-light fit for this runtime. Phase 1 therefore adopts the
+requested structured-NLU concepts only: typed entity spans, normalized slots,
+intent-separated interpretation, relation/fact representation and entity linking.
+No DeepPavlov dialogue manager or answer generator is introduced.
+
+Official sources:
+- https://docs.deeppavlov.ai/en/master/features/models/NER.html
+- https://docs.deeppavlov.ai/en/0.12.1/features/overview.html
 
 ### Haystack
 
-No Haystack dependency, vector database or cloud service is added. Its requested architecture concepts are implemented internally: evidence records, metadata-rich retrieval, filtering/ranking, provenance, duplicate/supersession handling, and storage/retrieval separation.
+Haystack documents a clear separation between Document Stores and Retrievers.
+IRAN keeps its existing Memory/Knowledge storage and implements the same contract
+through `SemanticEvidenceRetriever` and metadata-rich `EvidenceRecord` objects.
+No Haystack dependency, vector database, embedding service or cloud store is added.
+
+Official sources:
+- https://docs.haystack.deepset.ai/docs/3.2/retrievers
+- https://docs.haystack.deepset.ai/docs/3.3-unstable/document-store
 
 ## Fallback
 
