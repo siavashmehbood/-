@@ -224,3 +224,24 @@ def test_reviewed_numeric_evidence_survives_restart_and_rejects_wrong_value(tmp_
         assert not any(row[0] == 'assistant' and row[1] == candidate for row in r.memory.recent(10))
     finally:
         r.close()
+
+
+def test_unknown_records_weakness_and_creates_canonical_learning_mission(tmp_path):
+    from self.cognitive_growth import WeaknessLedger
+    shutil.copy(Path(__file__).parents[1]/'config.json', tmp_path)
+    r = IranRuntime(tmp_path)
+    try:
+        answer = r.handle('دمای دقیق هسته مشتری در سال ۱۴۲۰ چند است؟')
+        assert answer.startswith('UNKNOWN:')
+        rows = WeaknessLedger(tmp_path/'data'/'weaknesses.json').rows
+        assert rows
+        weakness = rows[-1]
+        assert weakness['capability'] == 'uncertainty_or_knowledge'
+        assert weakness['status'] == 'open'
+        assert weakness['proposed_learning_goal']
+        assert any(
+            m.get('source_request') == f"weakness:{weakness['weakness_id']}"
+            for m in r.learning_missions.list()
+        )
+    finally:
+        r.close()
