@@ -137,12 +137,12 @@ class LearningMissionManager:
             topic = re.sub(r"\s*(رو|را)\s*$", "", topic).strip()
             topic = re.sub(r"^(این موضوع|موضوع)\s*", "", topic)
             return {"action": "create", "topic": topic, "scope": "full", "explicit_add": True} if topic else None
-        learn_marks = ("یادش بده", "یاد بده", "یاد بدهید", "آموزش بده", "آموزش بدهید", "teach me", "teach ")
+        learn_marks = ("یادش بده", "یاد بده", "یاد بدهید", "آموزش بده", "آموزش بدهید", "یاد بگیر", "یاد بگیرم", "teach me", "teach ", "learn ")
         if any(mark in t for mark in learn_marks):
             # Topic is the explicit object before the learning verb.
             matches = [t.find(mark) for mark in learn_marks if mark in t]
             topic = raw[:min(matches)] if matches else ""
-            topic = re.sub(r"\b(?:teach me|teach)\b.*$", "", topic, flags=re.I)
+            topic = re.sub(r"\b(?:teach me|teach|learn)\b.*$", "", topic, flags=re.I)
             topic = re.sub(r"^(?:لطفا|لطفاً)\s*", "", topic, flags=re.I)
             topic = re.sub(r"^(فقط|صرفا|صرفاً|only|just)\s*", "", topic, flags=re.I)
             topic = re.sub(r"\s*(رو|را|را به من|رو به من)\s*$", "", topic, flags=re.I)
