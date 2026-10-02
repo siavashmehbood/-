@@ -40,8 +40,11 @@ class CognitivePipeline:
         self.semantic_verifier = SemanticVerifier()
         from core.self_correction import SelfCorrectionEngine
         from core.rasa_foundation import RasaFoundationAdapter
+        from core.semantic_intelligence import SemanticIntelligence
         self.self_correction = SelfCorrectionEngine(__import__("pathlib").Path(self.runtime.root) / "data" / "self_corrections.json")
         self.conversation_foundation = RasaFoundationAdapter(path=__import__("pathlib").Path(self.runtime.root)/"data"/"conversation_events.json")
+        self.semantic_intelligence = SemanticIntelligence(self.runtime.memory)
+        self.last_semantic_turn = None
 
     def _emit(self, event, data):
         try:
@@ -55,6 +58,22 @@ class CognitivePipeline:
         facts = list(getattr(self.runtime.knowledge, 'facts', []))
         facts.extend(list(turn_knowledge or []))
         facts.extend(self.runtime.user_model.current_profile(30))
+        # Structured semantic facts outrank raw history as evidence. Keep only
+        # the newest value per subject/relation while preserving provenance.
+        try:
+            rows = self.runtime.memory.conn.execute(
+                "SELECT subject,predicate,value,confidence,source,updated_at FROM semantic_facts ORDER BY updated_at DESC,id DESC"
+            ).fetchall()
+            seen_rel = set()
+            for subject,predicate,value,confidence,source,updated_at in rows:
+                key=(str(subject),str(predicate))
+                if key in seen_rel:
+                    continue
+                seen_rel.add(key)
+                facts.append({"subject":subject,"predicate":predicate,"object":value,
+                              "confidence":confidence,"source":source,"updated_at":updated_at})
+        except Exception:
+            pass
         facts.extend({'subject':'user', 'predicate':'statement', 'object':row[1], 'source':'user_statement'}
                      for row in self.runtime.memory.recent(16) if row[0] == 'user')
         # Preserve provenance while avoiding duplicate evidence inflation.
@@ -68,6 +87,19 @@ class CognitivePipeline:
         return unique
 
     def _persist_answer(self, text, answer, answer_type="DIRECT_FACT", score=.95):
+        # A raw user turn or a near-copy of the question is never accepted as a
+        # final answer merely because retrieval found similar text.
+        try:
+            recent_users=[row[1] for row in self.runtime.memory.recent(20)
+                          if isinstance(row,(tuple,list)) and len(row)>=2 and row[0]=="user"]
+            semantic_answer=getattr(getattr(self,"last_semantic_turn",None),"semantic_answer","")
+            answer,blocked,reason=self.semantic_intelligence.anti_echo(
+                text,answer,recent_users,semantic_answer)
+            if blocked:
+                answer_type="SEMANTIC_REPAIR" if semantic_answer else "ANTI_ECHO"
+                self._emit("anti_echo_guard",{"blocked":True,"reason":reason,"canonical":True})
+        except Exception:
+            pass
         checked = self.semantic_verifier.verify(
             text, answer,
             constraints=getattr(self.engine.state, "remembered_constraints", []),
@@ -161,7 +193,48 @@ class CognitivePipeline:
         foundation_meaning = e.understanding.analyze(text, e.state, foundation_parsed)
         self.conversation_foundation.ingest(foundation_meaning, foundation_parsed)
 
-        # Explicit user facts are learned before interpretation; questions do not create facts.
+        # Semantic intelligence sits under CognitiveSystem and above retrieval.
+        # It analyzes structure, extracts explicit facts and resolves semantic
+        # references before raw conversation-history similarity is considered.
+        try:
+            foundation_slots=self.conversation_foundation.current_state().get("slots",{})
+            source_turn=len(getattr(e.state,"turns",[]) or []) + 1
+            semantic_turn=self.semantic_intelligence.analyze(
+                text,slots=foundation_slots,source_turn=source_turn)
+            self.last_semantic_turn=semantic_turn
+            semantic_stored=self.semantic_intelligence.persist_explicit_facts(
+                semantic_turn,self.runtime.user_model)
+            self.semantic_intelligence.sync_foundation(
+                semantic_turn,self.conversation_foundation)
+            semantic_answer=self.semantic_intelligence.answer(semantic_turn)
+            self._emit("semantic_analysis",semantic_turn.public_trace())
+            e.last_semantic_trace={
+                "raw_input": text,
+                "linguistic_analysis": semantic_turn.linguistic.to_dict(),
+                "entities": [__import__("dataclasses").asdict(x) for x in semantic_turn.linguistic.entities],
+                "facts": [__import__("dataclasses").asdict(x) for x in semantic_turn.facts],
+                "resolved_references": list(semantic_turn.resolved_references),
+                "retrieved_evidence": [x.to_dict() for x in semantic_turn.evidence],
+                "answer_candidate": semantic_answer,
+            }
+            if semantic_stored:
+                self._emit("semantic_facts_stored",{
+                    "count":len(semantic_stored),
+                    "relations":[x.get("predicate","") for x in semantic_stored],
+                    "canonical":True,
+                })
+            if semantic_answer:
+                e.last_semantic_trace["final_answer"]=semantic_answer
+                return self._persist_answer(text,semantic_answer,"SEMANTIC_FACT",.99)
+        except Exception as semantic_error:
+            # Optional semantic analysis is fail-safe. The existing canonical
+            # pipeline remains available and the failure is observable.
+            self._emit("semantic_analysis_fallback",{
+                "error_type":type(semantic_error).__name__,
+                "canonical":True,
+            })
+
+        # Explicit legacy user facts are learned before interpretation; questions do not create facts.
         extracted = []
         try:
             if hasattr(self.runtime, "user_model"):
@@ -597,6 +670,20 @@ class CognitivePipeline:
         if verification.status == "UNKNOWN":
             answer = "UNKNOWN: برای این سؤال در دانش و شواهد محلی اطلاعات کافی ندارم؛ نمی‌خواهم حدس را به‌عنوان واقعیت بگویم."
 
+        # Critical anti-echo gate before final acceptance. Structured semantic
+        # evidence may repair an echo; otherwise questions fail closed instead of
+        # returning a raw previous user turn.
+        try:
+            recent_users=[row[1] for row in self.runtime.memory.recent(20)
+                          if isinstance(row,(tuple,list)) and len(row)>=2 and row[0]=="user"]
+            semantic_answer=getattr(getattr(self,"last_semantic_turn",None),"semantic_answer","")
+            answer,blocked,reason=self.semantic_intelligence.anti_echo(
+                text,answer,recent_users,semantic_answer)
+            if blocked:
+                self._emit("anti_echo_guard",{"blocked":True,"reason":reason,"canonical":True})
+        except Exception:
+            pass
+
         # Validate the repaired answer before accepting or storing it. The
         # final outer checker must not be the first to see a contradiction.
         final_check = self.semantic_verifier.verify(
@@ -677,6 +764,20 @@ class CognitivePipeline:
         self._emit("learning_update", {"score": verification.score, "canonical": True})
         self._emit("response_generated", {"goal": text, "route": "unified_cognitive_response", "mode": "UNKNOWN" if answer.startswith("UNKNOWN:") else ("DIRECT_FACT" if knowledge else "DIRECT"), "score": verification.score, "verified": verification.status == "PASS", "canonical": True})
         self._emit("canonical_cognitive_turn", trace.__dict__)
+        try:
+            if getattr(e,"last_semantic_trace",None) is not None:
+                e.last_semantic_trace["reasoning_inputs"]={
+                    "memory_count":len(memory),"knowledge_count":len(knowledge),
+                    "reference":reference,
+                }
+                e.last_semantic_trace["verification"]={
+                    "status":verification.status,
+                    "score":verification.score,
+                    "evidence_status":trace.evidence_status,
+                }
+                e.last_semantic_trace["final_answer"]=answer
+        except Exception:
+            pass
         return answer
 
 
