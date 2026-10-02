@@ -603,10 +603,13 @@ class SemanticIntelligence:
         previous_echo=False
         for row in recent_user_turns or []:
             r=normalize_fa(row)
-            # Quoting a user's factual statement can be a legitimate recall.
-            # Only a prior question/instruction used as the answer is blocked.
-            if len(r)>8 and r in a and any(x in r for x in self.QUESTION_MARKERS):
-                previous_echo=True;break
+            # A legitimate reference answer may quote the prior question as
+            # context ("موضوع قبلی ..."). Block only when the prior question is
+            # effectively the answer itself, not merely cited inside an answer.
+            if len(r)>8 and any(x in r for x in self.QUESTION_MARKERS):
+                ratio=difflib.SequenceMatcher(None,r,a).ratio()
+                if a.strip(" «»'\".")==r.strip(" «»'\".") or ratio>=.90:
+                    previous_echo=True;break
         if exact or near_question or previous_echo:
             if semantic_answer:
                 return semantic_answer,True,"semantic_fact_repair"
