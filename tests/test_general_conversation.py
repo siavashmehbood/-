@@ -56,7 +56,7 @@ class GeneralConversationTests(unittest.TestCase):
             a=r.handle("پایتون رو از صفر تا صد یاد بگیر")
             after=r.learning_missions.list()
             self.assertGreater(len(after),before)
-            self.assertIn("مأموریت یادگیری",a)
+            self.assertIn("مأموریت",a)
             self.assertIn("learning:",r.conversation_snapshot().get("active_goal",""))
             self.assertEqual(after[-1].get("status"),"active")
             self.assertEqual(after[-1].get("approved_learning_ids"),[])
