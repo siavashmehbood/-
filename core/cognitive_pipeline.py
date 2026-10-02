@@ -62,17 +62,31 @@ class CognitivePipeline:
         # user omits it ("اسمش؟"). Mark only evidence selected by the semantic
         # resolver as resolved; this does not bypass factual verification.
         try:
-            for item in getattr(getattr(self,"last_semantic_turn",None),"evidence",[]) or []:
+            semantic_turn=getattr(self,"last_semantic_turn",None)
+            query=getattr(semantic_turn,"query",None)
+            target=str(getattr(query,"entity_id","") or "")
+            # Resolution is singular evidence selection, not a blanket trust
+            # flag on every ranked candidate. The remaining candidates are
+            # still present below as ordinary stored evidence.
+            for item in getattr(semantic_turn,"evidence",[]) or []:
                 row=item.to_dict() if hasattr(item,"to_dict") else dict(item)
+                if bool(row.get("superseded",False)):
+                    continue
+                if target and str(row.get("subject","")) != target:
+                    continue
+                provenance=str(row.get("provenance","stored_fact") or "stored_fact")
                 facts.append({
                     "subject":row.get("subject",""),
                     "predicate":row.get("relation",""),
                     "object":row.get("value",""),
                     "confidence":row.get("confidence",0),
-                    "source":row.get("provenance","semantic_resolver"),
+                    # Distinct provenance preserves the resolved evidence through
+                    # deduplication while retaining the underlying source.
+                    "source":"semantic_resolver:"+provenance,
                     "resolved":True,
-                    "superseded":bool(row.get("superseded",False)),
+                    "superseded":False,
                 })
+                break
         except Exception:
             pass
         # Structured semantic facts outrank raw history as evidence. Keep only
