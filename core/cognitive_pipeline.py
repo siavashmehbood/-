@@ -578,6 +578,27 @@ class CognitivePipeline:
                 text, answer, "MEMORY_RECALL", .99, evidence=project_evidence
             )
 
+        if "هدف دانا چی بود" in low or "هدفش چی بود" in low:
+            goal = e.state.topic_goals.get("دانا", "")
+            if not goal:
+                goal = next((f.get("object", "") for f in self.runtime.user_model.current_profile(limit=30)
+                             if f.get("predicate") == "goal"), "")
+            if goal:
+                goal_evidence = [{
+                    "subject": "دانا",
+                    "predicate": "هدف",
+                    "object": goal,
+                    "source": "conversation_state",
+                    "resolved": True,
+                }]
+                return self._persist_answer(
+                    text,
+                    f"هدف ثبت‌شده برای «دانا»: «{goal}».",
+                    "MEMORY_RECALL",
+                    .99,
+                    evidence=goal_evidence,
+                )
+
         # Semantic intelligence sits under CognitiveSystem and above retrieval.
         # It analyzes structure, extracts explicit facts and resolves semantic
         # references before raw conversation-history similarity is considered.
@@ -1101,7 +1122,11 @@ class CognitivePipeline:
         try:
             recent_users=[row[1] for row in self.runtime.memory.recent(20)
                           if isinstance(row,(tuple,list)) and len(row)>=2 and row[0]=="user"]
-            semantic_answer=getattr(getattr(self,"last_semantic_turn",None),"semantic_answer","")
+            semantic_turn=getattr(self,"last_semantic_turn",None)
+            semantic_answer=""
+            linguistic=getattr(semantic_turn,"linguistic",None)
+            if clean(getattr(linguistic,"raw_text","")) == clean(text):
+                semantic_answer=getattr(semantic_turn,"semantic_answer","") or ""
             answer,blocked,reason=self.semantic_intelligence.anti_echo(
                 text,answer,recent_users,semantic_answer)
             if blocked:
