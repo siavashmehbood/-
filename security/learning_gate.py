@@ -43,11 +43,15 @@ class LearningGate:
     def _process_lock(self):
         lock_path = self.path.with_name(self.path.name + ".lock")
         lock_path.parent.mkdir(parents=True, exist_ok=True)
-        with lock_path.open("a+", encoding="utf-8") as handle:
+        # Use an unbuffered binary handle. On Windows a buffered flush
+        # performed before this process acquires the byte-range lock can race
+        # with another process that already locked byte 0 and raise
+        # PermissionError. The marker byte only makes the lock region concrete;
+        # it carries no state and needs no buffered flush.
+        with lock_path.open("a+b", buffering=0) as handle:
             handle.seek(0, 2)
             if handle.tell() == 0:
-                handle.write("0")
-                handle.flush()
+                handle.write(b"0")
             handle.seek(0)
             locked = False
             try:
