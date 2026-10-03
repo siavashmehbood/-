@@ -31,7 +31,8 @@ class ToolRouter:
             ('تقسیم بر', '/'), ('به علاوه', '+'), ('بعلاوه', '+'), ('منهای', '-'),
         )
         clean = re.sub(r'[؟?!.،,]+', ' ', str(text).lower())
-        clean = re.sub(r'\\b(?:چند میشه|چند می‌شود|چند میشود|فقط جواب بده)\\b', ' ', clean)
+        for phrase in ('چند میشه', 'چند می‌شود', 'چند میشود', 'فقط جواب بده'):
+            clean = clean.replace(phrase, ' ')
         clean = re.sub(r'\\s+', ' ', clean).strip()
         for marker, op in op_patterns:
             if marker not in clean:
