@@ -56,6 +56,33 @@ def test_dialogue_has_one_canonical_handle_binding():
     assert calls == ["ادامه بده"]
 
 
+def test_conversation_state_update_is_class_owned_and_preserves_semantics():
+    source=Path("core/dialogue.py").read_text(encoding="utf-8")
+    assert "ConversationState.update =" not in source
+    assert "ConversationState.update=" not in source
+
+    from core.dialogue import ConversationState
+    assert ConversationState.update.__qualname__ == "ConversationState.update"
+    state=ConversationState(current_topic="پایتون")
+
+    state.update("سلام", parsed={"intent":"social"})
+    assert state.current_topic == "پایتون"
+
+    state.update("منظورم حافظه بود", parsed={"intent":"correction"}, confidence=.8)
+    assert state.current_topic == "حافظه"
+    assert state.references["latest"] == "حافظه"
+
+    state.update(
+        "این قسمت را بهتر کن",
+        parsed={"intent":"command", "question_units":["این قسمت را بهتر کن"]},
+        confidence=.9,
+        reference="Django",
+    )
+    assert state.current_topic == "Django"
+    assert state.references["latest_topic"] == "Django"
+    assert state.turns == 3
+
+
 def test_dialogue_cleanup_preserves_required_runtime_hooks():
     source=Path("core/dialogue.py").read_text(encoding="utf-8")
     # State and memory hooks still affect the canonical pipeline. Reference
