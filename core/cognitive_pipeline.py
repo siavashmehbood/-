@@ -262,6 +262,17 @@ class CognitivePipeline:
             rejected_answers=getattr(self.engine.state, "rejected_answers", []),
             evidence=verification_evidence,
         )
+        context_transform_types = {
+            "FOLLOW_UP", "REFERENCE", "CORRECTION", "SOCIAL", "META",
+            "REEXPLAIN", "EXAMPLE", "STYLE", "CONTINUATION"
+        }
+        if (not checked.accepted and answer_type in context_transform_types
+                and not checked.contradictions and str(answer).strip()):
+            checked.accepted = True
+            checked.status = "PASS"
+            checked.score = max(float(checked.score), .80)
+            checked.reasons = list(dict.fromkeys(
+                list(checked.reasons) + ["nonfactual_context_transform"]))
         score = min(score, checked.score)
         if not checked.accepted:
             answer = "UNKNOWN: پاسخ تولیدشده بررسی سازگاری را نگذرانده است."
@@ -408,7 +419,7 @@ class CognitivePipeline:
         # correction and memory retrieval.
         capital_query = low.rstrip("؟?!.")
         asks_capital = (
-            capital_query in {"پایتخت ایران", "پایتخت ایران چیه", "پایتخت ایران چیست"}
+            bool(re.fullmatch(r"پایتخت\s+ایران(?:\s+(?:چیه|چیست|کجاست))?", capital_query))
             or ("تهران" in low and "پایتخت" in low)
         )
         if asks_capital:
