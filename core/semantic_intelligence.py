@@ -607,7 +607,8 @@ class SemanticIntelligence:
             "قهوه" in n or "ترجیح" in n or
             bool(re.search(r"دوست\s+(?:دارم|داری|داشتم|داشتی|دارد|داریم)",n,re.I))
         )
-        if preference_context and any(x in n for x in ("چطوری","چگونه","چه جوری","چی","یادم")):
+        if (not q.relation and preference_context and
+                any(x in n for x in ("چطوری","چگونه","چه جوری","چی","یادم"))):
             q.subject="user"; q.relation="preference"; q.value_hint="قهوه" if "قهوه" in n else ""
         if re.search(r"(?:منظورم|منظورت)\s+(?:اسم|نام)\s+",n):
             q.relation="name"; q.entity_type=typ
