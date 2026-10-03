@@ -286,6 +286,14 @@ class CognitivePipeline:
             )
         if is_correction(text) and any(marker in low for marker in ("اسم پروژه", "نام پروژه")):
             previous = clean(getattr(e.state, "last_user_message", "")).lower()
+            try:
+                previous = next(
+                    clean(row[1]).lower()
+                    for row in reversed(self.runtime.memory.recent(20))
+                    if isinstance(row, (tuple, list)) and len(row) >= 2 and row[0] == "user"
+                )
+            except Exception:
+                pass
             asks_user_project = (
                 "پروژه" in previous
                 and any(marker in previous for marker in ("روش کار", "روی آن کار", "روی اون کار", "کار می‌کنم"))
@@ -385,18 +393,23 @@ class CognitivePipeline:
         # Specific history queries must run before broad semantic/history fallback.
         if "آخرین اصلاح" in low:
             correction = next((clean(x) for x in reversed(e.state.corrections) if clean(x) != text), "")
+            correction_value = correction
+            for prefix in ("نه،", "نه,", "نه ", "منظورم ", "اشتباهه ", "اشتباه است "):
+                if correction_value.startswith(prefix):
+                    correction_value = correction_value[len(prefix):].strip(" ،,:؛")
+            correction_value = correction_value.removesuffix(" بود").removesuffix(" است").strip()
             answer = (
-                f"آخرین اصلاح ثبت‌شده: «{correction}»."
-                if correction
+                f"آخرین اصلاح ثبت‌شده: «{correction_value}»."
+                if correction_value
                 else "اصلاحی در حافظه گفتگو ثبت نشده است."
             )
             correction_evidence = [{
                 "subject": "گفتگو",
                 "predicate": "اصلاح",
-                "object": correction,
+                "object": correction_value,
                 "source": "conversation_state",
                 "resolved": True,
-            }] if correction else []
+            }] if correction_value else []
             return self._persist_answer(
                 text, answer, "MEMORY_RECALL", .99, evidence=correction_evidence
             )
