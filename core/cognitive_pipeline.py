@@ -1,6 +1,7 @@
 """Canonical single-turn cognitive pipeline for IRAN."""
 from dataclasses import dataclass, field
 from datetime import datetime
+import re
 from core.dialogue import CognitiveContext, clean, is_correction, is_follow_up
 from core.context_tracker import ContextTracker
 from core.memory_intelligence import MemoryIntelligence
