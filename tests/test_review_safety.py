@@ -278,3 +278,128 @@ def test_zero_limit_bulk_rejection_does_not_sync_or_decide(runtime, monkeypatch)
     assert result["remaining"] == 1
     assert calls == []
     assert runtime.learning_gate.get(proposal["proposal_id"])["status"] == "pending"
+
+
+def test_runtime_exposes_learning_cursor_pages_without_mutating_gate(runtime):
+    proposals = [
+        runtime.learning_gate.request(
+            "memory.add_lesson",
+            {"goal": f"runtime page {index}", "lesson": "safe"},
+        )
+        for index in range(3)
+    ]
+
+    first = runtime.learning_pending_page(2)
+    second = runtime.learning_pending_page(2, first["next_cursor"])
+    history = runtime.learning_history_page(2)
+
+    assert [row["proposal_id"] for row in first["items"]] == [
+        proposals[2]["proposal_id"], proposals[1]["proposal_id"],
+    ]
+    assert [row["proposal_id"] for row in second["items"]] == [
+        proposals[0]["proposal_id"],
+    ]
+    assert history["items"]
+    assert all(
+        runtime.learning_gate.get(row["proposal_id"])["status"] == "pending"
+        for row in proposals
+    )
+
+
+def test_human_gate_pages_are_stable_after_new_and_terminal_rows(runtime):
+    from tests.chatgpt_test_helper import mark_chatgpt_correct
+
+    proposals = [
+        runtime.learning_gate.request(
+            "memory.add_lesson",
+            {"goal": f"human page {index}", "lesson": "safe"},
+        )
+        for index in range(6)
+    ]
+    for index in (0, 2, 4, 5):
+        mark_chatgpt_correct(
+            runtime, proposals[index]["proposal_id"], "human page fixture"
+        )
+
+    first = runtime.human_learning_pending_page(2)
+    assert [row["proposal_id"] for row in first["items"]] == [
+        proposals[5]["proposal_id"], proposals[4]["proposal_id"],
+    ]
+    assert runtime.human_learning_pending(2) == first["items"]
+
+    newest = runtime.learning_gate.request(
+        "memory.add_lesson",
+        {"goal": "human page newest", "lesson": "safe"},
+    )
+    mark_chatgpt_correct(runtime, newest["proposal_id"], "newest fixture")
+    assert runtime.reject_learning(proposals[4]["proposal_id"])["ok"]
+
+    second = runtime.human_learning_pending_page(2, first["next_cursor"])
+    assert [row["proposal_id"] for row in second["items"]] == [
+        proposals[2]["proposal_id"], proposals[0]["proposal_id"],
+    ]
+    combined = {
+        row["proposal_id"] for row in first["items"] + second["items"]
+    }
+    assert newest["proposal_id"] not in combined
+    assert len(combined) == 4
+    assert runtime.human_learning_pending_page(0) == {
+        "items": [], "next_cursor": None, "has_more": False,
+    }
+
+
+def test_pre_gate_candidate_pages_keep_stable_cursor_and_full_status(runtime):
+    from tests.chatgpt_test_helper import mark_chatgpt_correct
+
+    candidates = [
+        runtime.queue_learning_candidate(
+            "memory.add_lesson",
+            {"goal": f"candidate page {index}", "lesson": "safe"},
+        )
+        for index in range(3)
+    ]
+    for row in candidates:
+        mark_chatgpt_correct(runtime, row["proposal_id"], "candidate page fixture")
+
+    first = runtime.human_learning_pending_page(2)
+    assert [row["proposal_id"] for row in first["items"]] == [
+        candidates[2]["proposal_id"], candidates[1]["proposal_id"],
+    ]
+
+    newest = runtime.queue_learning_candidate(
+        "memory.add_lesson",
+        {"goal": "candidate page newest", "lesson": "safe"},
+    )
+    mark_chatgpt_correct(runtime, newest["proposal_id"], "newest candidate")
+    assert runtime.reject_learning(candidates[1]["proposal_id"])["ok"]
+
+    second = runtime.human_learning_pending_page(2, first["next_cursor"])
+    assert [row["proposal_id"] for row in second["items"]] == [
+        candidates[0]["proposal_id"],
+    ]
+    assert newest["proposal_id"] not in {
+        row["proposal_id"] for row in first["items"] + second["items"]
+    }
+    assert runtime.learning_status()["pending"] == 3
+    with pytest.raises(ValueError, match="cursor not found"):
+        runtime.human_learning_pending_page(2, "candidate_missing")
+
+
+def test_human_pending_runtime_never_uses_fixed_gate_scan(runtime, monkeypatch):
+    from tests.chatgpt_test_helper import mark_chatgpt_correct
+
+    proposal = runtime.learning_gate.request(
+        "memory.add_lesson",
+        {"goal": "no fixed scan", "lesson": "safe"},
+    )
+    mark_chatgpt_correct(runtime, proposal["proposal_id"], "no scan fixture")
+    monkeypatch.setattr(
+        runtime.learning_gate,
+        "pending",
+        lambda *args, **kwargs: pytest.fail("fixed pending scan used"),
+    )
+
+    page = runtime.human_learning_pending_page(1)
+    assert page["items"][0]["proposal_id"] == proposal["proposal_id"]
+    assert runtime.human_learning_pending(1) == page["items"]
+    assert runtime.learning_status()["pending"] == 1
