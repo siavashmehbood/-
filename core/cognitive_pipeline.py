@@ -412,6 +412,24 @@ class CognitivePipeline:
 
         low = text.lower()
 
+        # Human-facing conversational control stays inside the canonical brain.
+        # These routes answer the current turn directly; retrieved memory remains
+        # context/evidence and is never substituted for the user's present need.
+        normalized_social = low.strip(" ؟?!.,،؛")
+        if normalized_social in {"سلام", "درود", "hello", "hi", "سلام هستی"}:
+            return self._persist_answer(text, "سلام، آره هستم. بگو از کجا شروع کنیم.", "SOCIAL", .99)
+        if ("آماده" in low and any(x in low for x in ("تست", "امتحان", "شروع"))):
+            return self._persist_answer(text, "آره، آماده‌ام. تست‌ها رو یکی‌یکی بفرست.", "SOCIAL", .99)
+        if any(x in low for x in ("مثل یک دستیار عادی حرف بزن", "مثل دستیار عادی حرف بزن")):
+            return self._persist_answer(text, "حتماً؛ طبیعی و مستقیم باهات حرف می‌زنم.", "STYLE", .99)
+        if any(x in low for x in ("حالم خوب نیست", "حالم بده", "حالم بد است")):
+            return self._persist_answer(
+                text,
+                "متأسفم که امروز حالت خوب نیست. من اینجام؛ اگه دوست داری بگو چی بیشتر اذیتت کرده، یا می‌تونیم فقط یکم معمولی حرف بزنیم.",
+                "SOCIAL",
+                .99,
+            )
+
         def activate_topic(topic):
             e.state._push_topic(topic)
             e.state.references["latest"] = topic
