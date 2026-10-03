@@ -423,6 +423,15 @@ class CognitivePipeline:
             # returning the social acknowledgement (e.g. «من سیاوشم ... آماده‌ای؟»).
             try:
                 self.runtime.user_model.record(text)
+                name_match = re.search(r"(?:^|[.،؛!?؟\\s])من\\s+([آ-ی]{2,24})م(?:$|[.،؛!?؟\\s])", text)
+                if name_match:
+                    self.runtime.user_model.record_from_facts([{
+                        "subject": "user",
+                        "predicate": "name",
+                        "object": name_match.group(1),
+                        "confidence": .99,
+                        "source": "explicit_user_statement",
+                    }])
             except Exception:
                 pass
             return self._persist_answer(text, "آره، آماده‌ام. تست‌ها رو یکی‌یکی بفرست.", "SOCIAL", .99)
