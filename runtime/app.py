@@ -797,8 +797,12 @@ class IranRuntime:
     def process_one_chatgpt_learning_review(self, proposal_id=None):
         """Run one validation, optionally targeting one durable proposal ID."""
         target_ids = [proposal_id] if proposal_id is not None else None
-        self.sync_chatgpt_learning_reviews(proposal_ids=target_ids)
-        result = self.chatgpt_review_worker.process_one(proposal_id=proposal_id)
+        if target_ids is None:
+            self.sync_chatgpt_learning_reviews()
+            result = self.chatgpt_review_worker.process_one()
+        else:
+            self.sync_chatgpt_learning_reviews(proposal_ids=target_ids)
+            result = self.chatgpt_review_worker.process_one(proposal_id=proposal_id)
         if result.get("ok") and result.get("reason") == "reviewed" and result.get("proposal_id"):
             row = self.chatgpt_learning_review_status(result["proposal_id"]).get("row", {})
             payload = row.get("payload", {}) or {}
