@@ -416,7 +416,7 @@ class CognitivePipeline:
         # These routes answer the current turn directly; retrieved memory remains
         # context/evidence and is never substituted for the user's present need.
         normalized_social = low.strip(" ؟?!.,،؛")
-        if normalized_social in {"سلام", "درود", "hello", "hi", "سلام هستی"}:
+        if normalized_social == "سلام هستی":
             return self._persist_answer(text, "سلام، آره هستم. بگو از کجا شروع کنیم.", "SOCIAL", .99)
         if ("آماده" in low and any(x in low for x in ("تست", "امتحان", "شروع"))):
             # Preserve explicit profile facts in a compound social turn before
