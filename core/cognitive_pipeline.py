@@ -285,20 +285,10 @@ class CognitivePipeline:
                 .99,
             )
         if is_correction(text) and any(marker in low for marker in ("اسم پروژه", "نام پروژه")):
-            previous = clean(getattr(e.state, "last_user_message", "")).lower()
-            try:
-                previous = next(
-                    clean(row[1]).lower()
-                    for row in reversed(self.runtime.memory.recent(20))
-                    if (
-                        isinstance(row, (tuple, list))
-                        and len(row) >= 2
-                        and row[0] == "user"
-                        and clean(row[1]) != text
-                    )
-                )
-            except Exception:
-                pass
+            previous = clean(
+                getattr(e.state, "current_question", "")
+                or getattr(e.state, "last_user_message", "")
+            ).lower()
             asks_user_project = (
                 "پروژه" in previous
                 and any(marker in previous for marker in ("روش کار", "روی آن کار", "روی اون کار", "کار می‌کنم"))
