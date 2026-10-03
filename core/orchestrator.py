@@ -81,6 +81,8 @@ class Orchestrator:
         name,kwargs=self.router.choose(text)
         if not name:return None
         result=self.run_tool(name,**kwargs)
+        if name == 'calculate':
+            return str(result)
         labels={'time_now':'زمان سیستم','project_summary':'خلاصه پروژه','system_info':'مشخصات سیستم','project_files':'فایل‌های پروژه','memory_search':'حافظه مرتبط'}
         return f"{labels.get(name,name)}: {result}"
 
