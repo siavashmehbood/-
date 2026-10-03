@@ -419,7 +419,7 @@ class CognitivePipeline:
         # correction and memory retrieval.
         capital_query = low.rstrip("؟?!.")
         asks_capital = (
-            bool(re.fullmatch(r"پایتخت\s+ایران(?:\s+(?:چیه|چیست|کجاست))?", capital_query))
+            capital_query in {"پایتخت ایران", "پایتخت ایران چیه", "پایتخت ایران چیست"}
             or ("تهران" in low and "پایتخت" in low)
         )
         if asks_capital:
