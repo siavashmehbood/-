@@ -423,7 +423,7 @@ class CognitivePipeline:
             # returning the social acknowledgement (e.g. «من سیاوشم ... آماده‌ای؟»).
             try:
                 self.runtime.user_model.record(text)
-                name_match = re.search(r"(?:^|[.،؛!?؟\\s])من\\s+([آ-ی]{2,24}?)(?:م|\\s+(?:هستم|ام))(?=$|[.،؛!?؟\\s])", text)
+                name_match = re.search(r"من\\s+([آ-ی]{2,24})م(?:[.،؛!?؟\\s]|$)", text)
                 if name_match:
                     self.runtime.user_model.record_from_facts([{
                         "subject": "user",
