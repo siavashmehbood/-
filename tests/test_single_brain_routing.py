@@ -89,3 +89,5 @@ def test_runtime_public_ingress_is_cognitive_system():
     from pathlib import Path
     source = Path("runtime/app.py").read_text(encoding="utf-8")
     assert "return self.cognitive_system.dispatch(text)" in source
+
+# Final-master validation marker for HEAD 5606088c.
