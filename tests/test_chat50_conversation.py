@@ -121,6 +121,7 @@ def test_goal_recall_is_grounded_by_current_conversation_state(tmp_path):
         for message in MESSAGES[:24]:
             answer = runtime.handle(message)
         pipeline = runtime.cognitive_system.pipeline
+        route_evidence = list(getattr(pipeline, "last_verification_evidence", []) or [])
         goal, evidence = pipeline._project_goal("دانا")
         direct = pipeline.semantic_verifier.verify(
             "هدفش چی بود؟",
@@ -136,6 +137,7 @@ def test_goal_recall_is_grounded_by_current_conversation_state(tmp_path):
             "verify": direct,
             "rejected": runtime.dialogue.state.rejected_answers,
             "answer": answer,
+            "route_evidence": route_evidence,
             "trace": getattr(getattr(runtime.dialogue, "last_trace", None), "__dict__", None),
         }
         persisted = pipeline._persist_answer(
@@ -158,6 +160,7 @@ def test_goal_recall_is_grounded_by_current_conversation_state(tmp_path):
             "evidence": evidence,
             "verify": direct,
             "rejected": runtime.dialogue.state.rejected_answers,
+            "route_evidence": route_evidence,
         }
     finally:
         runtime.close()
