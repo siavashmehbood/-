@@ -223,7 +223,13 @@ class CognitivePipeline:
         try:
             recent_users=[row[1] for row in self.runtime.memory.recent(20)
                           if isinstance(row,(tuple,list)) and len(row)>=2 and row[0]=="user"]
-            semantic_answer=getattr(getattr(self,"last_semantic_turn",None),"semantic_answer","")
+            semantic_turn=getattr(self,"last_semantic_turn",None)
+            semantic_answer=""
+            if semantic_turn is not None:
+                linguistic=getattr(semantic_turn,"linguistic",None)
+                semantic_question=clean(str(getattr(linguistic,"raw_text","") or ""))
+                if semantic_question == clean(text):
+                    semantic_answer=str(getattr(semantic_turn,"semantic_answer","") or "")
             answer,blocked,reason=self.semantic_intelligence.anti_echo(
                 text,answer,recent_users,semantic_answer)
             if blocked:
