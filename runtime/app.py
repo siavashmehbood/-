@@ -566,11 +566,14 @@ class IranRuntime:
             # Do not discard autonomous goals merely because no static source is tagged for them.
             if goal.get("attempts", 0) >= int(self.config.get("learning_max_attempts", 3)): continue
             result=self.learn_from_internet(goal["topic"])
-            if result.get("review"):
-                self.sync_chatgpt_learning_reviews()
-                review_result = self.process_one_chatgpt_learning_review()
+            review_row = result.get("review")
+            if review_row:
+                proposal_id = review_row.get("proposal_id") if isinstance(review_row, dict) else None
+                review_result = self.process_one_chatgpt_learning_review(proposal_id=proposal_id)
                 result["online_review"] = review_result
-                if review_result.get("ok") and review_result.get("reason") == "reviewed":
+                if proposal_id and review_result.get("proposal_id") != proposal_id:
+                    state = "awaiting_review"
+                elif review_result.get("ok") and review_result.get("reason") == "reviewed":
                     state = "human_pending" if review_result.get("learn") is True else "needs_evidence"
                 else:
                     state = "awaiting_review"
@@ -681,15 +684,28 @@ class IranRuntime:
             rows.append(row)
             return dict(row)
 
-    def sync_chatgpt_learning_reviews(self, limit=5000):
+    def sync_chatgpt_learning_reviews(self, limit=5000, proposal_ids=None):
         """Mirror pending proposals and reconcile interrupted terminal writes.
 
-        This method never calls an external reviewer and never approves a
-        pending Gate proposal. A durable reviewer rejection may only move a
-        still-pending Gate proposal to the safer rejected state.
+        Targeted callers may name exact proposal IDs that are older than the
+        bounded queue window. This method never calls an external reviewer and
+        never approves a pending Gate proposal. A durable reviewer rejection
+        may only move a still-pending Gate proposal to the safer rejected state.
         """
         path = self._chatgpt_review_path()
-        proposals = self.learning_gate.pending(limit)
+        if proposal_ids is None:
+            proposals = self.learning_gate.pending(limit)
+        else:
+            proposals = []
+            seen = set()
+            for proposal_id in proposal_ids:
+                proposal_id = str(proposal_id)
+                if proposal_id in seen:
+                    continue
+                seen.add(proposal_id)
+                proposal = self.learning_gate.get(proposal_id)
+                if proposal and proposal.get("status") == "pending":
+                    proposals.append(proposal)
 
         # Snapshot Gate state before taking the reviewer-ledger transaction.
         # This avoids nesting the Gate file lock under the ledger file lock.
@@ -778,10 +794,11 @@ class IranRuntime:
         })
         return status
 
-    def process_one_chatgpt_learning_review(self):
-        """Run one external validation; only LEARN candidates reach the human queue."""
-        self.sync_chatgpt_learning_reviews()
-        result = self.chatgpt_review_worker.process_one()
+    def process_one_chatgpt_learning_review(self, proposal_id=None):
+        """Run one validation, optionally targeting one durable proposal ID."""
+        target_ids = [proposal_id] if proposal_id is not None else None
+        self.sync_chatgpt_learning_reviews(proposal_ids=target_ids)
+        result = self.chatgpt_review_worker.process_one(proposal_id=proposal_id)
         if result.get("ok") and result.get("reason") == "reviewed" and result.get("proposal_id"):
             row = self.chatgpt_learning_review_status(result["proposal_id"]).get("row", {})
             payload = row.get("payload", {}) or {}
@@ -806,16 +823,16 @@ class IranRuntime:
         """Status for the external multi-model reviewer used by online learning."""
         return self.chatgpt_review_status()
 
-    def process_one_online_learning_review(self):
+    def process_one_online_learning_review(self, proposal_id=None):
         """Review one queued learning candidate, then hand accepted items to the human gate."""
-        return self.process_one_chatgpt_learning_review()
+        return self.process_one_chatgpt_learning_review(proposal_id=proposal_id)
 
     def submit_chatgpt_learning_review(self, proposal_id, review_text):
         """Store a review note only; human approval remains a separate gate."""
         review_text = str(review_text or "").strip()
         if not review_text:
             return {"ok": False, "reason": "empty_review"}
-        self.sync_chatgpt_learning_reviews()
+        self.sync_chatgpt_learning_reviews(proposal_ids=[proposal_id])
         with json_transaction(self._chatgpt_review_path(), []) as rows:
             for row in rows:
                 if str(row.get("proposal_id")) == str(proposal_id):
