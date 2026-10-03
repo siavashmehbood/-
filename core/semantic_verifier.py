@@ -69,12 +69,23 @@ class SemanticVerifier:
         refuted = False
         filler = self.tokens('پاسخ مستقیم جواب است هست is answer direct')
         negatives = {'نیست', 'نبود', 'نباشد', 'not', 'never'}
+        whole_answer_words=self.tokens(answer)
         for fact in facts:
             value = self.tokens(fact.get('object', fact.get('value', '')))
             predicate = self.tokens(fact.get('predicate', ''))
             subject = self.tokens(fact.get('subject', ''))
             if not value:
                 continue
+            # A resolver-selected fact may legitimately contain punctuation
+            # (for example a quoted user correction with a Persian comma).
+            # Clause splitting must not make that exact structured value look
+            # unused. Negation still wins over this whole-answer fallback.
+            if fact.get('resolved') is True and value <= whole_answer_words:
+                if whole_answer_words & negatives or re.search(r'نمی[‌\s]+باشد', answer):
+                    refuted = True
+                else:
+                    support = True
+                    continue
             for clause in clauses:
                 words = self.tokens(clause)
                 if not value <= words:
