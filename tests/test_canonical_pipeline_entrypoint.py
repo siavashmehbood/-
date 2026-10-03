@@ -175,3 +175,39 @@ def test_direct_answer_is_class_owned_and_preserves_priority_contracts():
         "2) به‌خاطر خوانایی، کتابخانه‌های گسترده و کاربردهای متنوع محبوب است.",
     ]
 
+def test_dialogue_knowledge_is_class_owned_and_preserves_local_facts():
+    source=Path("core/dialogue.py").read_text(encoding="utf-8")
+    assert "LocalDialogueEngine._knowledge =" not in source
+    assert "LocalDialogueEngine._knowledge=" not in source
+    assert "def _knowledge_v" not in source
+
+    from types import SimpleNamespace
+    from core.dialogue import LocalDialogueEngine
+
+    assert LocalDialogueEngine._knowledge.__qualname__ == (
+        "LocalDialogueEngine._knowledge"
+    )
+    dialogue=SimpleNamespace(runtime=SimpleNamespace(knowledge=None))
+
+    political=LocalDialogueEngine._knowledge(
+        dialogue,
+        "مرکز سیاسی کشور ایران چیست؟",
+        {},
+    )
+    assert political == [{
+        "subject": "ایران",
+        "predicate": "پایتخت",
+        "object": "تهران",
+        "confidence": .99,
+        "source": "verified_local_seed",
+    }]
+
+    week=LocalDialogueEngine._knowledge(dialogue,"هفته چند روز دارد؟",{})
+    assert week == [{
+        "subject": "هفته",
+        "predicate": "تعداد روز",
+        "object": "هفت",
+        "confidence": .99,
+        "source": "verified_local_seed",
+    }]
+
