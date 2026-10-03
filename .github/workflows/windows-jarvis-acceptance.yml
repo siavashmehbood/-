@@ -17,6 +17,7 @@ on:
       - "core/semantic_verifier.py"
       - "runtime/app.py"
       - "learning/missions.py"
+      - "security/learning_gate.py"
       - "core/dialogue.py"
       - "core/conversational_understanding.py"
       - "tools/desktop.py"
@@ -27,6 +28,7 @@ on:
       - "tests/test_semantic_intelligence.py"
       - "tests/test_soar_cognitive_foundation.py"
       - "tests/test_conversation_fact_memory.py"
+      - "tests/test_learning_gate_concurrency.py"
       - "tests/test_windows_jarvis_acceptance.py"
       - ".github/workflows/windows-jarvis-acceptance.yml"
   push:
@@ -41,6 +43,7 @@ on:
       - "core/semantic_verifier.py"
       - "runtime/app.py"
       - "learning/missions.py"
+      - "security/learning_gate.py"
       - "core/dialogue.py"
       - "core/conversational_understanding.py"
       - "tools/desktop.py"
@@ -50,6 +53,7 @@ on:
       - "tests/test_rasa_foundation.py"
       - "tests/test_semantic_intelligence.py"
       - "tests/test_conversation_fact_memory.py"
+      - "tests/test_learning_gate_concurrency.py"
       - "tests/test_windows_jarvis_acceptance.py"
       - ".github/workflows/windows-jarvis-acceptance.yml"
 jobs:
@@ -63,6 +67,8 @@ jobs:
       - uses: actions/setup-python@v5
         with: {python-version: "3.12"}
       - run: pip install -r requirements.txt -r requirements-dev.txt pywinauto
+      - name: LearningGate process-lock acceptance
+        run: python -m pytest -q tests/test_learning_gate_concurrency.py
       - name: Platform-independent Jarvis integration
         run: python -m pytest -q tests/test_jarvis_integration.py
       - name: Rasa canonical runtime acceptance
