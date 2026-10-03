@@ -138,7 +138,7 @@ def test_answer_repair_is_class_owned_and_preserves_learning_policy():
     assert "_repair_learning" not in source
     assert "_PREV_REPAIR_LEARNING" not in source
 
-    from core.dialogue import AnswerRepair, CognitiveContext, AnswerPlan, VerificationResult
+    from core.dialogue import AnswerRepair, CognitiveContext, AnswerPlan, Verification
     assert AnswerRepair.repair.__qualname__ == "AnswerRepair.repair"
     repair=AnswerRepair()
 
@@ -148,7 +148,7 @@ def test_answer_repair_is_class_owned_and_preserves_learning_policy():
         relevant_knowledge=[],
     )
     plan=AnswerPlan(["ادامه بده"],steps=["avoid_recent_failed_pattern"])
-    verification=VerificationResult("PASS",.9)
+    verification=Verification("PASS",score=.9)
     guarded=repair.repair(uncertain,"پاسخ قبلی",verification,plan)
     assert guarded.startswith("UNKNOWN:")
 
