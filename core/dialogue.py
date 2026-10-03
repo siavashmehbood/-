@@ -589,6 +589,28 @@ class LocalDialogueEngine:
             candidates.append({"subject":"پایتون", "predicate":"تعریف", "object":"یک زبان برنامه‌نویسی سطح‌بالا و چندمنظوره است.", "confidence":.97, "source":"verified_local_seed"})
         if "django" in low:
             candidates.append({"subject":"Django", "predicate":"تعریف", "object":"یک چارچوب وب پایتونی است.", "confidence":.97, "source":"verified_local_seed"})
+        if any(
+            marker in low
+            for marker in ("مرکز سیاسی کشور ایران", "مرکز سیاسی ایران")
+        ):
+            candidates.append({
+                "subject": "ایران",
+                "predicate": "پایتخت",
+                "object": "تهران",
+                "confidence": .99,
+                "source": "verified_local_seed",
+            })
+        if any(
+            marker in low
+            for marker in ("هفته چند روز", "تعداد روزهای هفته", "هفته چند روز دارد")
+        ):
+            candidates.append({
+                "subject": "هفته",
+                "predicate": "تعداد روز",
+                "object": "هفت",
+                "confidence": .99,
+                "source": "verified_local_seed",
+            })
         return candidates[:8]
 
     def _user_facts(self):
@@ -1042,17 +1064,6 @@ REF_MARKERS = REF_MARKERS + ("این قسمت",)
 
 # Store the actual artifacts at the canonical point without changing the response path.
 
-
-# v0.40h: restore high-confidence local facts and the explicit UNKNOWN contract.
-_prev_knowledge=LocalDialogueEngine._knowledge
-def _knowledge_v2(self,text,parsed):
-    rows=_prev_knowledge(self,text,parsed); low=bare(text).lower()
-    if any(x in low for x in ("مرکز سیاسی کشور ایران","مرکز سیاسی ایران")):
-        rows.append({'subject':'ایران','predicate':'پایتخت','object':'تهران','confidence':.99,'source':'verified_local_seed'})
-    if any(x in low for x in ("هفته چند روز","تعداد روزهای هفته","هفته چند روز دارد")):
-        rows.append({'subject':'هفته','predicate':'تعداد روز','object':'هفت','confidence':.99,'source':'verified_local_seed'})
-    return rows[:8]
-LocalDialogueEngine._knowledge=_knowledge_v2
 
 # v0.40i: explicit feedback is acknowledged and persisted as outcome learning.
 # v0.40j: deterministic compatibility facts and conversational recall at the canonical boundary.
