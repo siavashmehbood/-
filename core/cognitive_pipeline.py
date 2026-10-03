@@ -377,6 +377,9 @@ class CognitivePipeline:
     def run(self, text):
         started = datetime.now()
         e = self.engine
+        # Verification evidence is turn-local. Never let an early-route packet
+        # leak into the next full cognitive turn.
+        self.last_verification_evidence = None
         try:
             self.runtime.events.begin_turn()
         except Exception:
@@ -1121,10 +1124,14 @@ class CognitivePipeline:
             verification.missing_units = []
             verification.reasons = [r for r in verification.reasons if r not in {"uncertainty_not_expressed", "too_generic"}]
             verification.score = max(float(verification.score), 0.90)
+        turn_verification_evidence = self.verification_evidence(
+            knowledge, question=text
+        )
+        self.last_verification_evidence = list(turn_verification_evidence or [])
         semantic_check = self.semantic_verifier.verify(
             text, answer, getattr(e.state, "remembered_constraints", []),
             getattr(e.state, "rejected_answers", []),
-            evidence=self.verification_evidence(knowledge),
+            evidence=turn_verification_evidence,
         )
         if not semantic_check.accepted and semantic_check.contradictions:
             answer = "UNKNOWN: پاسخ با محدودیت‌ها یا شواهد معتبر سازگار نیست."
@@ -1167,7 +1174,7 @@ class CognitivePipeline:
             text, answer,
             constraints=getattr(self.engine.state, "remembered_constraints", []),
             rejected_answers=getattr(self.engine.state, "rejected_answers", []),
-            evidence=self.verification_evidence(knowledge),
+            evidence=turn_verification_evidence,
         )
         contextual_transform = meaning.dialogue_act in {"clarification","meta_conversation","greeting","farewell","gratitude","acknowledgement","emotional_expression","continuation","follow_up","simplify","length_control","example_request","return_to_topic"}
         if not final_check.accepted and not contextual_transform:
