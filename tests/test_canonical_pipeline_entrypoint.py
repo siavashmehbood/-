@@ -261,3 +261,14 @@ def test_dialogue_knowledge_is_class_owned_and_preserves_local_facts():
         "source": "verified_local_seed",
     }]
 
+def test_reference_markers_are_static_and_preserve_resolution():
+    source=Path("core/dialogue.py").read_text(encoding="utf-8")
+    assert source.count("REF_MARKERS = (") == 1
+    assert "REF_MARKERS = REF_MARKERS +" not in source
+
+    from core.dialogue import ConversationState, ReferenceResolver, REF_MARKERS
+    assert isinstance(REF_MARKERS, tuple)
+    assert REF_MARKERS.count("این قسمت") == 1
+
+    state=ConversationState(current_topic="حافظه")
+    assert ReferenceResolver().resolve("این قسمت را بهتر کن", state) == "حافظه"

@@ -12,7 +12,7 @@ from datetime import datetime
 
 REF_MARKERS = (
     "این", "اون", "آن", "همین", "همون", "همونو", "قبلی", "قبلیش",
-    "این بخش", "این جواب", "این مشکل", "روش قبلی", "موضوع قبلی",
+    "این بخش", "این قسمت", "این جواب", "این مشکل", "روش قبلی", "موضوع قبلی",
 )
 FOLLOW_UPS = {
     "چرا", "چطور", "چگونه", "خب", "پس چی", "حالا چی", "ادامه بده",
@@ -1025,89 +1025,3 @@ class LocalDialogueEngine:
 
     def trace(self):
         return list(self.turn_traces)
-
-
-
-
-
-
-
-# v0.40b: contextual recommendations inherit the nearest meaningful technical topic.
-
-
-
-
-
-# v0.40c: complete common Persian reference phrases and compound-question splitting.
-REF_MARKERS = REF_MARKERS + ("این قسمت",)
-
-
-
-
-
-# v0.40d: explicit conversation-memory questions use the persisted dialogue state.
-# v0.40e: explicit reference phrases behave like follow-ups; add grounded local memory explanation.
-# v0.40g: expose the canonical turn artifacts to the runtime telemetry layer.
-
-# Store the actual artifacts at the canonical point without changing the response path.
-
-
-# v0.40i: explicit feedback is acknowledged and persisted as outcome learning.
-# v0.40j: deterministic compatibility facts and conversational recall at the canonical boundary.
-
-
-# v0.40k: final deterministic compatibility boundary for legacy contracts and local facts.
-
-
-# v0.40m: highest-priority regression adapters.
-
-
-# v0.40n: final high-priority conversation cases.
-
-
-# v0.40o: terminal compatibility guards.
-
-
-# v0.40m: deterministic final fixes for topic continuity and explicit memory recall.
-
-
-# v0.40n: memory-topic answers must run before the generic UNKNOWN fallback.
-
-
-# v0.40p: finalize topic switching before returning memory/recall answers.
-# High-priority adapters must not bypass ConversationState persistence.
-
-
-# v0.50: human-facing repair boundary. Keep the canonical dialogue state machine,
-# verification and learning, but replace low-quality legacy prose at the final return.
-
-
-# v0.52: symbolic chain reasoning is initialized directly by LocalDialogueEngine.
-
-# v0.53: evidence-grounded realization bridge. It consumes the existing local
-# knowledge, memory and learning layers without introducing a new model/runtime.
-
-
-# v0.52b: reasoning-aware context repair.
-# Follow-up explanations inherit the active semantic topic, while generic
-# question wrappers are not allowed to become the topic themselves.
-
-
-# v0.52b: reasoning-aware memory filtering is owned by LocalDialogueEngine._memory.
-
-# v0.52c: recover semantic topic from prior user turns when state is too weak.
-# This is retrieval from conversation memory, not a hard-coded topic list.
-
-
-# v0.54: single explicit cognitive pipeline. All older compatibility adapters
-# remain in this module for historical contracts, but ordinary turns now enter
-# exactly one implementation of the cognitive flow below.
-
-# v0.54: compatibility handle delegation is owned by LocalDialogueEngine.handle.
-
-# v0.41: deterministic reference intelligence v2 is the canonical resolver layer.
-
-
-
-# v0.41b: deterministic multi-intent answer assembly for compound Persian questions.
-# v0.41-learning: learned repair policy is owned directly by AnswerRepair.repair.
