@@ -190,3 +190,216 @@ def test_learning_tick_auto_reviews_online_candidate_then_waits_for_human(runtim
     pending = runtime.human_learning_pending()
     assert pending and pending[0]["proposal_id"] == proposal_id
     assert runtime.memory.lesson_search("online review fixture", limit=5) == []  # no durable lesson before human approval
+
+
+def test_late_rejection_cannot_rewrite_approved_gate_or_ledger(runtime):
+    from tests.chatgpt_test_helper import mark_chatgpt_correct
+
+    proposal = runtime.knowledge.add_fact(
+        "terminal immutability fixture", "is", "approved", source="fixture"
+    )
+    proposal_id = proposal["proposal_id"]
+    mark_chatgpt_correct(runtime, proposal_id, "terminal fixture")
+
+    approved = runtime.approve_learning(
+        proposal_id, human_confirmed=True, source="test_terminal_immutability"
+    )
+    rejected = runtime.reject_learning(proposal_id)
+
+    assert approved["ok"]
+    assert rejected["ok"] is False
+    assert rejected["reason"] == "proposal_not_pending"
+    assert runtime.learning_gate.get(proposal_id)["status"] == "approved"
+    review = runtime.chatgpt_learning_review_status(proposal_id)["row"]
+    assert review["status"] == "approved"
+    assert review["human_decision"] == "approved"
+    assert runtime.knowledge.query("terminal immutability fixture")
+
+
+def test_bulk_rejection_mirrors_one_exact_snapshot_and_leaves_newer_work_pending(
+        runtime, monkeypatch):
+    proposals = [
+        runtime.learning_gate.request(
+            "memory.add_lesson",
+            {"goal": f"bulk snapshot {index}", "lesson": "unsafe"},
+        )
+        for index in range(3)
+    ]
+    expected_ids = [row["proposal_id"] for row in proposals]
+    original_sync = runtime.sync_chatgpt_learning_reviews
+    calls = []
+    injected = {}
+
+    def sync_exact_snapshot(*args, **kwargs):
+        calls.append(list(kwargs.get("proposal_ids") or []))
+        result = original_sync(*args, **kwargs)
+        if not injected:
+            injected["proposal"] = runtime.learning_gate.request(
+                "memory.add_lesson",
+                {"goal": "newer after snapshot", "lesson": "leave pending"},
+            )
+        return result
+
+    monkeypatch.setattr(runtime, "sync_chatgpt_learning_reviews", sync_exact_snapshot)
+
+    result = runtime.reject_all_learning(3)
+
+    assert result["ok"]
+    assert result["rejected"] == 3
+    assert result["skipped"] == []
+    assert result["remaining"] == 1
+    assert len(calls) == 1
+    assert set(calls[0]) == set(expected_ids)
+    for proposal_id in expected_ids:
+        assert runtime.learning_gate.get(proposal_id)["status"] == "rejected"
+        review = runtime.chatgpt_learning_review_status(proposal_id)["row"]
+        assert review["status"] == "rejected"
+        assert review["human_decision"] == "rejected"
+    assert runtime.learning_gate.get(
+        injected["proposal"]["proposal_id"]
+    )["status"] == "pending"
+
+
+def test_zero_limit_bulk_rejection_does_not_sync_or_decide(runtime, monkeypatch):
+    proposal = runtime.learning_gate.request(
+        "memory.add_lesson", {"goal": "zero bulk", "lesson": "stay pending"}
+    )
+    calls = []
+    monkeypatch.setattr(
+        runtime, "sync_chatgpt_learning_reviews",
+        lambda *args, **kwargs: calls.append((args, kwargs)),
+    )
+
+    result = runtime.reject_all_learning(0)
+
+    assert result["ok"]
+    assert result["rejected"] == 0
+    assert result["skipped"] == []
+    assert result["remaining"] == 1
+    assert calls == []
+    assert runtime.learning_gate.get(proposal["proposal_id"])["status"] == "pending"
+
+
+def test_runtime_exposes_learning_cursor_pages_without_mutating_gate(runtime):
+    proposals = [
+        runtime.learning_gate.request(
+            "memory.add_lesson",
+            {"goal": f"runtime page {index}", "lesson": "safe"},
+        )
+        for index in range(3)
+    ]
+
+    first = runtime.learning_pending_page(2)
+    second = runtime.learning_pending_page(2, first["next_cursor"])
+    history = runtime.learning_history_page(2)
+
+    assert [row["proposal_id"] for row in first["items"]] == [
+        proposals[2]["proposal_id"], proposals[1]["proposal_id"],
+    ]
+    assert [row["proposal_id"] for row in second["items"]] == [
+        proposals[0]["proposal_id"],
+    ]
+    assert history["items"]
+    assert all(
+        runtime.learning_gate.get(row["proposal_id"])["status"] == "pending"
+        for row in proposals
+    )
+
+
+def test_human_gate_pages_are_stable_after_new_and_terminal_rows(runtime):
+    from tests.chatgpt_test_helper import mark_chatgpt_correct
+
+    proposals = [
+        runtime.learning_gate.request(
+            "memory.add_lesson",
+            {"goal": f"human page {index}", "lesson": "safe"},
+        )
+        for index in range(6)
+    ]
+    for index in (0, 2, 4, 5):
+        mark_chatgpt_correct(
+            runtime, proposals[index]["proposal_id"], "human page fixture"
+        )
+
+    first = runtime.human_learning_pending_page(2)
+    assert [row["proposal_id"] for row in first["items"]] == [
+        proposals[5]["proposal_id"], proposals[4]["proposal_id"],
+    ]
+    assert runtime.human_learning_pending(2) == first["items"]
+
+    newest = runtime.learning_gate.request(
+        "memory.add_lesson",
+        {"goal": "human page newest", "lesson": "safe"},
+    )
+    mark_chatgpt_correct(runtime, newest["proposal_id"], "newest fixture")
+    assert runtime.reject_learning(proposals[4]["proposal_id"])["ok"]
+
+    second = runtime.human_learning_pending_page(2, first["next_cursor"])
+    assert [row["proposal_id"] for row in second["items"]] == [
+        proposals[2]["proposal_id"], proposals[0]["proposal_id"],
+    ]
+    combined = {
+        row["proposal_id"] for row in first["items"] + second["items"]
+    }
+    assert newest["proposal_id"] not in combined
+    assert len(combined) == 4
+    assert runtime.human_learning_pending_page(0) == {
+        "items": [], "next_cursor": None, "has_more": False,
+    }
+
+
+def test_pre_gate_candidate_pages_keep_stable_cursor_and_full_status(runtime):
+    from tests.chatgpt_test_helper import mark_chatgpt_correct
+
+    candidates = [
+        runtime.queue_learning_candidate(
+            "memory.add_lesson",
+            {"goal": f"candidate page {index}", "lesson": "safe"},
+        )
+        for index in range(3)
+    ]
+    for row in candidates:
+        mark_chatgpt_correct(runtime, row["proposal_id"], "candidate page fixture")
+
+    first = runtime.human_learning_pending_page(2)
+    assert [row["proposal_id"] for row in first["items"]] == [
+        candidates[2]["proposal_id"], candidates[1]["proposal_id"],
+    ]
+
+    newest = runtime.queue_learning_candidate(
+        "memory.add_lesson",
+        {"goal": "candidate page newest", "lesson": "safe"},
+    )
+    mark_chatgpt_correct(runtime, newest["proposal_id"], "newest candidate")
+    assert runtime.reject_learning(candidates[1]["proposal_id"])["ok"]
+
+    second = runtime.human_learning_pending_page(2, first["next_cursor"])
+    assert [row["proposal_id"] for row in second["items"]] == [
+        candidates[0]["proposal_id"],
+    ]
+    assert newest["proposal_id"] not in {
+        row["proposal_id"] for row in first["items"] + second["items"]
+    }
+    assert runtime.learning_status()["pending"] == 3
+    with pytest.raises(ValueError, match="cursor not found"):
+        runtime.human_learning_pending_page(2, "candidate_missing")
+
+
+def test_human_pending_runtime_never_uses_fixed_gate_scan(runtime, monkeypatch):
+    from tests.chatgpt_test_helper import mark_chatgpt_correct
+
+    proposal = runtime.learning_gate.request(
+        "memory.add_lesson",
+        {"goal": "no fixed scan", "lesson": "safe"},
+    )
+    mark_chatgpt_correct(runtime, proposal["proposal_id"], "no scan fixture")
+    monkeypatch.setattr(
+        runtime.learning_gate,
+        "pending",
+        lambda *args, **kwargs: pytest.fail("fixed pending scan used"),
+    )
+
+    page = runtime.human_learning_pending_page(1)
+    assert page["items"][0]["proposal_id"] == proposal["proposal_id"]
+    assert runtime.human_learning_pending(1) == page["items"]
+    assert runtime.learning_status()["pending"] == 1

@@ -134,5 +134,67 @@ class ChatGPTReviewPipelineTests(unittest.TestCase):
         self.assertEqual(row["status"], "human_pending")
 
 
+    def test_targeted_review_bypasses_bounded_scan_and_global_priority(self):
+        root, runtime, gate = self.make_runtime()
+        target = self.add_candidate(gate, "older target outside bounded window")
+        unrelated = gate.request(
+            "knowledge.add_fact",
+            {
+                "subject": "unrelated", "predicate": "priority",
+                "object": "higher", "confidence": 0.9, "source": "fixture",
+            },
+            "newer higher-priority unrelated candidate",
+        )
+        runtime.sync_chatgpt_learning_reviews(limit=1)
+        self.assertFalse(
+            runtime.chatgpt_learning_review_status(target["proposal_id"])["exists"]
+        )
+        original_pending = gate.pending
+        gate.pending = Mock(side_effect=AssertionError("targeted path used bounded scan"))
+        seen = []
+        runtime.chatgpt_review_worker = ChatGPTReviewWorker(
+            root,
+            transport=lambda row: (
+                seen.append(row["proposal_id"])
+                or {"learn": True, "reason": "targeted", "confidence": 0.95}
+            ),
+        )
+
+        result = runtime.process_one_chatgpt_learning_review(
+            proposal_id=target["proposal_id"]
+        )
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["proposal_id"], target["proposal_id"])
+        self.assertEqual(seen, [target["proposal_id"]])
+        self.assertFalse(
+            runtime.chatgpt_learning_review_status(
+                unrelated["proposal_id"]
+            )["reviewed"]
+        )
+        self.assertEqual(gate.get(target["proposal_id"])["status"], "pending")
+        gate.pending = original_pending
+        self.assertEqual(
+            runtime.human_learning_pending(10)[0]["proposal_id"],
+            target["proposal_id"],
+        )
+
+    def test_targeted_review_note_mirrors_exact_proposal_without_queue_scan(self):
+        root, runtime, gate = self.make_runtime()
+        target = self.add_candidate(gate, "targeted note")
+        gate.pending = Mock(side_effect=AssertionError("targeted path used bounded scan"))
+
+        result = runtime.submit_chatgpt_learning_review(
+            target["proposal_id"], "manual reviewer context"
+        )
+
+        self.assertTrue(result["ok"])
+        row = runtime.chatgpt_learning_review_status(
+            target["proposal_id"]
+        )["row"]
+        self.assertEqual(row["review_note"], "manual reviewer context")
+        self.assertEqual(row["review_status"], "not_reviewed")
+
+
 if __name__ == "__main__":
     unittest.main()

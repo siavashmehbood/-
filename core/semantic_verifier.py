@@ -69,12 +69,23 @@ class SemanticVerifier:
         refuted = False
         filler = self.tokens('پاسخ مستقیم جواب است هست is answer direct')
         negatives = {'نیست', 'نبود', 'نباشد', 'not', 'never'}
+        whole_answer_words=self.tokens(answer)
         for fact in facts:
             value = self.tokens(fact.get('object', fact.get('value', '')))
             predicate = self.tokens(fact.get('predicate', ''))
             subject = self.tokens(fact.get('subject', ''))
             if not value:
                 continue
+            # A resolver-selected fact may legitimately contain punctuation
+            # (for example a quoted user correction with a Persian comma).
+            # Clause splitting must not make that exact structured value look
+            # unused. Negation still wins over this whole-answer fallback.
+            if fact.get('resolved') is True and value <= whole_answer_words:
+                if whole_answer_words & negatives or re.search(r'نمی[‌\s]+باشد', answer):
+                    refuted = True
+                else:
+                    support = True
+                    continue
             for clause in clauses:
                 words = self.tokens(clause)
                 if not value <= words:
@@ -136,19 +147,39 @@ class SemanticVerifier:
         else:
             reasons.append("low_question_alignment")
         low_a = a.lower()
+        denies_api = bool(re.search(
+            r"(?:بدون|فاقد|عدم\s+استفاده\s+از|استفاده\s+نمی[^ ]*)\s+(?:از\s+)?api",
+            low_a,
+        ))
+        denies_online = bool(re.search(
+            r"(?:بدون|فاقد|عدم\s+استفاده\s+از|استفاده\s+نمی[^ ]*)\s+(?:از\s+)?(?:شبکه|سرویس\s+آنلاین|cloud)",
+            low_a,
+        ))
         for constraint in constraints:
             c = str(constraint).lower()
-            if c == "آفلاین" and any(x in low_a for x in ("api", "شبکه", "سرویس آنلاین", "cloud")):
-                contradictions.append("offline_constraint")
-            if c == "بدون api" and ("api" in low_a or "مدل آماده" in low_a):
-                contradictions.append("no_api_constraint")
+            if c == "آفلاین":
+                uses_api = "api" in low_a and not denies_api
+                uses_online = any(x in low_a for x in ("شبکه", "سرویس آنلاین", "cloud")) and not denies_online
+                if uses_api or uses_online:
+                    contradictions.append("offline_constraint")
+            if c == "بدون api":
+                if ("api" in low_a and not denies_api) or "مدل آماده" in low_a:
+                    contradictions.append("no_api_constraint")
         if contradictions:
             score -= .45
             reasons.append("constraint_contradiction")
         for rejected in rejected_answers:
             if self.overlap(a, rejected) >= .72:
-                contradictions.append("repeats_rejected_answer")
-                score -= .35
+                # A rejected conversational answer is negative feedback about
+                # that prior answer in context; it is not an eternal ban on the
+                # underlying words/fact. Fresh explicit structured evidence may
+                # legitimately support the same value in a corrected referent.
+                # Unsupported repetition is still rejected exactly as before.
+                if supported:
+                    reasons.append("supported_answer_overlaps_rejected_context")
+                else:
+                    contradictions.append("repeats_rejected_answer")
+                    score -= .35
                 break
         score = max(0.0, min(1.0, score))
         accepted = score >= .70 and not contradictions

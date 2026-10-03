@@ -62,6 +62,19 @@ class ChatGPTReviewWorker:
         self.reviews_path.parent.mkdir(parents=True, exist_ok=True)
         atomic_write_json(self.reviews_path, rows)
 
+    @classmethod
+    def _valid_state(cls, value):
+        if not isinstance(value, dict):
+            return False
+        backoff = value.get("backoff_seconds", 15)
+        if isinstance(backoff, bool) or not isinstance(backoff, int) or backoff < 0:
+            return False
+        for key in ("next_allowed_at", "last_request_at", "last_success_at"):
+            timestamp = value.get(key)
+            if timestamp is not None and cls._parse_iso(timestamp) is None:
+                return False
+        return value.get("last_error") is None or isinstance(value.get("last_error"), str)
+
     def _load_state(self):
         default = {
             "next_allowed_at": None,
@@ -70,7 +83,7 @@ class ChatGPTReviewWorker:
             "last_success_at": None,
             "last_error": None,
         }
-        value = load_critical_json(self.state_path, {})
+        value = load_critical_json(self.state_path, {}, validator=self._valid_state)
         default.update({key: value[key] for key in default if key in value})
         return default
 
@@ -79,6 +92,7 @@ class ChatGPTReviewWorker:
         atomic_write_json(self.state_path, state)
 
     def status(self):
+        has_state = self.state_path.exists() or self.state_path.with_suffix(self.state_path.suffix + ".bak").exists()
         try:
             state = self._load_state()
         except StateCorruptionError:
@@ -87,6 +101,7 @@ class ChatGPTReviewWorker:
         now = self.clock()
         next_allowed = self._parse_iso(state.get("next_allowed_at"))
         return {
+            "state": "READY" if has_state else "UNINITIALIZED",
             "next_allowed_at": state.get("next_allowed_at"),
             "backoff_seconds": int(state.get("backoff_seconds") or 15),
             "last_request_at": state.get("last_request_at"),
@@ -96,7 +111,7 @@ class ChatGPTReviewWorker:
             "cooldown_seconds": max(0, int(next_allowed - now)) if next_allowed and next_allowed > now else 0,
         }
 
-    def _candidate(self, rows):
+    def _candidate(self, rows, proposal_id=None):
         # Review durable knowledge/evidence before low-value planning requests.
         # Within the same class keep FIFO order to avoid starvation.
         priorities = {
@@ -111,12 +126,19 @@ class ChatGPTReviewWorker:
         candidates = [
             (index, row) for index, row in enumerate(rows)
             if row.get("source") in {"learning_gate", "learning_candidate"}
+            and (proposal_id is None
+                 or str(row.get("proposal_id")) == str(proposal_id))
             and row.get("review_status", "not_reviewed") == "not_reviewed"
             and row.get("status", "pending") in {"pending", "WAITING_FOR_REVIEWER"}
         ]
         if not candidates:
             return None
-        _, row = max(candidates, key=lambda item: (priorities.get(item[1].get("kind"), 40), -item[0]))
+        if proposal_id is not None:
+            return candidates[0][1]
+        _, row = max(
+            candidates,
+            key=lambda item: (priorities.get(item[1].get("kind"), 40), -item[0]),
+        )
         return row
 
     def _windows_user_env(self, name):
@@ -148,25 +170,26 @@ class ChatGPTReviewWorker:
                     row["failure_reason"] = reason
         return {"ok":False, "reason":reason, "state":"WAITING_FOR_REVIEWER", "status":self.status()}
 
-    def process_one(self):
-        """Validate one candidate, or return a durable cooldown/no-candidate result."""
+    def process_one(self, proposal_id=None):
+        """Validate one candidate, optionally targeting one durable proposal ID."""
         with self._lock, file_lock(self.root / "data" / "review_worker.lock"):
             now = self.clock()
             if self.manager is not None and not self.manager.internet.status()["enabled"]:
-                candidate = self._candidate(self._load_rows())
+                candidate = self._candidate(self._load_rows(), proposal_id)
                 return self._waiting((candidate or {}).get("proposal_id"), "internet_off")
             try:
                 state = self._load_state()
             except StateCorruptionError:
-                candidate = self._candidate(self._load_rows())
+                candidate = self._candidate(self._load_rows(), proposal_id)
                 return self._waiting((candidate or {}).get("proposal_id"), "worker_state_corrupt")
             next_allowed = self._parse_iso(state.get("next_allowed_at"))
             if next_allowed and next_allowed > now:
                 return {"ok": False, "reason": "cooldown", "status": self.status()}
             rows = self._load_rows()
-            row = self._candidate(rows)
+            row = self._candidate(rows, proposal_id)
             if row is None:
-                return {"ok": True, "reason": "no_candidate", "status": self.status()}
+                return {"ok": True, "reason": "no_candidate",
+                        "proposal_id": proposal_id, "status": self.status()}
             last_request = self._parse_iso(state.get("last_request_at"))
             if last_request and now - last_request < self.MIN_INTERVAL:
                 wait_until = last_request + self.MIN_INTERVAL

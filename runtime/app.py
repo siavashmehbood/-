@@ -1,6 +1,6 @@
 """Canonical local runtime for the IRAN cognitive architecture."""
 from pathlib import Path
-from persistence import json_transaction, file_lock, load_json_with_backup, load_critical_json, acquire_runtime_ownership
+from persistence import json_transaction, file_lock, load_json_with_backup, load_critical_json, acquire_runtime_ownership, StateCorruptionError
 import json
 import hashlib
 import threading
@@ -59,6 +59,7 @@ from runtime.task_runtime import TaskRuntime, TaskStatus
 from runtime.conversation_router import ConversationRouter
 from security.policy import SecurityPolicy
 from security.learning_gate import LearningGate
+from security.review_decision_journal import ReviewDecisionJournal
 from security.internet_access import InternetAccessManager
 from tools.builtin import build_registry
 from self.evaluator import Evaluator
@@ -179,6 +180,10 @@ class IranRuntime:
         self.cognitive_system = _CognitiveSystem(self)
         self.cognitive_system.bind_legacy_adapters()
         self.orchestrator.verified_executor = self.execute_verified_goal
+        # Reconcile interrupted reviewer/Gate writes, then rebuild any missing
+        # observational audit events. This path never approves pending learning.
+        if self._chatgpt_review_path().exists():
+            self.sync_chatgpt_learning_reviews()
         self._seed_local_knowledge()
         self.events.emit("runtime_ready", {"provider": self.provider.name,
             "version": self.config["version"], "cognitive": True,
@@ -561,11 +566,14 @@ class IranRuntime:
             # Do not discard autonomous goals merely because no static source is tagged for them.
             if goal.get("attempts", 0) >= int(self.config.get("learning_max_attempts", 3)): continue
             result=self.learn_from_internet(goal["topic"])
-            if result.get("review"):
-                self.sync_chatgpt_learning_reviews()
-                review_result = self.process_one_chatgpt_learning_review()
+            review_row = result.get("review")
+            if review_row:
+                proposal_id = review_row.get("proposal_id") if isinstance(review_row, dict) else None
+                review_result = self.process_one_chatgpt_learning_review(proposal_id=proposal_id)
                 result["online_review"] = review_result
-                if review_result.get("ok") and review_result.get("reason") == "reviewed":
+                if proposal_id and review_result.get("proposal_id") != proposal_id:
+                    state = "awaiting_review"
+                elif review_result.get("ok") and review_result.get("reason") == "reviewed":
                     state = "human_pending" if review_result.get("learn") is True else "needs_evidence"
                 else:
                     state = "awaiting_review"
@@ -610,6 +618,44 @@ class IranRuntime:
     def _chatgpt_review_path(self):
         return self.root / "data" / "chatgpt_reviews.json"
 
+    def _review_decision_journal_path(self):
+        return self.root / "data" / "review_decision_journal.json"
+
+    def _review_decision_journal_store(self):
+        journal = getattr(self, "_review_decision_journal_instance", None)
+        path = self._review_decision_journal_path()
+        if journal is None or journal.path != path:
+            journal = ReviewDecisionJournal(path)
+            self._review_decision_journal_instance = journal
+        return journal
+
+    def _sync_review_decision_journal(self):
+        """Mirror durable decisions into the observational, tamper-evident journal."""
+        rows = load_critical_json(self._chatgpt_review_path(), [])
+        return self._review_decision_journal_store().sync(rows)
+
+    def review_decision_journal_status(self):
+        """Strict read-only validation; journal state never authorizes learning."""
+        return self._review_decision_journal_store().status()
+
+    def review_decision_journal_page(self, limit=50, cursor=None):
+        """Return a stable audit page without changing any learning decision."""
+        return self._review_decision_journal_store().page(limit, cursor)
+
+    def review_decision_journal_health(self):
+        """Dashboard-safe health; strict callers still fail closed on corruption."""
+        try:
+            return self.review_decision_journal_status()
+        except StateCorruptionError:
+            return {
+                "valid": False,
+                "count": None,
+                "head_hash": None,
+                "source": "corrupt",
+                "recovered_from_backup": False,
+                "error": "journal_integrity_error",
+            }
+
     def queue_learning_candidate(self, kind, payload, summary=''):
         """Stage a candidate for external review before it reaches LearningGate."""
         def stable(value):
@@ -638,17 +684,60 @@ class IranRuntime:
             rows.append(row)
             return dict(row)
 
-    def sync_chatgpt_learning_reviews(self, limit=5000):
-        """Mirror pending learning proposals into the local review queue only.
+    def sync_chatgpt_learning_reviews(self, limit=5000, proposal_ids=None):
+        """Mirror pending proposals and reconcile interrupted terminal writes.
 
-        This method never calls ChatGPT. It is safe for startup, counters, and
-        GUI refreshes; external validation belongs exclusively to the worker.
+        Targeted callers may name exact proposal IDs that are older than the
+        bounded queue window. This method never calls an external reviewer and
+        never approves a pending Gate proposal. A durable reviewer rejection
+        may only move a still-pending Gate proposal to the safer rejected state.
         """
         path = self._chatgpt_review_path()
-        proposals = self.learning_gate.pending(limit)
+        if proposal_ids is None:
+            proposals = self.learning_gate.pending(limit)
+        else:
+            proposals = []
+            seen = set()
+            for proposal_id in proposal_ids:
+                proposal_id = str(proposal_id)
+                if proposal_id in seen:
+                    continue
+                seen.add(proposal_id)
+                proposal = self.learning_gate.get(proposal_id)
+                if proposal and proposal.get("status") == "pending":
+                    proposals.append(proposal)
+
+        # Snapshot Gate state before taking the reviewer-ledger transaction.
+        # This avoids nesting the Gate file lock under the ledger file lock.
+        ledger_snapshot = load_critical_json(path, [])
+        gate_snapshot = {}
+        for row in ledger_snapshot:
+            proposal_id = str(row.get("proposal_id", ""))
+            if proposal_id and proposal_id not in gate_snapshot:
+                gate_snapshot[proposal_id] = self.learning_gate.get(proposal_id)
+
+        reviewer_rejections = set()
         created = 0
         with json_transaction(path, []) as rows:
             existing = {str(r.get("proposal_id")): r for r in rows if r.get("proposal_id")}
+
+            for proposal_id, row in existing.items():
+                proposal = gate_snapshot.get(proposal_id)
+                if not proposal:
+                    continue
+                gate_status = proposal.get("status")
+                if gate_status in {"approved", "rejected"}:
+                    row["status"] = gate_status
+                    if (row.get("review_status") == "reviewed"
+                            and row.get("chatgpt_decision") == "learn"):
+                        row["human_decision"] = gate_status
+                        row.setdefault("human_decided_at", proposal.get("updated_at", ""))
+                elif (gate_status == "pending"
+                        and row.get("review_status") == "reviewed"
+                        and row.get("chatgpt_decision") == "reject"
+                        and row.get("status") == "rejected"):
+                    reviewer_rejections.add(proposal_id)
+
             for proposal in proposals:
                 pid = proposal["proposal_id"]
                 if pid in existing:
@@ -669,6 +758,15 @@ class IranRuntime:
                 created += 1
             total = len(rows)
             waiting = sum(r.get("review_status", "not_reviewed") == "not_reviewed" for r in rows)
+
+        # Re-check under LearningGate's own lock; terminal decisions are
+        # immutable, so a concurrent human approval cannot be overwritten.
+        for proposal_id in reviewer_rejections:
+            current = self.learning_gate.get(proposal_id)
+            if current and current.get("status") == "pending":
+                self.learning_gate.decide(proposal_id, "rejected")
+
+        self._sync_review_decision_journal()
         return {"created": created, "total": total, "not_reviewed": waiting, "reviewed": total-waiting}
 
     def chatgpt_learning_review_status(self, proposal_id):
@@ -696,10 +794,15 @@ class IranRuntime:
         })
         return status
 
-    def process_one_chatgpt_learning_review(self):
-        """Run one external validation; only LEARN candidates reach the human queue."""
-        self.sync_chatgpt_learning_reviews()
-        result = self.chatgpt_review_worker.process_one()
+    def process_one_chatgpt_learning_review(self, proposal_id=None):
+        """Run one validation, optionally targeting one durable proposal ID."""
+        target_ids = [proposal_id] if proposal_id is not None else None
+        if target_ids is None:
+            self.sync_chatgpt_learning_reviews()
+            result = self.chatgpt_review_worker.process_one()
+        else:
+            self.sync_chatgpt_learning_reviews(proposal_ids=target_ids)
+            result = self.chatgpt_review_worker.process_one(proposal_id=proposal_id)
         if result.get("ok") and result.get("reason") == "reviewed" and result.get("proposal_id"):
             row = self.chatgpt_learning_review_status(result["proposal_id"]).get("row", {})
             payload = row.get("payload", {}) or {}
@@ -716,22 +819,24 @@ class IranRuntime:
             review = self.chatgpt_learning_review_status(proposal_id) if proposal_id else {}
             if proposal_id and review.get("row", {}).get("source") == "learning_gate":
                 self.learning_gate.decide(proposal_id, "rejected")
+        if result.get("ok") and result.get("reason") == "reviewed":
+            self._sync_review_decision_journal()
         return result
 
     def online_learning_review_status(self):
         """Status for the external multi-model reviewer used by online learning."""
         return self.chatgpt_review_status()
 
-    def process_one_online_learning_review(self):
+    def process_one_online_learning_review(self, proposal_id=None):
         """Review one queued learning candidate, then hand accepted items to the human gate."""
-        return self.process_one_chatgpt_learning_review()
+        return self.process_one_chatgpt_learning_review(proposal_id=proposal_id)
 
     def submit_chatgpt_learning_review(self, proposal_id, review_text):
         """Store a review note only; human approval remains a separate gate."""
         review_text = str(review_text or "").strip()
         if not review_text:
             return {"ok": False, "reason": "empty_review"}
-        self.sync_chatgpt_learning_reviews()
+        self.sync_chatgpt_learning_reviews(proposal_ids=[proposal_id])
         with json_transaction(self._chatgpt_review_path(), []) as rows:
             for row in rows:
                 if str(row.get("proposal_id")) == str(proposal_id):
@@ -743,39 +848,154 @@ class IranRuntime:
         """Return the durable pending proposals for internal learning workflows."""
         return self.learning_gate.pending(limit)
 
+    def learning_pending_page(self, limit=50, cursor=None):
+        """Return a stable newest-first page without deleting audit history."""
+        return self.learning_gate.pending_page(limit, cursor)
+
+    @staticmethod
+    def _human_review_is_pending(row):
+        return (
+            row.get("proposal_id")
+            and row.get("review_status") == "reviewed"
+            and row.get("chatgpt_decision") == "learn"
+            and row.get("status") == "human_pending"
+        )
+
+    @staticmethod
+    def _human_candidate_item(review):
+        return {
+            "proposal_id": str(review.get("proposal_id")),
+            "kind": review.get("kind"),
+            "payload": review.get("payload", {}),
+            "summary": review.get("question", ""),
+            "status": "pending",
+            "source": "learning_candidate",
+            "created_at": review.get("created_at", ""),
+        }
+
+    def human_learning_pending_page(self, limit=50, cursor=None):
+        """Page reviewer-approved Gate rows and pre-Gate candidates safely.
+
+        Candidate-only rows are paged first using their append-only reviewer
+        ledger order. Gate-backed rows then use LearningGate's stable cursor.
+        Both cursor types remain resolvable after a row becomes terminal, and
+        newer rows never shift an existing continuation page.
+        """
+        try:
+            limit = max(0, int(limit))
+        except (TypeError, ValueError):
+            raise ValueError("limit must be an integer") from None
+        if cursor is not None:
+            cursor = str(cursor).strip()
+            if not cursor:
+                raise ValueError("cursor must be a proposal id")
+        if limit == 0:
+            return {"items": [], "next_cursor": None, "has_more": False}
+
+        reviews = load_critical_json(self._chatgpt_review_path(), [])
+        candidate_history = [
+            row for row in reviews
+            if row.get("source") == "learning_candidate" and row.get("proposal_id")
+        ]
+        candidate_ids = {str(row.get("proposal_id")) for row in candidate_history}
+        gate_ids = {
+            str(row.get("proposal_id"))
+            for row in reviews
+            if row.get("source") != "learning_candidate"
+            and self._human_review_is_pending(row)
+        }
+
+        items = []
+        candidate_has_more = False
+        candidate_phase = cursor is None or cursor in candidate_ids
+        if cursor is not None and str(cursor).startswith("candidate_") and not candidate_phase:
+            raise ValueError("cursor not found")
+
+        if candidate_phase:
+            start = len(candidate_history) - 1
+            if cursor is not None:
+                for index, row in enumerate(candidate_history):
+                    if str(row.get("proposal_id")) == cursor:
+                        start = index - 1
+                        break
+                else:
+                    raise ValueError("cursor not found")
+            for index in range(start, -1, -1):
+                row = candidate_history[index]
+                if not self._human_review_is_pending(row):
+                    continue
+                if len(items) >= limit:
+                    candidate_has_more = True
+                    break
+                items.append(self._human_candidate_item(row))
+
+            if len(items) >= limit:
+                gate_has_more = False
+                if not candidate_has_more and gate_ids:
+                    gate_has_more = bool(
+                        self.learning_gate.pending_page(
+                            1, proposal_ids=gate_ids
+                        )["items"]
+                    )
+                has_more = candidate_has_more or gate_has_more
+                return {
+                    "items": items,
+                    "next_cursor": items[-1]["proposal_id"] if has_more else None,
+                    "has_more": has_more,
+                }
+            gate_cursor = None
+        else:
+            gate_cursor = cursor
+
+        gate_page = self.learning_gate.pending_page(
+            limit - len(items), gate_cursor, proposal_ids=gate_ids
+        )
+        items.extend(gate_page["items"])
+        has_more = gate_page["has_more"]
+        return {
+            "items": items,
+            "next_cursor": items[-1]["proposal_id"] if has_more and items else None,
+            "has_more": has_more,
+        }
+
     def human_learning_pending(self, limit=50):
-        """Return reviewer-accepted candidates awaiting the authoritative human decision."""
-        rows = load_critical_json(self._chatgpt_review_path(), [])
-        result = []
-        for review in rows:
-            if (review.get("source") == "learning_candidate"
-                    and review.get("review_status") == "reviewed"
-                    and review.get("chatgpt_decision") == "learn"
-                    and review.get("status") == "human_pending"):
-                result.append({
-                    "proposal_id": review.get("proposal_id"), "kind": review.get("kind"),
-                    "payload": review.get("payload", {}), "summary": review.get("question", ""),
-                    "status": "pending", "source": "learning_candidate",
-                    "created_at": review.get("created_at", ""),
-                })
-                if len(result) >= int(limit):
-                    return result
-        reviews = {r.get("proposal_id"): r for r in rows}
-        for proposal in self.learning_gate.pending(100000):
-            review = reviews.get(proposal.get("proposal_id"), {})
-            if (review.get("review_status") == "reviewed"
-                    and review.get("chatgpt_decision") == "learn"
-                    and review.get("status") == "human_pending"):
-                result.append(proposal)
-                if len(result) >= int(limit): break
-        return result
+        """Return reviewer-accepted candidates awaiting the human decision."""
+        return self.human_learning_pending_page(limit)["items"]
+
     def learning_history(self, limit=200):
         return self.learning_gate.history(limit)
+
+    def learning_history_page(self, limit=200, cursor=None):
+        """Return a stable page of the complete learning audit history."""
+        return self.learning_gate.history_page(limit, cursor)
+
+    def _human_learning_pending_count(self):
+        """Count the full eligible queue without a fixed proposal scan cap."""
+        reviews = load_critical_json(self._chatgpt_review_path(), [])
+        candidate_count = sum(
+            row.get("source") == "learning_candidate"
+            and self._human_review_is_pending(row)
+            for row in reviews
+        )
+        gate_ids = {
+            str(row.get("proposal_id"))
+            for row in reviews
+            if row.get("source") != "learning_candidate"
+            and self._human_review_is_pending(row)
+        }
+        gate_count = 0
+        if gate_ids:
+            gate_count = len(
+                self.learning_gate.pending_page(
+                    len(gate_ids), proposal_ids=gate_ids
+                )["items"]
+            )
+        return candidate_count + gate_count
 
     def learning_status(self):
         status=dict(self.learning_gate.stats())
         status["gate_pending"] = status.get("pending", 0)
-        status["pending"] = len(self.human_learning_pending(100000))
+        status["pending"] = self._human_learning_pending_count()
         status["candidate_queue"] = self.chatgpt_review_status().get("pending", 0)
         effect=self.effect_learning.stats()
         transfers=self.effect_learning.state.get("transfer_evaluations", [])
@@ -792,6 +1012,7 @@ class IranRuntime:
             "improvement_cases": len(improvements),
             "improved_cases": sum(x > 0 for x in improvements),
             "mean_improvement": round(sum(improvements) / len(improvements), 3) if improvements else 0.0,
+            "review_decision_journal": self.review_decision_journal_health(),
         })
         return status
 
@@ -896,6 +1117,7 @@ class IranRuntime:
                 "reviewer_decision":review.get("row", {}).get("chatgpt_decision", "unknown")}
 
     def _set_human_review_status(self, proposal_id, status, gate_proposal_id=None, human_source=None):
+        updated = False
         with json_transaction(self._chatgpt_review_path(), []) as rows:
             for row in rows:
                 if str(row.get("proposal_id")) == str(proposal_id):
@@ -906,14 +1128,19 @@ class IranRuntime:
                     if human_source:
                         row["human_source"] = str(human_source)[:64]
                     row["human_decided_at"] = __import__("datetime").datetime.now().isoformat(timespec="seconds")
-                    return True
-        return False
+                    updated = True
+                    break
+        if updated:
+            self._sync_review_decision_journal()
+        return updated
 
+    @serialized
     def approve_all_learning(self, limit=5000, human_confirmed=False, source="api"):
+        limit = max(0, int(limit))
         if human_confirmed is not True:
             return {"ok":False,"reason":"human_confirmation_required","approved":0,
-                    "remaining":len(self.human_learning_pending(limit))}
-        rows=self.human_learning_pending(limit)
+                    "remaining":self.learning_gate.stats().get("pending",0)}
+        rows = [] if limit == 0 else self.human_learning_pending(limit)
         results=[]
         skipped=[]
         for row in rows:
@@ -925,8 +1152,7 @@ class IranRuntime:
                 skipped.append({"proposal_id":row.get("proposal_id"),"reason":str(exc)})
         return {"ok":True,"approved":len(results),"skipped":skipped,"remaining":self.learning_gate.stats().get("pending",0)}
 
-    @serialized
-    def reject_learning(self, proposal_id):
+    def _reject_learning(self, proposal_id, sync_reviews=True):
         review = self.chatgpt_learning_review_status(proposal_id)
         if review.get("row", {}).get("source") == "learning_candidate":
             if review.get("row", {}).get("status") != "human_pending":
@@ -938,11 +1164,50 @@ class IranRuntime:
                                                    "reject", "human_rejected", source="human")
             self.events.emit("learning_rejected",{"candidate_id":proposal_id,"kind":review.get("row",{}).get("kind")})
             return {"ok":True,"candidate":review.get("row")}
-        result=self.learning_gate.decide(proposal_id,"rejected")
-        if result is None: return {"ok":False,"reason":"proposal_not_found"}
+
+        proposal = self.learning_gate.get(proposal_id)
+        if proposal is None:
+            return {"ok":False,"reason":"proposal_not_found"}
+        if proposal.get("status") != "pending":
+            return {"ok":False,"reason":"proposal_not_pending","proposal":proposal}
+
+        # A direct human rejection must first have a durable reviewer-ledger row.
+        # Bulk callers mirror their exact bounded snapshot once before deciding.
+        if sync_reviews:
+            self.sync_chatgpt_learning_reviews(proposal_ids=[proposal_id])
+        result = self.learning_gate.decide(proposal_id, "rejected")
+        if result is None:
+            return {"ok":False,"reason":"proposal_not_found"}
+        if result.get("status") != "rejected":
+            return {"ok":False,"reason":"proposal_not_pending","proposal":result}
         self._set_human_review_status(proposal_id, "rejected")
         self.events.emit("learning_rejected",{"proposal_id":proposal_id,"kind":result.get("kind")})
         return {"ok":True,"proposal":result}
+
+    @serialized
+    def reject_learning(self, proposal_id):
+        return self._reject_learning(proposal_id, sync_reviews=True)
+
+    @serialized
+    def reject_all_learning(self, limit=5000):
+        limit = max(0, int(limit))
+        rows = [] if limit == 0 else self.learning_gate.pending(limit)
+        proposal_ids = [row.get("proposal_id") for row in rows if row.get("proposal_id")]
+        if proposal_ids:
+            self.sync_chatgpt_learning_reviews(proposal_ids=proposal_ids)
+        results = []
+        skipped = []
+        for proposal_id in proposal_ids:
+            try:
+                result = self._reject_learning(proposal_id, sync_reviews=False)
+                if result.get("ok"):
+                    results.append(result)
+                else:
+                    skipped.append({"proposal_id":proposal_id,"reason":result.get("reason")})
+            except Exception as exc:
+                skipped.append({"proposal_id":proposal_id,"reason":str(exc)})
+        return {"ok":True,"rejected":len(results),"skipped":skipped,
+                "remaining":self.learning_gate.stats().get("pending",0)}
 
     def health(self):
         return self.brain.health()
@@ -1308,7 +1573,9 @@ class IranRuntime:
         return self.cognitive_system.architecture_contract()
 
     def inspect(self):
-        return self.cognitive_system.inspect()
+        snapshot = dict(self.cognitive_system.inspect())
+        snapshot["review_decision_journal"] = self.review_decision_journal_health()
+        return snapshot
     def _handle_command(self, text):
         import shlex
         parts = shlex.split(text)

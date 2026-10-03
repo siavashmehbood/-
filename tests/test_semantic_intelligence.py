@@ -87,7 +87,12 @@ class SemanticIntelligenceAcceptance(unittest.TestCase):
             r.handle("یکی از دوستام اسمش رادین است.")
             r.handle("اسم محصولمون ماهوره.")
             self.assert_value(r.handle("اسم همکارم چی بود؟"),"کیان")
-            self.assert_value(r.handle("اسم دوستم چی بود؟"),"رادین")
+            friend_answer=r.handle("اسم دوستم چی بود؟")
+            friend_trace=getattr(r.dialogue,"last_trace",None)
+            self.assertIn("رادین",friend_answer,
+                          f"answer={friend_answer!r} trace={getattr(friend_trace,'__dict__',friend_trace)!r} "
+                          f"semantic={getattr(r.dialogue,'last_semantic_trace',None)!r}")
+            self.assertFalse(str(friend_answer).startswith("UNKNOWN:"),friend_answer)
             self.assert_value(r.handle("اسم محصول چیه؟"),"ماهور")
             self.assert_value(r.handle("اسم پروژه اول چی بود؟"),"باران")
             self.assert_value(r.handle("اسم پروژه دوم چی بود؟"),"آذرخش")

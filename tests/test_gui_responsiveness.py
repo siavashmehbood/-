@@ -89,6 +89,32 @@ def test_corrupt_review_state_is_visible_without_stranding_chat(tmp_path, monkey
     window.close();app.processEvents()
 
 
+
+def test_missing_and_schema_corrupt_reviewer_state_render_clear_status(tmp_path,monkeypatch):
+    shutil.copy(Path(__file__).parents[1]/'config.json',tmp_path)
+    monkeypatch.setattr(gui,'ROOT',tmp_path)
+    app=QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    window=gui.ChatWindow();window.show()
+    window.autonomy_timer.stop();window.chatgpt_review_timer.stop()
+    worker=window.runtime.chatgpt_review_worker
+    worker.state_path.unlink(missing_ok=True)
+    worker.state_path.with_suffix('.json.bak').unlink(missing_ok=True)
+
+    window.refresh_chatgpt_count()
+    assert worker.status()['state']=='UNINITIALIZED'
+    assert 'وضعیت بازبینی هنوز ثبت نشده' in window.chatgpt_pending.text()
+    assert 'وضعیت اولیه' in window.integrity_status.text()
+    assert 'وضعیت ناظر هنوز ثبت نشده' in window.recovery_status.text()
+
+    worker.state_path.write_text('{"backoff_seconds":"invalid"}',encoding='utf-8')
+    window.refresh_chatgpt_count()
+    assert worker.status()['state']=='ERROR'
+    assert 'خطا در داده‌های ذخیره‌شده' in window.chatgpt_pending.text()
+    assert 'یکپارچگی: خطا' in window.integrity_status.text()
+    assert 'worker_state_corrupt' in window.review_errors.text()
+    window.close();app.processEvents()
+
+
 def test_failed_internet_toggle_stays_off_and_visible(tmp_path,monkeypatch):
     shutil.copy(Path(__file__).parents[1]/'config.json',tmp_path)
     monkeypatch.setattr(gui,'ROOT',tmp_path)
