@@ -1019,6 +1019,7 @@ class IranRuntime:
             self._sync_review_decision_journal()
         return updated
 
+    @serialized
     def approve_all_learning(self, limit=5000, human_confirmed=False, source="api"):
         if human_confirmed is not True:
             return {"ok":False,"reason":"human_confirmation_required","approved":0,
@@ -1035,8 +1036,7 @@ class IranRuntime:
                 skipped.append({"proposal_id":row.get("proposal_id"),"reason":str(exc)})
         return {"ok":True,"approved":len(results),"skipped":skipped,"remaining":self.learning_gate.stats().get("pending",0)}
 
-    @serialized
-    def reject_learning(self, proposal_id):
+    def _reject_learning(self, proposal_id, sync_reviews=True):
         review = self.chatgpt_learning_review_status(proposal_id)
         if review.get("row", {}).get("source") == "learning_candidate":
             if review.get("row", {}).get("status") != "human_pending":
@@ -1048,11 +1048,50 @@ class IranRuntime:
                                                    "reject", "human_rejected", source="human")
             self.events.emit("learning_rejected",{"candidate_id":proposal_id,"kind":review.get("row",{}).get("kind")})
             return {"ok":True,"candidate":review.get("row")}
-        result=self.learning_gate.decide(proposal_id,"rejected")
-        if result is None: return {"ok":False,"reason":"proposal_not_found"}
+
+        proposal = self.learning_gate.get(proposal_id)
+        if proposal is None:
+            return {"ok":False,"reason":"proposal_not_found"}
+        if proposal.get("status") != "pending":
+            return {"ok":False,"reason":"proposal_not_pending","proposal":proposal}
+
+        # A direct human rejection must first have a durable reviewer-ledger row.
+        # Bulk callers mirror their exact bounded snapshot once before deciding.
+        if sync_reviews:
+            self.sync_chatgpt_learning_reviews(proposal_ids=[proposal_id])
+        result = self.learning_gate.decide(proposal_id, "rejected")
+        if result is None:
+            return {"ok":False,"reason":"proposal_not_found"}
+        if result.get("status") != "rejected":
+            return {"ok":False,"reason":"proposal_not_pending","proposal":result}
         self._set_human_review_status(proposal_id, "rejected")
         self.events.emit("learning_rejected",{"proposal_id":proposal_id,"kind":result.get("kind")})
         return {"ok":True,"proposal":result}
+
+    @serialized
+    def reject_learning(self, proposal_id):
+        return self._reject_learning(proposal_id, sync_reviews=True)
+
+    @serialized
+    def reject_all_learning(self, limit=5000):
+        limit = max(0, int(limit))
+        rows = self.learning_gate.pending(limit)
+        proposal_ids = [row.get("proposal_id") for row in rows if row.get("proposal_id")]
+        if proposal_ids:
+            self.sync_chatgpt_learning_reviews(proposal_ids=proposal_ids)
+        results = []
+        skipped = []
+        for proposal_id in proposal_ids:
+            try:
+                result = self._reject_learning(proposal_id, sync_reviews=False)
+                if result.get("ok"):
+                    results.append(result)
+                else:
+                    skipped.append({"proposal_id":proposal_id,"reason":result.get("reason")})
+            except Exception as exc:
+                skipped.append({"proposal_id":proposal_id,"reason":str(exc)})
+        return {"ok":True,"rejected":len(results),"skipped":skipped,
+                "remaining":self.learning_gate.stats().get("pending",0)}
 
     def health(self):
         return self.brain.health()
