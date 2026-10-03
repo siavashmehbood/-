@@ -309,3 +309,39 @@ def test_builtin_calculator_is_registered_and_safe(tmp_path):
     registry=build_registry(tmp_path, Memory())
     assert registry.run("calculate", expression="25*4") == 100
     assert registry.run("calculate", expression="(12+8)/2") == 10
+
+
+def test_real_runtime_manual_conversation_quality_regressions(tmp_path):
+    import shutil
+    from pathlib import Path
+    from runtime.app import IranRuntime
+
+    shutil.copy(Path(__file__).parents[1] / "config.json", tmp_path)
+    runtime = IranRuntime(tmp_path)
+    try:
+        greeting = runtime.handle("سلام، هستی؟")
+        assert greeting
+        assert "متوجه شدم:" not in greeting
+        assert "اگر هدفت ادامه همین موضوع" not in greeting
+
+        ready = runtime.handle("آره من سیاوشم. امروز می‌خوام باهات چندتا تست انجام بدم، آماده‌ای؟")
+        assert ready
+        assert "متوجه شدم:" not in ready
+        assert "اگر هدفت ادامه همین موضوع" not in ready
+
+        name = runtime.handle("اسم من چیه؟")
+        assert "سیاوش" in name
+
+        style = runtime.handle("با من مثل یک دستیار عادی حرف بزن.")
+        assert "با من مثل یک دستیار عادی حرف بزن" not in style
+        assert "اگر هدفت ادامه همین موضوع" not in style
+
+        support = runtime.handle("امروز حالم خوب نیست. یکم باهام حرف بزن.")
+        assert support
+        assert "امروز حالم خوب نیست" not in support
+        assert "اگر هدفت ادامه همین موضوع" not in support
+
+        arithmetic = runtime.handle("۲۵ ضربدر ۴ چند میشه؟ فقط جواب بده.")
+        assert str(arithmetic).strip() == "100"
+    finally:
+        runtime.close()
