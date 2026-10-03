@@ -671,39 +671,182 @@ class LocalDialogueEngine:
         return ""
 
     def _direct_answer(self, context):
+        """Return the deterministic direct answer through one class-owned path."""
         text = context.user_message
         low = bare(text).lower()
         ref = ""
-        composed=self._compose_conversational(context)
-        if composed:return composed
         if context.references.get("resolved"):
             ref = context.references["resolved"].get("candidate", "")
+
+        # Highest-priority compatibility cases run before the legacy base path.
+        if (
+            is_follow_up(text)
+            and context.previous_answer
+            and low
+            in {
+                "یعنی چه",
+                "یعنی چی",
+                "منظورت چیست",
+                "منظورت چیه",
+                "این یعنی چه",
+                "این یعنی چی",
+            }
+        ):
+            return (
+                f"منظورم از پاسخ قبلی این بود: «{context.previous_answer}»؛ "
+                "اگر بخواهی، همان را ساده‌تر و مرحله‌به‌مرحله توضیح می‌دهم."
+            )
+        if len(context.question_units) > 1:
+            lines = []
+            for index, unit in enumerate(context.question_units[:6], 1):
+                unit_low = bare(unit).lower()
+                if "پایتون" in unit_low and any(
+                    marker in unit_low for marker in ("چی", "چیست", "چیه")
+                ):
+                    answer = "پایتون یک زبان برنامه‌نویسی سطح‌بالا و چندمنظوره است."
+                elif "چرا" in unit_low and "محبوب" in unit_low:
+                    answer = (
+                        "به‌خاطر خوانایی، کتابخانه‌های گسترده و کاربردهای متنوع "
+                        "محبوب است."
+                    )
+                elif "برای پروژه من" in unit_low or "برای پروژه‌م" in unit_low:
+                    answer = (
+                        "برای پروژه IRAN می‌تواند برای پیاده‌سازی منطق، حافظه و "
+                        "اجزای محلی مناسب باشد."
+                    )
+                else:
+                    answer = "برای این بخش شواهد محلی کافی ندارم."
+                lines.append(f"{index}) {answer}")
+            return "\n".join(lines)
+
+        if any(
+            marker in low
+            for marker in (
+                "درست بود",
+                "درسته",
+                "عالی بود",
+                "خوبه",
+                "اشتباه بود",
+                "غلط بود",
+                "بد بود",
+                "ضعیف بود",
+            )
+        ):
+            return (
+                "بازخورد شما ثبت شد و برای انتخاب راهبرد پاسخ‌های بعدی "
+                "استفاده می‌شود."
+            )
+        if any(
+            marker in low for marker in ("چطور", "چگونه", "چه جوری", "چجوری")
+        ) and not context.relevant_knowledge:
+            return (
+                "مسیر عملی: فهم سؤال → استفاده از حافظه و زمینه → بررسی شواهد "
+                "→ ساخت پاسخ → راستی‌آزمایی نتیجه."
+            )
+        if any(
+            marker in low
+            for marker in ("مرکز سیاسی کشور ایران", "مرکز سیاسی ایران")
+        ) and context.relevant_knowledge:
+            return "مرکز سیاسی کشور ایران تهران است."
+        if any(
+            marker in low for marker in ("هفته چند روز", "تعداد روزهای هفته")
+        ):
+            return "هفته هفت روز دارد."
+        if (
+            context.question_type in {"why", "how", "what", "where", "yes_no"}
+            and not context.relevant_knowledge
+        ):
+            return (
+                "UNKNOWN: برای این سؤال در دانش و شواهد محلی اطلاعات کافی ندارم؛ "
+                "نمی‌خواهم حدس را به‌عنوان واقعیت بگویم."
+            )
+
+        if context.question_type == "correction":
+            target = re.sub(
+                r"^(نه[،, ]*|منظورم[ ]*|اشتباهه[،, ]*|اشتباه است[،, ]*)",
+                "",
+                bare(text),
+            ).strip(" :،")
+            target = re.sub(r"\s+(?:بود|است|هست)$", "", target).strip()
+            if target:
+                return (
+                    f"متوجه شدم؛ مرجع قبلی را به «{target}» اصلاح کردم. "
+                    "از اینجا همان را مبنا می‌گیرم."
+                )
+            return "متوجه شدم. اصلاح را ثبت کردم."
+        if any(
+            marker in low
+            for marker in ("این قسمت", "این بخش", "این جواب", "این مشکل")
+        ) and ref:
+            return (
+                f"منظورت را به «{ref}» وصل کردم. اگر هدفت بهترکردن همان بخش است، "
+                "از همین موضوع ادامه می‌دهم."
+            )
+        if "حافظه" in low and any(
+            marker in low for marker in ("چیه", "چیست", "چی ")
+        ):
+            return (
+                "حافظه در IRAN برای نگه‌داشتن زمینه گفت‌وگو، واقعیت‌های صریح، "
+                "تجربه‌ها و دانش قابل‌بازیابی استفاده می‌شود؛ هدفش این است که "
+                "پیام‌های کوتاه مثل «چرا؟» یا «ادامه بده» از پیام‌های قبلی جدا نشوند."
+            )
+        if any(
+            marker in low
+            for marker in (
+                "من چی گفتم",
+                "من چه گفتم",
+                "یادت هست من",
+                "حرف قبلی من",
+            )
+        ):
+            remembered = self.state.last_user_message
+            if remembered and remembered != context.user_message:
+                return (
+                    "بله؛ آخرین پیام مرتبطی که از خودت ثبت دارم این بود: "
+                    f"«{remembered}»."
+                )
+            return "در حافظه گفت‌وگو پیام قبلی قابل اتکایی ندارم."
+
+        # v2 compatibility path.
         if low in {"سلام", "درود", "hello", "hi"}:
             return "سلام. بگو از کجا شروع کنیم."
-        if any(x in low for x in ("اسم تو", "نام تو", "اسمت چیه", "نامت چیست")):
-            return "اسم من «ایران» است؛ من هسته گفت‌وگویی پروژه IRAN هستم."
-        if context.question_type == "correction":
-            target = re.sub(r"^(نه[،, ]*|منظورم[ ]*|اشتباهه[،, ]*)", "", bare(text)).strip(" :،")
-            if target:
-                self.state.references["latest"] = target
-                return f"متوجه شدم؛ مرجع قبلی را به «{target}» اصلاح کردم. از اینجا همان را مبنا می‌گیرم."
-            return "متوجه شدم. اصلاح را ثبت کردم و پاسخ بعدی را بر اساس آن می‌سازم."
         if is_follow_up(text) and ref:
-            previous = context.previous_answer.strip()
-            if low in {"یعنی چه", "یعنی چی", "منظورت چیست", "منظورت چیه", "این یعنی چه", "این یعنی چی"} and previous:
-                return f"منظورم از پاسخ قبلی این بود: «{previous}»؛ اگر بخواهی، همان را ساده‌تر و مرحله‌به‌مرحله توضیح می‌دهم."
             if low == "چرا":
                 subject = self.state.current_question or ref
-                return f"اگر منظورت «{subject}» است: برای پاسخ قطعی باید علت را از شواهد همین موضوع جدا کنیم؛ فعلاً مهم‌ترین فرضیه‌ها را بررسی می‌کنم."
+                return (
+                    f"اگر منظورت «{subject}» است: درباره علت، در داده محلی شاهد "
+                    "کافی ندارم؛ مهم‌ترین نکته این است که «چرا» را به همان سؤال "
+                    "قبلی وصل کردم."
+                )
             if low in {"چطور", "چگونه"}:
-                return f"اگر منظورت «{ref}» است: قدم اول مشخص‌کردن هدف و شواهد است؛ بعد راه‌حل را مرحله‌ای می‌سازیم و نتیجه را بررسی می‌کنیم."
+                return (
+                    f"اگر منظورت «{ref}» است: قدم اول مشخص‌کردن هدف و شواهد است؛ "
+                    "بعد راه‌حل را مرحله‌ای می‌سازیم و نتیجه را بررسی می‌کنیم."
+                )
             if "ساده" in low:
-                return f"ساده‌ترش: موضوع «{ref}» را نگه می‌داریم و از همان‌جا ادامه می‌دهیم."
+                return (
+                    f"ساده‌ترش: موضوع «{ref}» را نگه می‌داریم و از همان‌جا "
+                    "ادامه می‌دهیم."
+                )
             if "کوتاه" in low:
                 return f"خلاصه: «{ref}»."
             if "مثال" in low:
-                return f"مثلاً در موضوع «{ref}»، اول یک نمونه کوچک می‌سازیم و نتیجه‌اش را بررسی می‌کنیم."
+                return (
+                    f"مثلاً در موضوع «{ref}»، اول یک نمونه کوچک می‌سازیم و "
+                    "نتیجه‌اش را بررسی می‌کنیم."
+                )
             return f"باشه، ادامه را از «{ref}» می‌گیرم."
+        if ("برای پروژه من" in low or "برای پروژه‌م" in low) and ref:
+            if "پایتون" in ref.lower():
+                return (
+                    "بله؛ برای پروژه IRAN انتخاب مناسبی است و خود پروژه هم با "
+                    "پایتون ساخته شده."
+                )
+            if "حافظه" in ref.lower():
+                return (
+                    "بله؛ برای پروژه IRAN حافظه ضروری است چون باید زمینه و "
+                    "ارجاع‌های بین پیام‌ها را نگه دارد."
+                )
         if context.relevant_knowledge:
             fact = context.relevant_knowledge[0]
             obj = str(fact.get("object", fact.get("value", "")))
@@ -712,19 +855,48 @@ class LocalDialogueEngine:
             if "پایتون" in low and context.question_type == "what":
                 return f"پایتون {obj}"
             return obj
+        if "موضوع قبلی" in low or "بحث اول" in low:
+            target = self.resolver.resolve(
+                text, self.state, context.conversation_history
+            )
+            if target:
+                return f"برگشتیم به «{target}»."
+            return "موضوع قبلی مشخصی در حافظه ندارم."
+        if (
+            context.question_type in {"why", "how", "what", "where", "yes_no"}
+            or "؟" in text
+        ):
+            return (
+                "برای این سؤال در دانش و شواهد محلی اطلاعات کافی ندارم؛ "
+                "نمی‌خواهم حدس را به‌عنوان واقعیت بگویم."
+            )
+
+        # Original base fallback, reached only when no compatibility case matched.
+        composed = self._compose_conversational(context)
+        if composed:
+            return composed
+        if any(
+            marker in low
+            for marker in ("اسم تو", "نام تو", "اسمت چیه", "نامت چیست")
+        ):
+            return "اسم من «ایران» است؛ من هسته گفت‌وگویی پروژه IRAN هستم."
         if "برای پروژه من" in low or "برای پروژه‌م" in low:
             topic = self.state.current_topic or "پروژه IRAN"
             if "پایتون" in low or "python" in low:
-                return f"بله. برای {topic or 'پروژه IRAN'} پایتون انتخاب مناسبی است؛ خود پروژه هم با پایتون ساخته شده."
+                return (
+                    f"بله. برای {topic or 'پروژه IRAN'} پایتون انتخاب مناسبی است؛ "
+                    "خود پروژه هم با پایتون ساخته شده."
+                )
             if "حافظه" in low:
-                return f"برای {topic or 'پروژه IRAN'} حافظه مهم است، چون بدون نگه‌داشتن زمینه پیام‌هایی مثل «این» و «ادامه بده» مستقل پردازش می‌شوند."
-        if "موضوع قبلی" in low or "بحث اول" in low:
-            target = self.resolver.resolve(text, self.state, context.conversation_history)
-            if target:
-                return f"برگشتیم به «{target}»."
-        if context.question_type in {"why", "how", "what", "where", "yes_no"} or "؟" in text:
-            return "برای این سؤال در دانش و شواهد محلی اطلاعات کافی ندارم؛ نمی‌خواهم حدس را به‌عنوان واقعیت بگویم."
-        return f"متوجه شدم: «{bare(text)}». اگر هدفت ادامه همین موضوع است، بگو کدام بخش را باز کنیم."
+                return (
+                    f"برای {topic or 'پروژه IRAN'} حافظه مهم است، چون بدون "
+                    "نگه‌داشتن زمینه پیام‌هایی مثل «این» و «ادامه بده» مستقل "
+                    "پردازش می‌شوند."
+                )
+        return (
+            f"متوجه شدم: «{bare(text)}». اگر هدفت ادامه همین موضوع است، "
+            "بگو کدام بخش را باز کنیم."
+        )
 
     def handle(self, text):
         started = datetime.now()
@@ -851,56 +1023,6 @@ class LocalDialogueEngine:
 
 
 
-_LocalDialogue_direct_base = LocalDialogueEngine._direct_answer
-def _direct_answer_v2(self, context):
-    text=context.user_message; low=bare(text).lower(); ref=""
-    if context.references.get("resolved"):
-        ref=context.references["resolved"].get("candidate","")
-    if low in {"سلام","درود","hello","hi"}: return "سلام. بگو از کجا شروع کنیم."
-    if context.question_type=="correction":
-        target=re.sub(r"^(نه[،, ]*|منظورم[ ]*|اشتباهه[،, ]*|اشتباه است[،, ]*)","",bare(text)).strip(" :،")
-        return f"متوجه شدم؛ مرجع قبلی را به «{target}» اصلاح کردم. از اینجا همان را مبنا می‌گیرم." if target else "متوجه شدم. اصلاح را ثبت کردم و پاسخ بعدی را بر اساس آن می‌سازم."
-    # Compound questions are answered unit-by-unit, preserving the user's order.
-    if len(context.question_units)>1:
-        parts=[]
-        for unit in context.question_units:
-            u=unit.strip(); ul=u.lower()
-            if "پایتون" in ul and any(x in ul for x in ("چی","چیه","چیست")):
-                parts.append("۱) پایتون: یک زبان برنامه‌نویسی سطح‌بالا و چندمنظوره است.")
-            elif "چرا" in ul and "محبوب" in ul:
-                parts.append("۲) چرا محبوب است: خوانایی بالا، اکوسیستم بزرگ و کاربردهای متنوع از دلایل اصلی‌اند.")
-            elif "برای پروژه" in ul:
-                topic=self.state.current_topic or "پروژه IRAN"
-                parts.append(f"۳) برای {topic}: بله؛ پایتون با ساختار فعلی پروژه سازگار است و همین پروژه هم با پایتون نوشته شده.")
-            else:
-                parts.append(f"برای بخش «{u}» شواهد محلی کافی ندارم و حدس نمی‌زنم.")
-        return "\n".join(parts)
-    if is_follow_up(text) and ref:
-        if low=="چرا":
-            subject=self.state.current_question or ref
-            return f"اگر منظورت «{subject}» است: درباره علت، در داده محلی شاهد کافی ندارم؛ مهم‌ترین نکته این است که «چرا» را به همان سؤال قبلی وصل کردم."
-        if low in {"چطور","چگونه"}: return f"اگر منظورت «{ref}» است: قدم اول مشخص‌کردن هدف و شواهد است؛ بعد راه‌حل را مرحله‌ای می‌سازیم و نتیجه را بررسی می‌کنیم."
-        if "ساده" in low:return f"ساده‌ترش: موضوع «{ref}» را نگه می‌داریم و از همان‌جا ادامه می‌دهیم."
-        if "کوتاه" in low:return f"خلاصه: «{ref}»."
-        if "مثال" in low:return f"مثلاً در موضوع «{ref}»، اول یک نمونه کوچک می‌سازیم و نتیجه‌اش را بررسی می‌کنیم."
-        return f"باشه، ادامه را از «{ref}» می‌گیرم."
-    if ("برای پروژه من" in low or "برای پروژه‌م" in low) and ref:
-        if "پایتون" in ref.lower(): return "بله؛ برای پروژه IRAN انتخاب مناسبی است و خود پروژه هم با پایتون ساخته شده."
-        if "حافظه" in ref.lower(): return "بله؛ برای پروژه IRAN حافظه ضروری است چون باید زمینه و ارجاع‌های بین پیام‌ها را نگه دارد."
-    if context.relevant_knowledge:
-        obj=str(context.relevant_knowledge[0].get("object",context.relevant_knowledge[0].get("value","")))
-        if "پایتخت" in low:return obj if obj.endswith("است.") else obj+" است."
-        if "پایتون" in low and context.question_type=="what":return "پایتون "+obj
-        return obj
-    if "موضوع قبلی" in low or "بحث اول" in low:
-        target=self.resolver.resolve(text,self.state,context.conversation_history)
-        return f"برگشتیم به «{target}»." if target else "موضوع قبلی مشخصی در حافظه ندارم."
-    if context.question_type in {"why","how","what","where","yes_no"} or "؟" in text:
-        return "برای این سؤال در دانش و شواهد محلی اطلاعات کافی ندارم؛ نمی‌خواهم حدس را به‌عنوان واقعیت بگویم."
-    return _LocalDialogue_direct_base(self,context)
-LocalDialogueEngine._direct_answer = _direct_answer_v2
-
-
 # v0.40b: contextual recommendations inherit the nearest meaningful technical topic.
 
 
@@ -915,41 +1037,7 @@ REF_MARKERS = REF_MARKERS + ("این قسمت",)
 
 
 # v0.40d: explicit conversation-memory questions use the persisted dialogue state.
-_prev_direct_v2=_LocalDialogue_direct_base
-
-def _direct_answer_v3(self, context):
-    low=bare(context.user_message).lower()
-    if any(x in low for x in ("من چی گفتم", "من چه گفتم", "یادت هست من", "حرف قبلی من")):
-        remembered=self.state.last_user_message
-        if remembered and remembered!=context.user_message:
-            return f"بله؛ آخرین پیام مرتبطی که از خودت ثبت دارم این بود: «{remembered}»."
-        return "در حافظه گفت‌وگو پیام قبلی قابل اتکایی ندارم."
-    return _direct_answer_v2(self,context)
-LocalDialogueEngine._direct_answer=_direct_answer_v3
-
-
 # v0.40e: explicit reference phrases behave like follow-ups; add grounded local memory explanation.
-_prev_direct_v3=LocalDialogueEngine._direct_answer
-def _direct_answer_v4(self, context):
-    text=context.user_message; low=bare(text).lower(); ref=""
-    if context.references.get("resolved"):
-        ref=context.references["resolved"].get("candidate","")
-    if context.question_type=="correction":
-        target=re.sub(r"^(نه[،, ]*|منظورم[ ]*|اشتباهه[،, ]*|اشتباه است[،, ]*)","",bare(text)).strip(" :،")
-        target=re.sub(r"\s+(?:بود|است|هست)$","",target).strip()
-        return f"متوجه شدم؛ مرجع قبلی را به «{target}» اصلاح کردم. از اینجا همان را مبنا می‌گیرم." if target else "متوجه شدم. اصلاح را ثبت کردم."
-    if ("این قسمت" in low or "این بخش" in low or "این جواب" in low or "این مشکل" in low) and ref:
-        return f"منظورت را به «{ref}» وصل کردم. اگر هدفت بهترکردن همان بخش است، از همین موضوع ادامه می‌دهم."
-    if is_follow_up(text) and ref:
-        return _prev_direct_v3(self,context)
-    if "حافظه" in low and any(x in low for x in ("چیه","چیست","چی ")):
-        return "حافظه در IRAN برای نگه‌داشتن زمینه گفت‌وگو، واقعیت‌های صریح، تجربه‌ها و دانش قابل‌بازیابی استفاده می‌شود؛ هدفش این است که پیام‌های کوتاه مثل «چرا؟» یا «ادامه بده» از پیام‌های قبلی جدا نشوند."
-    return _prev_direct_v3(self,context)
-LocalDialogueEngine._direct_answer=_direct_answer_v4
-
-
-
-
 # v0.40g: expose the canonical turn artifacts to the runtime telemetry layer.
 
 # Store the actual artifacts at the canonical point without changing the response path.
@@ -966,31 +1054,7 @@ def _knowledge_v2(self,text,parsed):
     return rows[:8]
 LocalDialogueEngine._knowledge=_knowledge_v2
 
-_prev_direct_v4=LocalDialogueEngine._direct_answer
-def _direct_answer_v5(self,context):
-    low=bare(context.user_message).lower()
-    if any(x in low for x in ("چطور", "چگونه", "چه جوری", "چجوری")) and not context.relevant_knowledge:
-        return "مسیر عملی: فهم سؤال → استفاده از حافظه و زمینه → بررسی شواهد → ساخت پاسخ → راستی‌آزمایی نتیجه."
-    if any(x in low for x in ("مرکز سیاسی کشور ایران","مرکز سیاسی ایران")) and context.relevant_knowledge:
-        return "مرکز سیاسی کشور ایران تهران است."
-    if any(x in low for x in ("هفته چند روز","تعداد روزهای هفته")):
-        return "هفته هفت روز دارد."
-    if context.question_type in {"why","how","what","where","yes_no"} and not context.relevant_knowledge:
-        return "UNKNOWN: برای این سؤال در دانش و شواهد محلی اطلاعات کافی ندارم؛ نمی‌خواهم حدس را به‌عنوان واقعیت بگویم."
-    return _prev_direct_v4(self,context)
-LocalDialogueEngine._direct_answer=_direct_answer_v5
-
-
 # v0.40i: explicit feedback is acknowledged and persisted as outcome learning.
-_prev_direct_v5=LocalDialogueEngine._direct_answer
-def _direct_answer_v6(self,context):
-    low=bare(context.user_message).lower()
-    if any(x in low for x in ("درست بود","درسته","عالی بود","خوبه","اشتباه بود","غلط بود","بد بود","ضعیف بود")):
-        return "بازخورد شما ثبت شد و برای انتخاب راهبرد پاسخ‌های بعدی استفاده می‌شود."
-    return _prev_direct_v5(self,context)
-LocalDialogueEngine._direct_answer=_direct_answer_v6
-
-
 # v0.40j: deterministic compatibility facts and conversational recall at the canonical boundary.
 
 
@@ -1122,31 +1186,6 @@ class ReferenceResolverStage1:
 
 
 # v0.41b: deterministic multi-intent answer assembly for compound Persian questions.
-_dialogue_direct_answer_legacy = LocalDialogueEngine._direct_answer
-
-def _direct_answer_v41b(self, context):
-    low = bare(context.user_message).lower()
-    if is_follow_up(context.user_message) and context.previous_answer and low in {"یعنی چه", "یعنی چی", "منظورت چیست", "منظورت چیه", "این یعنی چه", "این یعنی چی"}:
-        return f"منظورم از پاسخ قبلی این بود: «{context.previous_answer}»؛ اگر بخواهی، همان را ساده‌تر و مرحله‌به‌مرحله توضیح می‌دهم."
-    if len(context.question_units) > 1:
-        units = context.question_units[:6]
-        lines = []
-        for i, unit in enumerate(units, 1):
-            low = bare(unit).lower()
-            if "پایتون" in low and any(x in low for x in ("چی", "چیست", "چیه")):
-                text = "پایتون یک زبان برنامه‌نویسی سطح‌بالا و چندمنظوره است."
-            elif "چرا" in low and "محبوب" in low:
-                text = "به‌خاطر خوانایی، کتابخانه‌های گسترده و کاربردهای متنوع محبوب است."
-            elif "برای پروژه من" in low or "برای پروژه‌م" in low:
-                text = "برای پروژه IRAN می‌تواند برای پیاده‌سازی منطق، حافظه و اجزای محلی مناسب باشد."
-            else:
-                text = "برای این بخش شواهد محلی کافی ندارم."
-            lines.append(f"{i}) {text}")
-        return "\n".join(lines)
-    return _dialogue_direct_answer_legacy(self, context)
-
-LocalDialogueEngine._direct_answer = _direct_answer_v41b
-
 # v0.41-learning: make learned dialogue policy affect the actual response path.
 _PREV_REPAIR_LEARNING = AnswerRepair.repair
 def _repair_learning(self, context, answer, verification, plan):
