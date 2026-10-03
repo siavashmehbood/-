@@ -423,23 +423,13 @@ class CognitivePipeline:
             or ("تهران" in low and "پایتخت" in low)
         )
         if asks_capital:
+            # This is only a conversation-control hint. The factual answer must
+            # still flow through canonical Knowledge -> Reasoning -> Verification
+            # so approved conflicts, pending corrections and provenance remain
+            # authoritative. Never let a local seed bypass those gates.
             activate_topic("ایران")
             e.state.references["latest"] = "پایتخت ایران"
             e.state.save(e.state_path)
-            return self._persist_answer(
-                text,
-                "تهران پایتخت ایران است.",
-                "DIRECT_FACT",
-                .99,
-                evidence=[{
-                    "subject":"ایران",
-                    "predicate":"پایتخت",
-                    "object":"تهران",
-                    "source":"verified_local_seed",
-                    "confidence":1.0,
-                    "resolved":True,
-                }],
-            )
         if is_correction(text) and any(marker in low for marker in ("اسم پروژه", "نام پروژه")):
             previous = clean(getattr(e.state, "last_user_message", "")).lower()
             asks_user_project = (
