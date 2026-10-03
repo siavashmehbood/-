@@ -47,6 +47,7 @@ class CognitivePipeline:
         self.semantic_intelligence = SemanticIntelligence(self.runtime.memory)
         self.last_semantic_turn = None
         self.last_cognitive_cycle = None
+        self.last_verification_evidence = None
 
     def _emit(self, event, data):
         try:
@@ -131,11 +132,13 @@ class CognitivePipeline:
                 self._emit("anti_echo_guard",{"blocked":True,"reason":reason,"canonical":True})
         except Exception:
             pass
+        verification_evidence = self.verification_evidence() if evidence is None else evidence
+        self.last_verification_evidence = verification_evidence
         checked = self.semantic_verifier.verify(
             text, answer,
             constraints=getattr(self.engine.state, "remembered_constraints", []),
             rejected_answers=getattr(self.engine.state, "rejected_answers", []),
-            evidence=self.verification_evidence() if evidence is None else evidence,
+            evidence=verification_evidence,
         )
         score = min(score, checked.score)
         if not checked.accepted:
@@ -244,6 +247,7 @@ class CognitivePipeline:
         except Exception:
             pass
         text = clean(text)
+        self.last_verification_evidence = None
         if not text:
             return "چیزی برای پردازش دریافت نکردم."
         self._preflight_conversation_route(text)
