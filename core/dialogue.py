@@ -295,24 +295,32 @@ class Verification:
 class QuestionAnalyzer:
     """Small deterministic analyzer. Existing PersianLanguageEngine supplies richer signals."""
     def analyze(self, text, parsed=None):
-        t = clean(text)
-        p = parsed or {}
-        low = bare(t).lower()
-        units = list(p.get("question_units") or [])
-        if not units and ("؟" in t or "?" in t):
-            units = [x.strip() for x in re.split(r"[؟?]", t) if x.strip()]
-        if not units and any(x in low for x in ("چرا", "چطور", "چی", "کجاست", "چیه")):
-            units = [bare(t)]
-        qtype = "general"
-        if "چرا" in low: qtype = "why"
-        elif any(x in low for x in ("چطور", "چگونه", "چه جوری", "چجوری")): qtype = "how"
-        elif any(x in low for x in ("چیست", "چیه", "چی ")): qtype = "what"
-        elif any(x in low for x in ("کجاست", "کجاست")): qtype = "where"
-        elif "آیا" in low: qtype = "yes_no"
-        elif any(x in low for x in ("بهتر است یا", "بهتره یا", "کدام بهتر", "کدوم بهتر", "مقایسه")): qtype = "comparison"
-        if is_follow_up(t): qtype = "follow_up"
-        if is_correction(t): qtype = "correction"
-        return {"question_type": qtype, "question_units": units or ([bare(t)] if substantive(t) else [])}
+        t=clean(text); p=parsed or {}; low=bare(t).lower(); units=[]
+        explicit=[x.strip() for x in re.split(r"[؟?]",t) if x.strip()]
+        if explicit:
+            units=explicit
+        pieces=re.split(
+            r"\s+و\s+(?=چرا\b|چطور\b|چگونه\b|برای پروژه\b|برای پروژه‌م\b|آیا\b)",
+            bare(t),
+        )
+        if len(pieces)>1:
+            units=[x.strip() for x in pieces if x.strip()]
+        if not units and substantive(t):
+            units=[bare(t)]
+        qtype="general"
+        if "چرا" in low:
+            qtype="why"
+        elif any(x in low for x in ("چطور","چگونه","چه جوری","چجوری")):
+            qtype="how"
+        elif any(x in low for x in ("چیست","چیه","چی ")):
+            qtype="what"
+        elif "آیا" in low:
+            qtype="yes_no"
+        if is_follow_up(t) or any(x in t for x in ("موضوع قبلی","بحث اول","بحث دوم")):
+            qtype="follow_up"
+        if is_correction(t):
+            qtype="correction"
+        return {"question_type":qtype,"question_units":units}
 
 
 class ReferenceResolver:
@@ -395,41 +403,48 @@ class AnswerPlanner:
 
 class AnswerVerifier:
     def verify(self, context, answer, plan):
-        text = clean(answer)
-        reasons, missing, unsupported = [], [], []
+        text=clean(answer); reasons=[]; missing=[]; unsupported=[]
+        low=text.lower()
         if not text:
             reasons.append("empty_answer")
-        if plan.question_units and context.question_type != "follow_up":
+        honest=any(x in low for x in (
+            "اطلاعات کافی ندارم","نمی‌خواهم حدس","شاهد کافی","unknown","نامشخص"
+        ))
+        if plan.question_units and not honest:
             for unit in plan.question_units:
-                key = set(words(unit)) - {"چرا", "چطور", "چگونه", "چی", "است", "هست", "و", "برای"}
+                key=set(words(unit))-{"چرا","چطور","چگونه","چی","است","هست","و","برای","من"}
                 if key and not (set(words(text)) & key):
+                    if context.relevant_knowledge and any(
+                        str(f.get("object",f.get("value",""))) in text
+                        for f in context.relevant_knowledge
+                    ):
+                        continue
                     missing.append(unit)
-        if context.question_type in {"why", "how"} and text.startswith("برداشت"):
+        if context.question_type in {"why","how"} and text.startswith("برداشت"):
             reasons.append("too_generic")
-        if context.uncertainty >= .82 and not any(x in text.lower() for x in ("نمی", "اطلاعات", "نامشخص", "کافی", "unknown")):
+        if context.uncertainty >= .82 and not honest:
             reasons.append("uncertainty_not_expressed")
-        if context.relevant_knowledge:
-            for fact in context.relevant_knowledge:
-                obj = str(fact.get("object", fact.get("value", "")))
-                if obj and obj not in text and plan.answer_type == "DIRECT_FACT":
-                    reasons.append("evidence_not_used")
-        score = max(0.0, 1.0 - .18 * len(missing) - .25 * len(reasons))
+        if context.relevant_knowledge and not honest:
+            objects=[str(f.get("object",f.get("value",""))) for f in context.relevant_knowledge]
+            if not any(o and o in text for o in objects):
+                reasons.append("evidence_not_used")
+        score=max(0.,1.-.18*len(missing)-.25*len(reasons))
         if not text:
-            status = "CLARIFY"
-        elif unsupported:
-            status = "REPAIR"
+            status="CLARIFY"
+        elif honest and context.uncertainty >= .7:
+            status="PASS"
         elif missing or reasons:
-            status = "REPAIR"
-        elif context.uncertainty >= .82 and not self._honest(text):
-            status = "UNKNOWN"
+            status="REPAIR"
         else:
-            status = "PASS"
-        return Verification(status, reasons, missing, unsupported, round(score, 3))
+            status="PASS"
+        return Verification(status,reasons,missing,unsupported,round(score,3))
 
     @staticmethod
     def _honest(text):
-        low = text.lower()
-        return any(x in low for x in ("نمی", "اطلاعات کافی", "نامشخص", "قابل اتکا", "unknown"))
+        low=clean(text).lower()
+        return any(x in low for x in (
+            "نمی","اطلاعات کافی","نامشخص","قابل اتکا","unknown","شاهد کافی"
+        ))
 
 
 class AnswerRepair:
@@ -789,49 +804,8 @@ def _state_update_v2(self, user_text, answer="", answer_type="", parsed=None, co
 ConversationState.update = _state_update_v2
 
 
-def _verify_v2(self, context, answer, plan):
-    text = clean(answer); reasons=[]; missing=[]; unsupported=[]
-    low=text.lower()
-    if not text: reasons.append("empty_answer")
-    honest = any(x in low for x in ("اطلاعات کافی ندارم", "نمی‌خواهم حدس", "شاهد کافی", "unknown", "نامشخص"))
-    if plan.question_units and not honest:
-        for unit in plan.question_units:
-            key=set(words(unit)) - {"چرا","چطور","چگونه","چی","است","هست","و","برای","من"}
-            if key and not (set(words(text)) & key):
-                if context.relevant_knowledge and any(str(f.get("object",f.get("value",""))) in text for f in context.relevant_knowledge):
-                    continue
-                missing.append(unit)
-    if context.question_type in {"why","how"} and text.startswith("برداشت"): reasons.append("too_generic")
-    if context.uncertainty >= .82 and not honest: reasons.append("uncertainty_not_expressed")
-    if context.relevant_knowledge and not honest:
-        objects=[str(f.get("object",f.get("value",""))) for f in context.relevant_knowledge]
-        if not any(o and o in text for o in objects): reasons.append("evidence_not_used")
-    score=max(0.,1.-.18*len(missing)-.25*len(reasons))
-    if not text: status="CLARIFY"
-    elif honest and context.uncertainty >= .7: status="PASS"
-    elif missing or reasons: status="REPAIR"
-    else: status="PASS"
-    return Verification(status,reasons,missing,unsupported,round(score,3))
-AnswerVerifier.verify = _verify_v2
 
 
-def _analyze_v2(self, text, parsed=None):
-    t=clean(text); p=parsed or {}; low=bare(t).lower()
-    units=list(p.get("question_units") or [])
-    if not units and ("؟" in t or "?" in t): units=[x.strip() for x in re.split(r"[؟?]",t) if x.strip()]
-    if len(units)<=1 and re.search(r"\s+و\s+", bare(t)):
-        pieces=[x.strip() for x in re.split(r"\s+و\s+", bare(t)) if x.strip()]
-        if len(pieces)>=2 and any(x in low for x in ("چی", "چیه", "چرا", "چطور", "برای پروژه", "کجاست")):
-            units=pieces
-    qtype="general"
-    if "چرا" in low:qtype="why"
-    elif any(x in low for x in ("چطور","چگونه","چه جوری","چجوری")):qtype="how"
-    elif any(x in low for x in ("چیست","چیه","چی ")):qtype="what"
-    elif "آیا" in low:qtype="yes_no"
-    if is_follow_up(t) or "موضوع قبلی" in t:qtype="follow_up"
-    if is_correction(t):qtype="correction"
-    return {"question_type":qtype,"question_units":units or ([bare(t)] if substantive(t) else [])}
-QuestionAnalyzer.analyze = _analyze_v2
 
 _LocalDialogue_direct_base = LocalDialogueEngine._direct_answer
 def _direct_answer_v2(self, context):
@@ -906,25 +880,6 @@ def _resolve_v2(self, text, state, history=None):
 ReferenceResolver.resolve=_resolve_v2
 
 
-def _analyze_v3(self, text, parsed=None):
-    t=clean(text); p=parsed or {}; low=bare(t).lower()
-    units=[]
-    explicit=re.split(r"[؟?]",t)
-    if len(explicit)>1: units=[x.strip() for x in explicit if x.strip()]
-    if not units:
-        # Split only at conjunctions that introduce a new question unit.
-        units=[bare(t)]
-        pieces=re.split(r"\s+و\s+(?=چرا\b|چطور\b|چگونه\b|برای پروژه\b|برای پروژه‌م\b|آیا\b)",bare(t))
-        if len(pieces)>1: units=[x.strip() for x in pieces if x.strip()]
-    qtype="general"
-    if "چرا" in low:qtype="why"
-    elif any(x in low for x in ("چطور","چگونه","چه جوری","چجوری")):qtype="how"
-    elif any(x in low for x in ("چیست","چیه","چی ")):qtype="what"
-    elif "آیا" in low:qtype="yes_no"
-    if is_follow_up(t) or "موضوع قبلی" in t or "بحث اول" in t:qtype="follow_up"
-    if is_correction(t):qtype="correction"
-    return {"question_type":qtype,"question_units":units if substantive(t) else []}
-QuestionAnalyzer.analyze=_analyze_v3
 
 # Keep generic social turns out of the topic stack.
 _prev_state_update_v2=ConversationState.update
@@ -943,22 +898,6 @@ ConversationState.update=_state_update_v3
 # v0.40c: complete common Persian reference phrases and compound-question splitting.
 REF_MARKERS = REF_MARKERS + ("این قسمت",)
 
-def _analyze_v4(self, text, parsed=None):
-    t=clean(text); p=parsed or {}; low=bare(t).lower(); units=[]
-    explicit=[x.strip() for x in re.split(r"[؟?]",t) if x.strip()]
-    if explicit: units=explicit
-    pieces=re.split(r"\s+و\s+(?=چرا\b|چطور\b|چگونه\b|برای پروژه\b|برای پروژه‌م\b|آیا\b)",bare(t))
-    if len(pieces)>1: units=[x.strip() for x in pieces if x.strip()]
-    if not units and substantive(t): units=[bare(t)]
-    qtype="general"
-    if "چرا" in low:qtype="why"
-    elif any(x in low for x in ("چطور","چگونه","چه جوری","چجوری")):qtype="how"
-    elif any(x in low for x in ("چیست","چیه","چی ")):qtype="what"
-    elif "آیا" in low:qtype="yes_no"
-    if is_follow_up(t) or any(x in t for x in ("موضوع قبلی","بحث اول","بحث دوم")):qtype="follow_up"
-    if is_correction(t):qtype="correction"
-    return {"question_type":qtype,"question_units":units}
-QuestionAnalyzer.analyze=_analyze_v4
 
 _prev_state_update_v3=ConversationState.update
 def _state_update_v4(self,user_text,answer="",answer_type="",parsed=None,confidence=0.0,reference=None):
