@@ -117,7 +117,7 @@ class CognitivePipeline:
                 seen.add(key); unique.append(fact)
         return unique
 
-    def _persist_answer(self, text, answer, answer_type="DIRECT_FACT", score=.95):
+    def _persist_answer(self, text, answer, answer_type="DIRECT_FACT", score=.95, evidence=None):
         # A raw user turn or a near-copy of the question is never accepted as a
         # final answer merely because retrieval found similar text.
         try:
@@ -135,7 +135,7 @@ class CognitivePipeline:
             text, answer,
             constraints=getattr(self.engine.state, "remembered_constraints", []),
             rejected_answers=getattr(self.engine.state, "rejected_answers", []),
-            evidence=self.verification_evidence(),
+            evidence=self.verification_evidence() if evidence is None else evidence,
         )
         score = min(score, checked.score)
         if not checked.accepted:
@@ -281,7 +281,35 @@ class CognitivePipeline:
                 .99,
             )
         if is_correction(text) and any(marker in low for marker in ("اسم پروژه", "نام پروژه")):
-            return self._persist_answer(text, "نام پروژه IRAN است.", "PROJECT_FACT", .99)
+            previous = clean(getattr(e.state, "last_user_message", "")).lower()
+            asks_user_project = (
+                "پروژه" in previous
+                and any(marker in previous for marker in ("روش کار", "روی آن کار", "روی اون کار", "کار می‌کنم"))
+            )
+            project_name = "IRAN"
+            source = "local_system_identity"
+            if asks_user_project:
+                try:
+                    fact = self.runtime.user_model.current_belief("work_on", limit=1)
+                    if fact:
+                        project_name = clean(fact[0].get("object", "")) or project_name
+                        source = "durable_user_profile"
+                except Exception:
+                    pass
+            identity_evidence = [{
+                "subject": "پروژه",
+                "predicate": "اسم",
+                "object": project_name,
+                "source": source,
+                "resolved": True,
+            }]
+            return self._persist_answer(
+                text,
+                f"نام پروژه «{project_name}» است.",
+                "PROJECT_FACT",
+                .99,
+                evidence=identity_evidence,
+            )
         if any(marker in low for marker in ("این جواب درباره چی بود", "این پاسخ درباره چی بود")):
             reference = clean(e.state.references.get("latest", "")) or clean(e.state.current_topic)
             answer = (
@@ -358,7 +386,16 @@ class CognitivePipeline:
                 if correction
                 else "اصلاحی در حافظه گفتگو ثبت نشده است."
             )
-            return self._persist_answer(text, answer, "MEMORY_RECALL", .99)
+            correction_evidence = [{
+                "subject": "گفتگو",
+                "predicate": "اصلاح",
+                "object": correction,
+                "source": "conversation_state",
+                "resolved": True,
+            }] if correction else []
+            return self._persist_answer(
+                text, answer, "MEMORY_RECALL", .99, evidence=correction_evidence
+            )
 
         asks_for_project_list = (
             "پروژه" in low
@@ -397,7 +434,16 @@ class CognitivePipeline:
                 if projects
                 else "نام پروژه‌ای در حافظه گفتگو پیدا نکردم."
             )
-            return self._persist_answer(text, answer, "MEMORY_RECALL", .99)
+            project_evidence = [{
+                "subject": "کاربر",
+                "predicate": "پروژه",
+                "object": project,
+                "source": "conversation_state",
+                "resolved": True,
+            } for project in projects]
+            return self._persist_answer(
+                text, answer, "MEMORY_RECALL", .99, evidence=project_evidence
+            )
 
         # Semantic intelligence sits under CognitiveSystem and above retrieval.
         # It analyzes structure, extracts explicit facts and resolves semantic
@@ -577,7 +623,20 @@ class CognitivePipeline:
             if not goal:
                 goal = next((f.get("object", "") for f in self.runtime.user_model.current_profile(limit=30) if f.get("predicate") == "goal"), "")
             if goal:
-                return self._persist_answer(text, f"هدف ثبت‌شده برای «دانا»: «{goal}».", "MEMORY", .99)
+                goal_evidence = [{
+                    "subject": "دانا",
+                    "predicate": "هدف",
+                    "object": goal,
+                    "source": "conversation_state",
+                    "resolved": True,
+                }]
+                return self._persist_answer(
+                    text,
+                    f"هدف ثبت‌شده برای «دانا»: «{goal}».",
+                    "MEMORY",
+                    .99,
+                    evidence=goal_evidence,
+                )
 
         # Establish multi-turn conversational goals before generic retrieval.
         try:
