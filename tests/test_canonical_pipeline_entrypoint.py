@@ -261,3 +261,33 @@ def test_dialogue_knowledge_is_class_owned_and_preserves_local_facts():
         "source": "verified_local_seed",
     }]
 
+def test_dialogue_memory_filter_omits_current_query_and_keeps_context():
+    from types import SimpleNamespace
+    from core.dialogue import LocalDialogueEngine
+
+    calls=[]
+    class Memory:
+        def working_context(self,text,limit):
+            calls.append((text,limit))
+            return [
+                ("user","  پرسش فعلی  "),
+                ("assistant","پاسخ قبلی"),
+                ["user","پرسش فعلی"],
+                {"kind":"memory","content":"زمینه ساختاریافته"},
+            ]
+
+    dialogue=SimpleNamespace(runtime=SimpleNamespace(memory=Memory()))
+    rows=LocalDialogueEngine._memory(dialogue,"پرسش فعلی")
+    assert rows == [
+        ("assistant","پاسخ قبلی"),
+        {"kind":"memory","content":"زمینه ساختاریافته"},
+    ]
+    assert calls == [("پرسش فعلی",12)]
+
+    class BrokenMemory:
+        def working_context(self,text,limit):
+            raise RuntimeError("memory unavailable")
+
+    broken=SimpleNamespace(runtime=SimpleNamespace(memory=BrokenMemory()))
+    assert LocalDialogueEngine._memory(broken,"پرسش فعلی") == []
+
