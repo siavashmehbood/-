@@ -54,7 +54,7 @@ class CognitivePipeline:
         except Exception:
             pass
 
-    def verification_evidence(self, turn_knowledge=None):
+    def verification_evidence(self, turn_knowledge=None, question=""):
         # Only stored knowledge, retrieved turn knowledge and explicit user
         # statements. Generated assistant text can never prove itself.
         facts = list(getattr(self.runtime.knowledge, 'facts', []))
@@ -66,10 +66,17 @@ class CognitivePipeline:
         try:
             semantic_turn=getattr(self,"last_semantic_turn",None)
             semantic_answer=str(getattr(semantic_turn,"semantic_answer","") or "")
+            linguistic=getattr(semantic_turn,"linguistic",None)
+            semantic_question=str(getattr(linguistic,"raw_text","") or "").strip()
+            current_question=str(question or "").strip()
+            # A resolved flag is turn-scoped. Never carry resolver authority
+            # from a previous turn into verification of a new deterministic
+            # answer; historical facts remain available below without the
+            # resolved shortcut.
+            same_turn = bool(current_question and semantic_question == current_question)
             # Verification consumes the exact evidence used to realize the
-            # semantic answer. This keeps coreference/entity linking and
-            # verification on one evidence path instead of re-resolving twice.
-            for item in getattr(semantic_turn,"evidence",[]) or []:
+            # semantic answer only for the same user turn.
+            for item in (getattr(semantic_turn,"evidence",[]) or []) if same_turn else []:
                 row=item.to_dict() if hasattr(item,"to_dict") else dict(item)
                 if bool(row.get("superseded",False)):
                     continue
@@ -135,7 +142,7 @@ class CognitivePipeline:
             text, answer,
             constraints=getattr(self.engine.state, "remembered_constraints", []),
             rejected_answers=getattr(self.engine.state, "rejected_answers", []),
-            evidence=self.verification_evidence() if evidence is None else evidence,
+            evidence=self.verification_evidence(question=text) if evidence is None else evidence,
         )
         score = min(score, checked.score)
         if not checked.accepted:
