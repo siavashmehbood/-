@@ -417,6 +417,14 @@ class CognitivePipeline:
                 "تهران پایتخت ایران است.",
                 "DIRECT_FACT",
                 .99,
+                evidence=[{
+                    "subject":"ایران",
+                    "predicate":"پایتخت",
+                    "object":"تهران",
+                    "source":"verified_local_seed",
+                    "confidence":1.0,
+                    "resolved":True,
+                }],
             )
         if is_correction(text) and any(marker in low for marker in ("اسم پروژه", "نام پروژه")):
             previous = clean(getattr(e.state, "last_user_message", "")).lower()
