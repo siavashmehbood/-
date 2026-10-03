@@ -8,6 +8,19 @@ class ToolRouter:
 
     def choose(self, text):
         t = str(text).lower().strip()
+        digits = str.maketrans('۰۱۲۳۴۵۶۷۸۹', '0123456789')
+        arithmetic = t.translate(digits)
+        words = {
+            'به توان': '**', 'ضربدر': '*', 'ضرب در': '*', '×': '*',
+            'تقسیم بر': '/', 'تقسیم': '/', '÷': '/',
+            'بعلاوه': '+', 'به علاوه': '+', 'منهای': '-',
+        }
+        for source, target in words.items():
+            arithmetic = arithmetic.replace(source, target)
+        arithmetic = re.sub(r'[^0-9+*/().%\-]+', ' ', arithmetic)
+        candidates = re.findall(r'[-+]?\d+(?:\.\d+)?(?:\s*(?:\*\*|[+*/%\-])\s*[-+]?\d+(?:\.\d+)?)+', arithmetic)
+        if candidates:
+            return 'calculate', {'expression': candidates[0].replace(' ', '')}
         if any(self._has_token(t, x) for x in ('ساعت','زمان','تاریخ')):
             return 'time_now', {}
         if any(x in t for x in ('مشخصات سیستم','مشخصات کامپیوتر','سیستم من')):
