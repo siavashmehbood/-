@@ -36,14 +36,14 @@ def test_canonical_pipeline_is_not_monkeypatched_at_module_scope():
     assert "setattr(CognitivePipeline" not in source
 
 
-def test_dialogue_has_one_canonical_handle_binding():
-    import re
+def test_dialogue_handle_is_class_owned_and_delegates_to_canonical_brain():
     from types import SimpleNamespace
     from core.dialogue import LocalDialogueEngine
 
     source=Path("core/dialogue.py").read_text(encoding="utf-8")
-    bindings=re.findall(r"(?m)^LocalDialogueEngine\.handle\s*=\s*([A-Za-z0-9_]+)",source)
-    assert bindings == ["_canonical_pipeline_handle"]
+    assert "LocalDialogueEngine.handle =" not in source
+    assert "_canonical_pipeline_handle" not in source
+    assert LocalDialogueEngine.handle.__qualname__ == "LocalDialogueEngine.handle"
 
     calls=[]
     class Canonical:
@@ -83,15 +83,24 @@ def test_conversation_state_update_is_class_owned_and_preserves_semantics():
     assert state.turns == 3
 
 
-def test_dialogue_cleanup_preserves_required_runtime_hooks():
+def test_dialogue_cleanup_preserves_required_runtime_hooks_as_class_owned_methods():
     source=Path("core/dialogue.py").read_text(encoding="utf-8")
-    # State and memory hooks still affect the canonical pipeline. Reference
-    # resolution is now class-owned and must not be rebound at module scope.
-    assert "LocalDialogueEngine.__init__ = _chain_init" in source
-    assert "LocalDialogueEngine._memory = _memory_chain_context" in source
+    from core.dialogue import LocalDialogueEngine
+
+    assert "LocalDialogueEngine.__init__ =" not in source
+    assert "LocalDialogueEngine._memory =" not in source
+    assert "LocalDialogueEngine.handle =" not in source
+    assert "_chain_init" not in source
+    assert "_memory_chain_context" not in source
     assert "ReferenceResolver.resolve =" not in source
     assert "ReferenceResolver=ReferenceResolverStage1" not in source
-    assert "LocalDialogueEngine.handle = _canonical_pipeline_handle" in source
+
+    init_src=inspect.getsource(LocalDialogueEngine.__init__)
+    memory_src=inspect.getsource(LocalDialogueEngine._memory)
+    handle_src=inspect.getsource(LocalDialogueEngine.handle)
+    assert "ChainReasoner" in init_src
+    assert "working_context" in memory_src
+    assert "_canonical_system" in handle_src
 
 
 def test_question_analyzer_and_answer_verifier_are_class_owned():
