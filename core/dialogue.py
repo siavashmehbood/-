@@ -324,44 +324,82 @@ class QuestionAnalyzer:
 
 
 class ReferenceResolver:
+    """Canonical reference resolver owned by the dialogue architecture.
+
+    ReferenceIntelligence ranks structured current/previous/ordinal context.
+    If it cannot produce a candidate, the local deterministic fallback preserves
+    the historical Stage-1 compatibility semantics without replacing this class.
+    """
+    def __init__(self):
+        self._intelligence = None
+
     def resolve(self, text, state, history=None):
+        history=history or []
+        try:
+            if self._intelligence is None:
+                from core.reference_intelligence import ReferenceIntelligence
+                self._intelligence=ReferenceIntelligence()
+            result=self._intelligence.resolve(text,state,history)
+            state.references["reference_trace"]=result.to_dict()
+            if result.ambiguous:
+                return ""
+            if result.candidate:
+                return result.candidate
+        except Exception:
+            pass
+        return self._fallback(text,state,history)
+
+    def _fallback(self,text,state,history=None):
         t=bare(text); history=history or []
-        ordinal_reference = bool(re.search(r'(اول|دوم|سوم|چهارم|پنجم|آخر)', t))
-        if is_follow_up(t) and not ordinal_reference and state.last_assistant_answer and substantive(state.last_assistant_answer):
-            return state.last_assistant_answer
-        if any(x in t for x in ('موضوع قبلی', 'بحث قبلی')):
+        if "موضوع قبلی" in t or "بحث قبلی" in t:
             return state.topic_stack[-1] if state.topic_stack else state.current_topic
-        if 'همون قبلی' in t:
-            return state.references.get('latest', '') or (state.topic_stack[-1] if state.topic_stack else state.current_topic)
-        ordinal_markers = (
-            (1, ('بحث اول', 'مورد اول', 'موضوع اول', 'اولی', 'اولیش')),
-            (2, ('بحث دوم', 'مورد دوم', 'موضوع دوم', 'دومی', 'دومیش')),
-            (3, ('بحث سوم', 'مورد سوم', 'موضوع سوم', 'سومی', 'سومیش')),
-            (4, ('بحث چهارم', 'مورد چهارم', 'موضوع چهارم', 'چهارمی', 'چهارمیش')),
-            (5, ('بحث پنجم', 'مورد پنجم', 'موضوع پنجم', 'پنجمی', 'پنجمیش')),
+        if "همون قبلی" in t:
+            return state.references.get("latest_topic","") or (
+                state.topic_stack[-1] if state.topic_stack else state.current_topic
+            )
+        ordinal_markers=(
+            (1,("بحث اول","مورد اول","موضوع اول","اولی","اولیش")),
+            (2,("بحث دوم","مورد دوم","موضوع دوم","دومی","دومیش")),
+            (3,("بحث سوم","مورد سوم","موضوع سوم","سومی","سومیش")),
+            (4,("بحث چهارم","مورد چهارم","موضوع چهارم","چهارمی","چهارمیش")),
+            (5,("بحث پنجم","مورد پنجم","موضوع پنجم","پنجمی","پنجمیش")),
         )
-        for index, markers in ordinal_markers:
-            if any(self._has_marker(t, marker) for marker in markers):
+        for index,markers in ordinal_markers:
+            if any(self._has_marker(t,marker) for marker in markers):
                 return state.topic_by_index(index)
-        if any(self._has_marker(t, x) for x in ('آخری', 'آخرین موضوع', 'آخرین بحث')):
-            return state.current_topic or (state.topic_stack[-1] if state.topic_stack else state.active_goal)
-        if any(x in t for x in ('موضوع فعلی', 'همین موضوع')):
+        if any(self._has_marker(t,x) for x in ("آخری","آخرین موضوع","آخرین بحث")):
+            return state.current_topic or (
+                state.topic_stack[-1] if state.topic_stack else state.active_goal
+            )
+        if any(x in t for x in ("موضوع فعلی","همین موضوع","این قسمت")):
             return state.current_topic or state.active_goal
         if is_follow_up(t) or any(self._has_marker(t,m) for m in REF_MARKERS):
-            if state.current_topic and substantive(state.current_topic): return state.current_topic
-            latest=state.references.get('latest','')
-            if latest and substantive(latest): return latest
-            if state.active_goal and substantive(state.active_goal): return state.active_goal
+            if state.current_topic and substantive(state.current_topic):
+                return state.current_topic
+            latest=state.references.get("latest","")
+            if latest and substantive(latest):
+                return latest
+            if state.active_goal and substantive(state.active_goal):
+                return state.active_goal
             for item in reversed(history):
                 content=self._content(item)
-                if substantive(content) and not is_follow_up(content): return content
-        return ''
+                if substantive(content) and not is_follow_up(content):
+                    return content
+        return ""
+
     @staticmethod
-    def _has_marker(text,marker): return bool(re.search(rf'(?<![آ-یA-Za-z0-9‌]){re.escape(marker)}(?![آ-یA-Za-z0-9‌])',text))
+    def _has_marker(text,marker):
+        return bool(re.search(
+            rf"(?<![آ-یA-Za-z0-9‌]){re.escape(marker)}(?![آ-یA-Za-z0-9‌])",
+            text,
+        ))
+
     @staticmethod
     def _content(item):
-        if isinstance(item,(tuple,list)) and len(item)>1: return str(item[1])
-        if isinstance(item,dict): return str(item.get('content',item.get('text','')))
+        if isinstance(item,(tuple,list)) and len(item)>1:
+            return str(item[1])
+        if isinstance(item,dict):
+            return str(item.get("content",item.get("text","")))
         return str(item)
 
 
@@ -858,26 +896,6 @@ LocalDialogueEngine._direct_answer = _direct_answer_v2
 
 
 # v0.40b: contextual recommendations inherit the nearest meaningful technical topic.
-def _resolve_v2(self, text, state, history=None):
-    t=bare(text); low=t.lower(); history=history or []
-    if "موضوع قبلی" in t or "روش قبلی" in t or "حرف قبلی" in t:
-        return state.topic_stack[-1] if state.topic_stack else state.current_topic
-    if "بحث اول" in t:return state.topic_by_index(1)
-    if "بحث دوم" in t:return state.topic_by_index(2)
-    if "برای پروژه" in low or "برای پروژه‌م" in low:
-        for candidate in reversed(state.topic_stack+[state.current_topic]):
-            c=clean(candidate)
-            if c and not any(x in c for x in ("آب و هوا","سلام","موضوع قبلی","این قسمت")):
-                if any(x in c.lower() for x in ("پایتون","python","django","حافظه","پروژه","کد")):
-                    return c
-    if is_follow_up(t) or any(self._has_marker(t,m) for m in REF_MARKERS):
-        if state.current_topic and substantive(state.current_topic):return state.current_topic
-        if state.active_goal and substantive(state.active_goal):return state.active_goal
-        for item in reversed(history):
-            content=self._content(item)
-            if substantive(content) and not is_follow_up(content):return content
-    return ""
-ReferenceResolver.resolve=_resolve_v2
 
 
 
@@ -914,13 +932,6 @@ def _state_update_v4(self,user_text,answer="",answer_type="",parsed=None,confide
     return _prev_state_update_v3(self,user_text,answer,answer_type,parsed,confidence,reference)
 ConversationState.update=_state_update_v4
 
-_prev_resolve_v2=ReferenceResolver.resolve
-def _resolve_v3(self,text,state,history=None):
-    t=bare(text)
-    if "این قسمت" in t:
-        return state.current_topic or state.active_goal or (self._content(history[-1]) if history else "")
-    return _prev_resolve_v2(self,text,state,history)
-ReferenceResolver.resolve=_resolve_v3
 
 
 # v0.40d: explicit conversation-memory questions use the persisted dialogue state.
@@ -1079,18 +1090,7 @@ from core.grounded_synthesizer import GroundedSynthesizer
 # v0.52b: reasoning-aware context repair.
 # Follow-up explanations inherit the active semantic topic, while generic
 # question wrappers are not allowed to become the topic themselves.
-_PREV_RESOLVE_CHAIN = ReferenceResolver.resolve
 
-def _resolve_chain_context(self, text, state, history=None):
-    resolved = _PREV_RESOLVE_CHAIN(self, text, state, history)
-    if is_follow_up(text):
-        generic_topics = ('برای پروژه', 'برای پروژه‌م', 'خوب است', 'خوبه', 'چی گفتی', 'چیه')
-        if state.current_topic and any(x in state.current_topic.lower() for x in generic_topics):
-            for candidate in reversed(state.topic_stack):
-                if candidate and not any(x in candidate.lower() for x in generic_topics):
-                    return candidate
-    return resolved
-ReferenceResolver.resolve = _resolve_chain_context
 
 _PREV_MEMORY_CHAIN = LocalDialogueEngine._memory
 
@@ -1150,27 +1150,10 @@ class ReferenceResolverStage1:
         return ''
     @staticmethod
     def _has_marker(text,marker): return bool(re.search(rf'(?<![آ-یA-Za-z0-9‌]){re.escape(marker)}(?![آ-یA-Za-z0-9‌])',text))
-ReferenceResolver=ReferenceResolverStage1
 
 
 # v0.41: deterministic reference intelligence v2 is the canonical resolver layer.
-from core.reference_intelligence import ReferenceIntelligence
-_reference_intelligence_v2 = ReferenceIntelligence()
-_reference_resolve_legacy = ReferenceResolver.resolve
 
-def _reference_resolve_v2(self, text, state, history=None):
-    try:
-        result = _reference_intelligence_v2.resolve(text, state, history)
-        state.references["reference_trace"] = result.to_dict()
-        if result.ambiguous:
-            return ""
-        if result.candidate:
-            return result.candidate
-    except Exception:
-        pass
-    return _reference_resolve_legacy(self, text, state, history)
-
-ReferenceResolver.resolve = _reference_resolve_v2
 
 
 # v0.41b: deterministic multi-intent answer assembly for compound Persian questions.
