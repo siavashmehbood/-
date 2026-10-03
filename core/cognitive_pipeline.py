@@ -124,6 +124,47 @@ class CognitivePipeline:
                 seen.add(key); unique.append(fact)
         return unique
 
+    def _project_goal(self, project):
+        project=clean(project)
+        if not project:
+            return "",[]
+        goal=self.engine.state.topic_goals.get(project,"")
+        if not goal:
+            versions=self.engine.state.goal_versions(project)
+            goal=versions[-1] if versions else ""
+        if goal:
+            return goal,[{
+                "subject":project,"predicate":"goal","object":goal,
+                "source":"conversation_state","resolved":True,
+            }]
+        try:
+            entity_id=f"project:{self.semantic_intelligence._slug(project)}"
+            row=self.runtime.memory.conn.execute(
+                "SELECT value,confidence,source FROM semantic_facts "
+                "WHERE subject=? AND predicate='goal' "
+                "ORDER BY updated_at DESC,id DESC LIMIT 1",(entity_id,)
+            ).fetchone()
+            if row:
+                goal=clean(row[0])
+                return goal,[{
+                    "subject":entity_id,"predicate":"goal","object":goal,
+                    "confidence":row[1],"source":row[2],"resolved":True,
+                }]
+        except Exception:
+            pass
+        try:
+            row=next((f for f in self.runtime.user_model.current_profile(limit=50)
+                      if f.get("predicate")=="goal" and f.get("object")),None)
+            if row:
+                goal=clean(row.get("object",""))
+                return goal,[{
+                    "subject":project,"predicate":"goal","object":goal,
+                    "source":row.get("source","user_profile"),"resolved":True,
+                }]
+        except Exception:
+            pass
+        return "",[]
+
     def _current_user_project_name(self):
         """Resolve the user's current project through structured semantic facts.
 
@@ -265,14 +306,27 @@ class CognitivePipeline:
         if "بدون api" in low and "بدون API" not in state.remembered_constraints:
             state.remembered_constraints.append("بدون API"); changed = True
         goal_statement = re.match(
-            r"^هدف(?:\s+پروژه)?\s+دانا\s+(.+?)\s+(?:است|هست|بود)[.!]*$",
+            r"^هدف(?:\s+پروژه)?\s+(?P<project>[آ-یA-Za-z0-9_-]+)\s+"
+            r"(?P<goal>.+?)\s+(?:است|هست|بود)[.!]*$",
             clean(text),
         )
         if goal_statement:
-            goal = clean(goal_statement.group(1)).strip(" ،,:؛")
-            if goal and goal not in {"چی", "چه"}:
-                state.set_topic_goal("دانا", goal)
+            project=clean(goal_statement.group("project")).strip(" ،,:؛")
+            goal = clean(goal_statement.group("goal")).strip(" ،,:؛")
+            if project and goal and goal not in {"چی", "چه"}:
+                state.set_topic_goal(project, goal)
                 changed = True
+                try:
+                    entity_id=f"project:{self.semantic_intelligence._slug(project)}"
+                    self.runtime.user_model.record_from_facts([{
+                        "subject":entity_id,
+                        "predicate":"goal",
+                        "object":goal,
+                        "confidence":.99,
+                        "source":"explicit_user_statement",
+                    }])
+                except Exception:
+                    pass
         goal_correction = re.match(
             r"^نه[،,\s]+هدفش\s+.+?\s+نبود[،,\s]+(.+?)(?:\s+(?:است|هست|بود))?[.!]*$",
             clean(text),
@@ -699,20 +753,8 @@ class CognitivePipeline:
             answer = "تا این لحظه این اطلاعات صریح را از تو دارم:\n" + "\n".join(lines) if lines else "فعلاً اطلاعات صریح قابل‌بازیابی از تو ندارم."
             return self._persist_answer(text, answer, "MEMORY", .99)
         if "هدف دانا چی بود" in low or "هدفش چی بود" in low:
-            goal = e.state.topic_goals.get("دانا", "")
-            if not goal:
-                versions=e.state.goal_versions("دانا")
-                goal=versions[-1] if versions else ""
-            if not goal:
-                goal = next((f.get("object", "") for f in self.runtime.user_model.current_profile(limit=30) if f.get("predicate") == "goal"), "")
+            goal,goal_evidence=self._project_goal("دانا")
             if goal:
-                goal_evidence = [{
-                    "subject": "دانا",
-                    "predicate": "هدف",
-                    "object": goal,
-                    "source": "conversation_state",
-                    "resolved": True,
-                }]
                 return self._persist_answer(
                     text,
                     f"هدف ثبت‌شده برای «دانا»: «{goal}».",
