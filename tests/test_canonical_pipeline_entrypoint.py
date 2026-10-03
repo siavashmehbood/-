@@ -290,13 +290,16 @@ def test_direct_answer_generic_fallback_never_echoes_user_message():
 
 def test_tool_router_routes_persian_arithmetic_to_safe_calculator():
     from core.tool_router import ToolRouter
-    assert ToolRouter().choose("بیست و پنج ضربدر چهار چند میشه؟") == (None, {})
-    assert ToolRouter().choose("۲۵ ضربدر ۴ چند میشه؟") == (
+    router=ToolRouter()
+    assert router.choose("بیست و پنج ضربدر چهار چند میشه؟") == (None, {})
+    assert router.choose("۲۵ ضربدر ۴ چند میشه؟") == (
         "calculate", {"expression": "25*4"}
     )
-    assert ToolRouter().choose("12 + 8 چند میشه؟") == (
+    assert router.choose("12 + 8 چند میشه؟") == (
         "calculate", {"expression": "12+8"}
     )
+    assert router.choose("تاریخ ۲۰۲۶-۱۰-۰۳ چیست؟") == ("time_now", {})
+    assert router.choose("ساعت ۱۲ + ۸ را بگو") == ("time_now", {})
 
 
 def test_builtin_calculator_is_registered_and_safe(tmp_path):
