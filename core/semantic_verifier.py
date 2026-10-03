@@ -159,8 +159,16 @@ class SemanticVerifier:
             reasons.append("constraint_contradiction")
         for rejected in rejected_answers:
             if self.overlap(a, rejected) >= .72:
-                contradictions.append("repeats_rejected_answer")
-                score -= .35
+                # A rejected conversational answer is negative feedback about
+                # that prior answer in context; it is not an eternal ban on the
+                # underlying words/fact. Fresh explicit structured evidence may
+                # legitimately support the same value in a corrected referent.
+                # Unsupported repetition is still rejected exactly as before.
+                if supported:
+                    reasons.append("supported_answer_overlaps_rejected_context")
+                else:
+                    contradictions.append("repeats_rejected_answer")
+                    score -= .35
                 break
         score = max(0.0, min(1.0, score))
         accepted = score >= .70 and not contradictions
