@@ -544,6 +544,7 @@ class LocalDialogueEngine:
         self.state = ConversationState.load(self.state_path)
         self.analyzer = QuestionAnalyzer()
         from core.conversational_understanding import ConversationalUnderstanding
+        from core.chain_reasoner import ChainReasoner
         language_engine=getattr(getattr(runtime,"brain",None),"language",None)
         self.understanding=ConversationalUnderstanding(language_engine)
         self.resolver = ReferenceResolver()
@@ -551,6 +552,12 @@ class LocalDialogueEngine:
         self.verifier = AnswerVerifier()
         self.repair = AnswerRepair()
         self.turn_traces = []
+        self.chain_reasoner = ChainReasoner(
+            getattr(runtime, "knowledge", None),
+            getattr(runtime, "memory", None),
+            Path(runtime.root) / "data" / "reasoning_episodes.json",
+        )
+        self.last_chain_result = None
 
     def _parse(self, text):
         try:
@@ -562,9 +569,17 @@ class LocalDialogueEngine:
 
     def _memory(self, text):
         try:
-            return self.runtime.memory.working_context(text, 12)
+            rows = self.runtime.memory.working_context(text, 12)
         except Exception:
             return []
+        query = clean(text)
+        out = []
+        for row in rows:
+            content = row[1] if isinstance(row, (tuple, list)) and len(row) > 1 else str(row)
+            if clean(content) == query:
+                continue
+            out.append(row)
+        return out
 
     def _knowledge(self, text, parsed):
         graph = getattr(self.runtime, "knowledge", None)
@@ -921,85 +936,15 @@ class LocalDialogueEngine:
         )
 
     def handle(self, text):
-        started = datetime.now()
-        clean_text = clean(text)
-        if not clean_text:
-            return "چیزی برای پردازش دریافت نکردم."
-        parsed = self._parse(clean_text)
-        meaning=self.understanding.analyze(clean_text,self.state,parsed)
-        parsed["dialogue_act"]=meaning.dialogue_act
-        parsed["utterance_meaning"]=meaning.to_dict()
-        history = self.runtime.memory.recent(20)
-        refs, resolved = self._references(clean_text, parsed, history)
-        memory = self._memory(clean_text)
-        knowledge = self._knowledge(clean_text, parsed)
-        user_facts = self._user_facts()
-        reasoning = self._reason(clean_text, parsed, memory, knowledge, resolved)
-        context = CognitiveContext(
-            user_message=clean_text,
-            question_type=parsed.get("question_type", "general"),
-            question_units=parsed.get("question_units", []),
-            current_topic=self.state.current_topic,
-            active_goal=self.state.active_goal,
-            references=refs,
-            entities=parsed.get("entities", []),
-            relevant_memory=memory,
-            relevant_knowledge=knowledge,
-            evidence=reasoning["evidence"],
-            hypotheses=reasoning["hypotheses"],
-            reasoning=reasoning,
-            predictions=[],
-            constraints=parsed.get("constraints", []),
-            uncertainty=reasoning["uncertainty"],
-            user_preferences=[f for f in user_facts if f.get("predicate") in {"likes", "dislikes"}],
-            previous_answer=self.state.last_assistant_answer,
-            conversation_history=history,
-            confidence=float(parsed.get("intent_score", .5)),
-            intent=parsed.get("intent", "general"),
-            correction=clean_text if is_correction(clean_text) else "",
-        )
-        context.intent = meaning.dialogue_act if meaning.dialogue_act != "unknown" else context.intent
-        # Retrieve learned guidance before planning so persisted experience changes
-        # the actual response strategy on the next turn.
-        try:
-            adaptation = self.runtime.learning.adapt(
-                clean_text, context.intent, "dialogue"
+        """Compatibility ingress; CognitiveSystem remains the sole brain."""
+        canonical = getattr(self, "_canonical_system", None)
+        if canonical is None:
+            raise RuntimeError(
+                "LocalDialogueEngine.handle is a compatibility adapter; "
+                "bind CognitiveSystem first"
             )
-            context.learning_guidance = adaptation or {}
-            failures = self.runtime.learning.failure_patterns(6)
-            context.learning_guidance["failure_signal"] = bool(failures)
-        except Exception:
-            context.learning_guidance = {}
-        plan = self.planner.plan(context)
-        answer = self._direct_answer(context)
-        verification = self.verifier.verify(context, answer, plan)
-        if verification.status in {"REPAIR", "CLARIFY"}:
-            repaired = self.repair.repair(context, answer, verification, plan)
-            if repaired != answer:
-                answer = repaired
-                verification = self.verifier.verify(context, answer, plan)
-        if verification.status == "UNKNOWN" and not answer.startswith("برای این سؤال"):
-            answer = "برای این سؤال در دانش و شواهد محلی اطلاعات کافی ندارم؛ نمی‌خواهم حدس را به‌عنوان واقعیت بگویم."
-            verification = self.verifier.verify(context, answer, plan)
-        if is_correction(clean_text):
-            self.state.reject(self.state.last_assistant_answer)
-        elif verification.status == "PASS":
-            self.state.accept(answer)
-        self.state.update(clean_text, answer, plan.answer_type, parsed, verification.score, resolved)
-        if is_correction(clean_text) and resolved:
-            self.state.references["corrected"] = resolved
-        self.state.save(self.state_path)
-        self._commit_memory(clean_text, answer, context, verification)
-        self._update_frame(context, resolved)
-        trace = {"turn":self.state.turns, "status":verification.status, "score":verification.score,
-                 "answer_type":plan.answer_type, "reference":resolved, "elapsed_ms":round((datetime.now()-started).total_seconds()*1000,2)}
-        self.turn_traces.append(trace)
-        self.turn_traces = self.turn_traces[-50:]
-        try:
-            self.runtime.events.emit("dialogue_trace", trace)
-        except Exception:
-            pass
-        return answer
+        return canonical.dispatch(str(text))
+
 
     def _commit_memory(self, user_text, answer, context, verification):
         try:
@@ -1106,21 +1051,7 @@ _JUPITER = _fa(1583,1605,1575,1740,32,1583,1602,1740,1602,32,1607,1587,1578,1607
 # verification and learning, but replace low-quality legacy prose at the final return.
 
 
-# v0.52: symbolic chain reasoning becomes a first-class answer source.
-# Retrieval alone never reaches the user; only confidence-qualified inference does.
-from core.chain_reasoner import ChainReasoner
-
-_DIALOGUE_CHAIN_INIT = LocalDialogueEngine.__init__
-def _chain_init(self, runtime):
-    _DIALOGUE_CHAIN_INIT(self, runtime)
-    self.chain_reasoner = ChainReasoner(
-        getattr(runtime, 'knowledge', None),
-        getattr(runtime, 'memory', None),
-        Path(runtime.root) / 'data' / 'reasoning_episodes.json',
-    )
-    self.last_chain_result = None
-LocalDialogueEngine.__init__ = _chain_init
-
+# v0.52: symbolic chain reasoning is initialized directly by LocalDialogueEngine.
 
 # v0.53: evidence-grounded realization bridge. It consumes the existing local
 # knowledge, memory and learning layers without introducing a new model/runtime.
@@ -1132,20 +1063,7 @@ from core.grounded_synthesizer import GroundedSynthesizer
 # question wrappers are not allowed to become the topic themselves.
 
 
-_PREV_MEMORY_CHAIN = LocalDialogueEngine._memory
-
-def _memory_chain_context(self, text):
-    rows = _PREV_MEMORY_CHAIN(self, text)
-    query = clean(text)
-    out = []
-    for row in rows:
-        content = row[1] if isinstance(row, (tuple, list)) and len(row) > 1 else str(row)
-        if clean(content) == query:
-            continue
-        out.append(row)
-    return out
-LocalDialogueEngine._memory = _memory_chain_context
-
+# v0.52b: reasoning-aware memory filtering is owned by LocalDialogueEngine._memory.
 
 # v0.52c: recover semantic topic from prior user turns when state is too weak.
 # This is retrieval from conversation memory, not a hard-coded topic list.
@@ -1155,16 +1073,7 @@ LocalDialogueEngine._memory = _memory_chain_context
 # remain in this module for historical contracts, but ordinary turns now enter
 # exactly one implementation of the cognitive flow below.
 
-def _canonical_pipeline_handle(self, text):
-    from core.cognitive_pipeline import CognitivePipeline
-    # Keep the historical lazy-import contract for compatibility, but never
-    # instantiate or invoke a parallel pipeline here. CognitiveSystem owns turns.
-    canonical = getattr(self, "_canonical_system", None)
-    if canonical is None:
-        raise RuntimeError("LocalDialogueEngine.handle is a compatibility adapter; bind CognitiveSystem first")
-    return canonical.dispatch(str(text))
-
-LocalDialogueEngine.handle = _canonical_pipeline_handle
+# v0.54: compatibility handle delegation is owned by LocalDialogueEngine.handle.
 
 # REFERENCE_RESOLUTION_STAGE_1
 
