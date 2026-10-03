@@ -1,6 +1,6 @@
 """Central human-approval gate for all durable learned knowledge."""
 from __future__ import annotations
-import hashlib, json, threading, re
+import hashlib, json, threading, re, os
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
@@ -43,15 +43,31 @@ class LearningGate:
     def _process_lock(self):
         lock_path = self.path.with_name(self.path.name + ".lock")
         lock_path.parent.mkdir(parents=True, exist_ok=True)
-        # Use an unbuffered binary handle. On Windows a buffered flush
-        # performed before this process acquires the byte-range lock can race
-        # with another process that already locked byte 0 and raise
-        # PermissionError. The marker byte only makes the lock region concrete;
-        # it carries no state and needs no buffered flush.
-        with lock_path.open("a+b", buffering=0) as handle:
-            handle.seek(0, 2)
-            if handle.tell() == 0:
-                handle.write(b"0")
+        # Initialize the marker byte exactly once, before any contender
+        # opens the lock for byte-range locking. "a+b" plus a size check is not
+        # safe on Windows: two processes can both observe size==0 and the second
+        # write can fail while the first process already holds byte 0.
+        initialized = False
+        for _ in range(200):
+            try:
+                with lock_path.open("xb", buffering=0) as marker:
+                    marker.write(b"0")
+                    os.fsync(marker.fileno())
+                initialized = True
+                break
+            except FileExistsError:
+                try:
+                    if lock_path.stat().st_size >= 1:
+                        initialized = True
+                        break
+                except FileNotFoundError:
+                    pass
+                time.sleep(0.005)
+        if not initialized:
+            raise TimeoutError(f"learning gate lock marker was not initialized: {lock_path}")
+
+        # From here onward no process writes before acquiring the lock.
+        with lock_path.open("r+b", buffering=0) as handle:
             handle.seek(0)
             locked = False
             try:
