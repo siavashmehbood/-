@@ -190,7 +190,12 @@ class CognitiveSystem:
         answer = self.pipeline.run(text)
         # All legacy short routes must pass the same actual consistency check.
         # This is a narrow check, not proof that a factual claim is true.
-        checked = self.pipeline.semantic_verifier.verify(text, answer, evidence=self.pipeline.verification_evidence())
+        turn_evidence = getattr(self.pipeline, "last_verification_evidence", None)
+        checked = self.pipeline.semantic_verifier.verify(
+            text,
+            answer,
+            evidence=turn_evidence if turn_evidence is not None else self.pipeline.verification_evidence(),
+        )
         trace = getattr(self.dialogue, "last_trace", None)
         if trace is not None:
             previous_status = trace.verification_status
