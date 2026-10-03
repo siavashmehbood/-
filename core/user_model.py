@@ -80,7 +80,11 @@ class UserModel:
             re.I,
         )
         if embedded_name:
-            facts.append(self._fact("name", embedded_name.group(1), .98))
+            candidate = embedded_name.group(1)
+            if candidate.endswith("ش"):
+                candidate = candidate[:-1]
+            if candidate:
+                facts.append(self._fact("name", candidate, .98))
 
         man="من"
         end=r"(?:هستم|ام)"
