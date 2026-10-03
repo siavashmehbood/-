@@ -112,3 +112,38 @@ def test_full_fifty_turn_persian_conversation_is_ci_enforced(tmp_path):
         if name in answer_indexes
     )
     assert not failed, f"failed={failed}\n{details}"
+
+
+def test_goal_recall_is_grounded_by_current_conversation_state(tmp_path):
+    shutil.copy(Path(__file__).parents[1] / "config.json", tmp_path)
+    runtime = IranRuntime(tmp_path)
+    try:
+        for message in MESSAGES[:24]:
+            answer = runtime.handle(message)
+        pipeline = runtime.cognitive_system.pipeline
+        goal, evidence = pipeline._project_goal("دانا")
+        direct = pipeline.semantic_verifier.verify(
+            "هدفش چی بود؟",
+            f"هدف ثبت‌شده برای «دانا»: «{goal}».",
+            constraints=runtime.dialogue.state.remembered_constraints,
+            rejected_answers=runtime.dialogue.state.rejected_answers,
+            evidence=evidence,
+        )
+        assert goal == "فروش کتاب", (goal, evidence)
+        assert direct.accepted, {
+            "goal": goal,
+            "evidence": evidence,
+            "verify": direct,
+            "rejected": runtime.dialogue.state.rejected_answers,
+            "answer": answer,
+            "trace": getattr(getattr(runtime.dialogue, "last_trace", None), "__dict__", None),
+        }
+        assert "فروش کتاب" in answer, {
+            "answer": answer,
+            "goal": goal,
+            "evidence": evidence,
+            "verify": direct,
+            "rejected": runtime.dialogue.state.rejected_answers,
+        }
+    finally:
+        runtime.close()
