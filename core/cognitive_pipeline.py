@@ -419,6 +419,12 @@ class CognitivePipeline:
         if normalized_social in {"سلام", "درود", "hello", "hi", "سلام هستی"}:
             return self._persist_answer(text, "سلام، آره هستم. بگو از کجا شروع کنیم.", "SOCIAL", .99)
         if ("آماده" in low and any(x in low for x in ("تست", "امتحان", "شروع"))):
+            # Preserve explicit profile facts in a compound social turn before
+            # returning the social acknowledgement (e.g. «من سیاوشم ... آماده‌ای؟»).
+            try:
+                self.runtime.user_model.record(text)
+            except Exception:
+                pass
             return self._persist_answer(text, "آره، آماده‌ام. تست‌ها رو یکی‌یکی بفرست.", "SOCIAL", .99)
         if any(x in low for x in ("مثل یک دستیار عادی حرف بزن", "مثل دستیار عادی حرف بزن")):
             return self._persist_answer(text, "حتماً؛ طبیعی و مستقیم باهات حرف می‌زنم.", "STYLE", .99)
