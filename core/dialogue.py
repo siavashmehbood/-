@@ -972,10 +972,12 @@ class LocalDialogueEngine:
                     "نگه‌داشتن زمینه پیام‌هایی مثل «این» و «ادامه بده» مستقل "
                     "پردازش می‌شوند."
                 )
-        return (
-            f"متوجه شدم: «{bare(text)}». اگر هدفت ادامه همین موضوع است، "
-            "بگو کدام بخش را باز کنیم."
-        )
+        # A generic statement must never be reflected back as if it were an
+        # answer.  Memory/context are inputs to cognition, not a response
+        # generator.  Keep this fallback deliberately non-echoing so the
+        # canonical anti-echo contract also holds when intent classification is
+        # uncertain and no grounded answer can be synthesized.
+        return "پیامت رو گرفتم؛ ادامه بده."
 
     def handle(self, text):
         """Compatibility ingress; CognitiveSystem remains the sole brain."""

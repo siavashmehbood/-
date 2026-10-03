@@ -69,6 +69,19 @@ class UserModel:
         # A leading Persian/ASCII "no" commonly marks a correction.
         t=re.sub(r"^نه(?:[،,]\s*|\s+)","",t,flags=re.I)
         facts=[]
+
+        # A user may introduce themselves inside a longer conversational turn
+        # (e.g. «آره من سیاوشم. امروز ...»). Extract that explicit clause as
+        # structured evidence instead of requiring the whole message to be an
+        # identity-only sentence.
+        embedded_name = re.search(r"من\s+(\S+)", t, re.I)
+        if embedded_name:
+            token = embedded_name.group(1).strip(" ،,؛.!?؟")
+            if len(token) >= 3 and token.endswith("م"):
+                candidate = token[:-1]
+                if candidate and candidate not in {"هست", "خوب", "آماده"}:
+                    facts.append(self._fact("name", candidate, .98))
+
         man="من"
         end=r"(?:هستم|ام)"
         creator=r"(?:سازنده|خالق|توسعه[-\s]?دهنده|برنامه[-\s]?نویس|مالک)"

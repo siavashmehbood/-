@@ -18,6 +18,43 @@ def build_registry(root, memory, internet_access=None):
     registry.register(Tool('time_now', 'زمان و تاریخ سیستم', lambda: datetime.now().isoformat(timespec='seconds'), safe=True, permission='read'))
     registry.register(Tool('memory_search', 'جستجوی حافظه', lambda query, limit=8: memory.search(query, int(limit)), safe=True, permission='read'))
 
+    def calculate(expression):
+        """Evaluate a tiny arithmetic expression without eval or external code."""
+        import ast
+        import operator
+
+        text = str(expression).strip().translate(str.maketrans('۰۱۲۳۴۵۶۷۸۹٫', '0123456789.'))
+        text = text.replace('×', '*').replace('÷', '/').replace('−', '-')
+        tree = ast.parse(text, mode='eval')
+        binary = {
+            ast.Add: operator.add, ast.Sub: operator.sub, ast.Mult: operator.mul,
+            ast.Div: operator.truediv, ast.FloorDiv: operator.floordiv,
+            ast.Mod: operator.mod, ast.Pow: operator.pow,
+        }
+        unary = {ast.UAdd: operator.pos, ast.USub: operator.neg}
+
+        def visit(node):
+            if isinstance(node, ast.Expression):
+                return visit(node.body)
+            if isinstance(node, ast.Constant) and type(node.value) in (int, float):
+                return node.value
+            if isinstance(node, ast.BinOp) and type(node.op) in binary:
+                left, right = visit(node.left), visit(node.right)
+                if isinstance(node.op, ast.Pow) and abs(right) > 12:
+                    raise ValueError('توان خارج از محدوده محاسبه محلی است')
+                value = binary[type(node.op)](left, right)
+                if abs(value) > 10**15:
+                    raise ValueError('نتیجه خارج از محدوده محاسبه محلی است')
+                return value
+            if isinstance(node, ast.UnaryOp) and type(node.op) in unary:
+                return unary[type(node.op)](visit(node.operand))
+            raise ValueError('عبارت محاسباتی پشتیبانی نمی‌شود')
+
+        value = visit(tree)
+        return int(value) if isinstance(value, float) and value.is_integer() else value
+
+    registry.register(Tool('calculate', 'محاسبات عددی پایه و امن', calculate, safe=True, permission='read'))
+
     def project_files(pattern='*'):
         return [str(p.relative_to(root)) for p in root.rglob(pattern) if p.is_file() and 'sandbox' not in p.parts and '__pycache__' not in p.parts]
     registry.register(Tool('project_files', 'فهرست فایل‌های پروژه', project_files, safe=True, permission='read'))
