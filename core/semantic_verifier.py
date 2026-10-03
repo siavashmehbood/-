@@ -136,13 +136,12 @@ class SemanticVerifier:
         else:
             reasons.append("low_question_alignment")
         low_a = a.lower()
-        denies_api = bool(re.search(
-            r"(?:بدون|فاقد|عدم\\s+استفاده\\s+از|استفاده\\s+نمی[^ ]*)\\s+(?:از\\s+)?api",
-            low_a,
+        denies_api = any(marker in low_a for marker in (
+            "بدون api", "فاقد api", "عدم استفاده از api", "از api استفاده نمی",
         ))
-        denies_online = bool(re.search(
-            r"(?:بدون|فاقد|عدم\\s+استفاده\\s+از|استفاده\\s+نمی[^ ]*)\\s+(?:از\\s+)?(?:شبکه|سرویس\\s+آنلاین|cloud)",
-            low_a,
+        denies_online = any(marker in low_a for marker in (
+            "بدون شبکه", "فاقد شبکه", "بدون سرویس آنلاین", "فاقد سرویس آنلاین",
+            "بدون cloud", "فاقد cloud",
         ))
         for constraint in constraints:
             c = str(constraint).lower()
