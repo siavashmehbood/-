@@ -136,16 +136,19 @@ class ChatGPTReviewPipelineTests(unittest.TestCase):
 
     def test_targeted_review_bypasses_bounded_scan_and_global_priority(self):
         root, runtime, gate = self.make_runtime()
+        target = self.add_candidate(gate, "older target outside bounded window")
         unrelated = gate.request(
             "knowledge.add_fact",
             {
                 "subject": "unrelated", "predicate": "priority",
                 "object": "higher", "confidence": 0.9, "source": "fixture",
             },
-            "higher-priority unrelated candidate",
+            "newer higher-priority unrelated candidate",
         )
-        runtime.sync_chatgpt_learning_reviews()
-        target = self.add_candidate(gate, "older target outside bounded window")
+        runtime.sync_chatgpt_learning_reviews(limit=1)
+        self.assertFalse(
+            runtime.chatgpt_learning_review_status(target["proposal_id"])["exists"]
+        )
         original_pending = gate.pending
         gate.pending = Mock(side_effect=AssertionError("targeted path used bounded scan"))
         seen = []
