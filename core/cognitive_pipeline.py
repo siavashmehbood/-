@@ -428,7 +428,7 @@ class CognitivePipeline:
                     self.runtime.user_model.record_from_facts([{
                         "subject": "user",
                         "predicate": "name",
-                        "object": name_match.group(1),
+                        "object": name_match.group(1)[:-1] if name_match.group(1).endswith("ش") else name_match.group(1),
                         "confidence": .99,
                         "source": "explicit_user_statement",
                     }])
