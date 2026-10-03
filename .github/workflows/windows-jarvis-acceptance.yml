@@ -32,6 +32,9 @@ on:
       - "tests/test_conversation_fact_memory.py"
       - "tests/test_learning_gate_concurrency.py"
       - "tests/test_windows_jarvis_acceptance.py"
+      - "tests/test_review_decision_journal_recovery.py"
+      - "tests/test_persian_architecture_contract.py"
+      - "tests/test_canonical_conversation_red_team.py"
       - ".github/workflows/windows-jarvis-acceptance.yml"
   push:
     branches: [master]
@@ -81,3 +84,5 @@ jobs:
         run: python -m pytest -q tests/test_soar_cognitive_foundation.py
       - name: Real Windows acceptance
         run: python -m pytest -q tests/test_windows_jarvis_acceptance.py
+      - name: Legacy-regression recovery Windows acceptance
+        run: python -m pytest -q tests/test_canonical_conversation_red_team.py tests/test_persian_architecture_contract.py tests/test_review_decision_journal_recovery.py
