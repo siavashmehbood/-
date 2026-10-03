@@ -115,3 +115,5 @@ def test_parallel_process_requests_are_deduplicated_without_lost_rows(tmp_path):
         for row in rows
         if row["payload"]["claim"] == "shared"
     }
+
+# Final master validation marker for Windows/Linux LearningGate lock fix.
