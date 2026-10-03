@@ -245,3 +245,5 @@ def test_unknown_records_weakness_and_creates_canonical_learning_mission(tmp_pat
         )
     finally:
         r.close()
+
+# Integration validation marker: rerun canonical knowledge/conflict path after capital-route reconciliation.
