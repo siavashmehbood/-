@@ -180,6 +180,11 @@ class IranRuntime:
         self.cognitive_system = _CognitiveSystem(self)
         self.cognitive_system.bind_legacy_adapters()
         self.orchestrator.verified_executor = self.execute_verified_goal
+        # Rebuild observational audit events that may have been missed if the
+        # previous process stopped after persisting a reviewer/human decision.
+        # The journal never feeds decisions back into the learning gate.
+        if self._chatgpt_review_path().exists():
+            self._sync_review_decision_journal()
         self._seed_local_knowledge()
         self.events.emit("runtime_ready", {"provider": self.provider.name,
             "version": self.config["version"], "cognitive": True,
@@ -622,6 +627,11 @@ class IranRuntime:
             self._review_decision_journal_instance = journal
         return journal
 
+    def _sync_review_decision_journal(self):
+        """Mirror durable decisions into the observational, tamper-evident journal."""
+        rows = load_critical_json(self._chatgpt_review_path(), [])
+        return self._review_decision_journal_store().sync(rows)
+
     def review_decision_journal_status(self):
         """Strict read-only validation; journal state never authorizes learning."""
         return self._review_decision_journal_store().status()
@@ -750,6 +760,8 @@ class IranRuntime:
             review = self.chatgpt_learning_review_status(proposal_id) if proposal_id else {}
             if proposal_id and review.get("row", {}).get("source") == "learning_gate":
                 self.learning_gate.decide(proposal_id, "rejected")
+        if result.get("ok") and result.get("reason") == "reviewed":
+            self._sync_review_decision_journal()
         return result
 
     def online_learning_review_status(self):
@@ -931,6 +943,7 @@ class IranRuntime:
                 "reviewer_decision":review.get("row", {}).get("chatgpt_decision", "unknown")}
 
     def _set_human_review_status(self, proposal_id, status, gate_proposal_id=None, human_source=None):
+        updated = False
         with json_transaction(self._chatgpt_review_path(), []) as rows:
             for row in rows:
                 if str(row.get("proposal_id")) == str(proposal_id):
@@ -941,8 +954,11 @@ class IranRuntime:
                     if human_source:
                         row["human_source"] = str(human_source)[:64]
                     row["human_decided_at"] = __import__("datetime").datetime.now().isoformat(timespec="seconds")
-                    return True
-        return False
+                    updated = True
+                    break
+        if updated:
+            self._sync_review_decision_journal()
+        return updated
 
     def approve_all_learning(self, limit=5000, human_confirmed=False, source="api"):
         if human_confirmed is not True:
