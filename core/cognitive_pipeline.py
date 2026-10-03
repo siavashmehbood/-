@@ -124,6 +124,58 @@ class CognitivePipeline:
                 seen.add(key); unique.append(fact)
         return unique
 
+    def _current_user_project_name(self):
+        """Resolve the user's current project through structured semantic facts.
+
+        Phase-1 stores user --works_on--> project:<id> and project:<id> --name-->
+        value. Legacy work_on rows are accepted only as a compatibility fallback.
+        Returns (name, evidence) without guessing or falling back to IRAN identity.
+        """
+        try:
+            row=self.runtime.memory.conn.execute(
+                "SELECT predicate,value,confidence,source FROM semantic_facts "
+                "WHERE subject='user' AND predicate IN ('works_on','work_on') "
+                "ORDER BY updated_at DESC,id DESC LIMIT 1"
+            ).fetchone()
+            if row:
+                predicate,value,confidence,source=row
+                target=clean(value)
+                if target.startswith("project:"):
+                    named=self.runtime.memory.conn.execute(
+                        "SELECT value,confidence,source FROM semantic_facts "
+                        "WHERE subject=? AND predicate='name' "
+                        "ORDER BY updated_at DESC,id DESC LIMIT 1",(target,)
+                    ).fetchone()
+                    if named:
+                        name=clean(named[0])
+                        return name,[{
+                            "subject":target,"predicate":"name","object":name,
+                            "confidence":named[1],"source":named[2],"resolved":True,
+                        },{
+                            "subject":"user","predicate":predicate,"object":target,
+                            "confidence":confidence,"source":source,"resolved":True,
+                        }]
+                if target:
+                    return target,[{
+                        "subject":"user","predicate":predicate,"object":target,
+                        "confidence":confidence,"source":source,"resolved":True,
+                    }]
+        except Exception:
+            pass
+        try:
+            rows=self.runtime.user_model.current_belief("work_on",limit=1)
+            if rows:
+                name=clean(rows[0].get("object",""))
+                if name:
+                    return name,[{
+                        "subject":"user","predicate":"work_on","object":name,
+                        "source":rows[0].get("source","legacy_user_profile"),
+                        "resolved":True,
+                    }]
+        except Exception:
+            pass
+        return "",[]
+
     def _persist_answer(self, text, answer, answer_type="DIRECT_FACT", score=.95, evidence=None):
         # A raw user turn or a near-copy of the question is never accepted as a
         # final answer merely because retrieval found similar text.
@@ -294,22 +346,18 @@ class CognitivePipeline:
                 and any(marker in previous for marker in ("روش کار", "روی آن کار", "روی اون کار", "کار می‌کنم"))
             )
             project_name = "IRAN"
-            source = "local_system_identity"
-            if asks_user_project:
-                try:
-                    fact = self.runtime.user_model.current_belief("work_on", limit=1)
-                    if fact:
-                        project_name = clean(fact[0].get("object", "")) or project_name
-                        source = "durable_user_profile"
-                except Exception:
-                    pass
             identity_evidence = [{
                 "subject": "پروژه",
                 "predicate": "اسم",
                 "object": project_name,
-                "source": source,
+                "source": "local_system_identity",
                 "resolved": True,
             }]
+            if asks_user_project:
+                resolved_name,resolved_evidence=self._current_user_project_name()
+                if resolved_name:
+                    project_name=resolved_name
+                    identity_evidence=resolved_evidence
             return self._persist_answer(
                 text,
                 f"نام پروژه «{project_name}» است.",
@@ -507,7 +555,32 @@ class CognitivePipeline:
                 })
             if semantic_answer:
                 e.last_semantic_trace["final_answer"]=semantic_answer
-                return self._persist_answer(text,semantic_answer,"SEMANTIC_FACT",.99)
+                semantic_evidence=[]
+                query=semantic_turn.query
+                for item in semantic_turn.evidence or []:
+                    row=item.to_dict() if hasattr(item,"to_dict") else dict(item)
+                    if row.get("superseded") is True:
+                        continue
+                    if query.entity_id and str(row.get("subject","")) != str(query.entity_id):
+                        continue
+                    if query.relation and str(row.get("relation","")) != str(query.relation):
+                        continue
+                    value=str(row.get("value","") or "")
+                    if value and value not in semantic_answer:
+                        continue
+                    semantic_evidence.append({
+                        "subject":row.get("subject",""),
+                        "predicate":row.get("relation",""),
+                        "object":value,
+                        "confidence":row.get("confidence",0),
+                        "source":"semantic_resolver:"+str(row.get("provenance","stored_fact") or "stored_fact"),
+                        "resolved":True,
+                        "superseded":False,
+                    })
+                    break
+                return self._persist_answer(
+                    text,semantic_answer,"SEMANTIC_FACT",.99,
+                    evidence=semantic_evidence or self.verification_evidence(question=text))
         except Exception as semantic_error:
             # Optional semantic analysis is fail-safe. The existing canonical
             # pipeline remains available and the failure is observable.
