@@ -180,11 +180,10 @@ class IranRuntime:
         self.cognitive_system = _CognitiveSystem(self)
         self.cognitive_system.bind_legacy_adapters()
         self.orchestrator.verified_executor = self.execute_verified_goal
-        # Rebuild observational audit events that may have been missed if the
-        # previous process stopped after persisting a reviewer/human decision.
-        # The journal never feeds decisions back into the learning gate.
+        # Reconcile interrupted reviewer/Gate writes, then rebuild any missing
+        # observational audit events. This path never approves pending learning.
         if self._chatgpt_review_path().exists():
-            self._sync_review_decision_journal()
+            self.sync_chatgpt_learning_reviews()
         self._seed_local_knowledge()
         self.events.emit("runtime_ready", {"provider": self.provider.name,
             "version": self.config["version"], "cognitive": True,
@@ -683,16 +682,46 @@ class IranRuntime:
             return dict(row)
 
     def sync_chatgpt_learning_reviews(self, limit=5000):
-        """Mirror pending learning proposals into the local review queue only.
+        """Mirror pending proposals and reconcile interrupted terminal writes.
 
-        This method never calls ChatGPT. It is safe for startup, counters, and
-        GUI refreshes; external validation belongs exclusively to the worker.
+        This method never calls an external reviewer and never approves a
+        pending Gate proposal. A durable reviewer rejection may only move a
+        still-pending Gate proposal to the safer rejected state.
         """
         path = self._chatgpt_review_path()
         proposals = self.learning_gate.pending(limit)
+
+        # Snapshot Gate state before taking the reviewer-ledger transaction.
+        # This avoids nesting the Gate file lock under the ledger file lock.
+        ledger_snapshot = load_critical_json(path, [])
+        gate_snapshot = {}
+        for row in ledger_snapshot:
+            proposal_id = str(row.get("proposal_id", ""))
+            if proposal_id and proposal_id not in gate_snapshot:
+                gate_snapshot[proposal_id] = self.learning_gate.get(proposal_id)
+
+        reviewer_rejections = set()
         created = 0
         with json_transaction(path, []) as rows:
             existing = {str(r.get("proposal_id")): r for r in rows if r.get("proposal_id")}
+
+            for proposal_id, row in existing.items():
+                proposal = gate_snapshot.get(proposal_id)
+                if not proposal:
+                    continue
+                gate_status = proposal.get("status")
+                if gate_status in {"approved", "rejected"}:
+                    row["status"] = gate_status
+                    if (row.get("review_status") == "reviewed"
+                            and row.get("chatgpt_decision") == "learn"):
+                        row["human_decision"] = gate_status
+                        row.setdefault("human_decided_at", proposal.get("updated_at", ""))
+                elif (gate_status == "pending"
+                        and row.get("review_status") == "reviewed"
+                        and row.get("chatgpt_decision") == "reject"
+                        and row.get("status") == "rejected"):
+                    reviewer_rejections.add(proposal_id)
+
             for proposal in proposals:
                 pid = proposal["proposal_id"]
                 if pid in existing:
@@ -713,6 +742,15 @@ class IranRuntime:
                 created += 1
             total = len(rows)
             waiting = sum(r.get("review_status", "not_reviewed") == "not_reviewed" for r in rows)
+
+        # Re-check under LearningGate's own lock; terminal decisions are
+        # immutable, so a concurrent human approval cannot be overwritten.
+        for proposal_id in reviewer_rejections:
+            current = self.learning_gate.get(proposal_id)
+            if current and current.get("status") == "pending":
+                self.learning_gate.decide(proposal_id, "rejected")
+
+        self._sync_review_decision_journal()
         return {"created": created, "total": total, "not_reviewed": waiting, "reviewed": total-waiting}
 
     def chatgpt_learning_review_status(self, proposal_id):
