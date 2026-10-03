@@ -222,3 +222,5 @@ class SemanticIntelligenceAcceptance(unittest.TestCase):
 
 if __name__=="__main__":
     unittest.main()
+
+# Windows final-master validation marker for HEAD 5606088c.
