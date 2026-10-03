@@ -75,7 +75,7 @@ class UserModel:
         # structured evidence instead of requiring the whole message to be an
         # identity-only sentence.
         embedded_name = re.search(
-            r"(?:^|[.،؛!?؟\\s])من\\s+([آ-ی]{2,24})م(?=$|[.،؛!?؟\\s])",
+            r"(?:^|[.،؛!?؟\\s])من\\s+([آ-ی]{2,24}?)(?:م|\\s+(?:هستم|ام))(?=$|[.،؛!?؟\\s])",
             t,
             re.I,
         )
