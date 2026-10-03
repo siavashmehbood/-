@@ -62,7 +62,17 @@ def test_full_fifty_turn_persian_conversation_is_ci_enforced(tmp_path):
     shutil.copy(Path(__file__).parents[1] / "config.json", tmp_path)
     runtime = IranRuntime(tmp_path)
     try:
-        answers = [runtime.handle(message) for message in MESSAGES]
+        answers = []
+        traces = []
+        for message in MESSAGES:
+            answers.append(runtime.handle(message))
+            trace = getattr(runtime.dialogue, "last_trace", None)
+            traces.append({
+                "answer_status": getattr(trace, "answer_status", ""),
+                "verification_status": getattr(trace, "verification_status", ""),
+                "verification_reasons": getattr(trace, "verification_reasons", []),
+                "evidence_status": getattr(trace, "evidence_status", ""),
+            })
         name_facts = runtime.user_model.facts(predicate="name", limit=1)
         checks = {
             "turn_count": len(answers) == 50,
@@ -102,7 +112,7 @@ def test_full_fifty_turn_persian_conversation_is_ci_enforced(tmp_path):
         "active_topic": 49,
     }
     details = "\n".join(
-        f"{name}: {answers[answer_indexes[name]]}"
+        f"{name}: {answers[answer_indexes[name]]} | trace={traces[answer_indexes[name]]}"
         for name in failed
         if name in answer_indexes
     )
