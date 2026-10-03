@@ -272,3 +272,17 @@ def test_reference_markers_are_static_and_preserve_resolution():
 
     state=ConversationState(current_topic="حافظه")
     assert ReferenceResolver().resolve("این قسمت را بهتر کن", state) == "حافظه"
+
+
+def test_direct_answer_generic_fallback_never_echoes_user_message():
+    from types import SimpleNamespace
+    from core.dialogue import CognitiveContext, LocalDialogueEngine
+
+    dialogue=SimpleNamespace()
+    message="با من مثل یک دستیار عادی حرف بزن"
+    context=CognitiveContext(user_message=message)
+    answer=LocalDialogueEngine._direct_answer(dialogue,context)
+
+    assert message not in answer
+    assert "اگر هدفت ادامه همین موضوع" not in answer
+    assert answer == "پیامت رو گرفتم؛ ادامه بده."
