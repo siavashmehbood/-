@@ -848,42 +848,154 @@ class IranRuntime:
         """Return the durable pending proposals for internal learning workflows."""
         return self.learning_gate.pending(limit)
 
-    def human_learning_pending(self, limit=50):
-        """Return reviewer-accepted candidates awaiting the authoritative human decision."""
-        limit = max(0, int(limit))
+    def learning_pending_page(self, limit=50, cursor=None):
+        """Return a stable newest-first page without deleting audit history."""
+        return self.learning_gate.pending_page(limit, cursor)
+
+    @staticmethod
+    def _human_review_is_pending(row):
+        return (
+            row.get("proposal_id")
+            and row.get("review_status") == "reviewed"
+            and row.get("chatgpt_decision") == "learn"
+            and row.get("status") == "human_pending"
+        )
+
+    @staticmethod
+    def _human_candidate_item(review):
+        return {
+            "proposal_id": str(review.get("proposal_id")),
+            "kind": review.get("kind"),
+            "payload": review.get("payload", {}),
+            "summary": review.get("question", ""),
+            "status": "pending",
+            "source": "learning_candidate",
+            "created_at": review.get("created_at", ""),
+        }
+
+    def human_learning_pending_page(self, limit=50, cursor=None):
+        """Page reviewer-approved Gate rows and pre-Gate candidates safely.
+
+        Candidate-only rows are paged first using their append-only reviewer
+        ledger order. Gate-backed rows then use LearningGate's stable cursor.
+        Both cursor types remain resolvable after a row becomes terminal, and
+        newer rows never shift an existing continuation page.
+        """
+        try:
+            limit = max(0, int(limit))
+        except (TypeError, ValueError):
+            raise ValueError("limit must be an integer") from None
+        if cursor is not None:
+            cursor = str(cursor).strip()
+            if not cursor:
+                raise ValueError("cursor must be a proposal id")
         if limit == 0:
-            return []
-        rows = load_critical_json(self._chatgpt_review_path(), [])
-        result = []
-        for review in rows:
-            if (review.get("source") == "learning_candidate"
-                    and review.get("review_status") == "reviewed"
-                    and review.get("chatgpt_decision") == "learn"
-                    and review.get("status") == "human_pending"):
-                result.append({
-                    "proposal_id": review.get("proposal_id"), "kind": review.get("kind"),
-                    "payload": review.get("payload", {}), "summary": review.get("question", ""),
-                    "status": "pending", "source": "learning_candidate",
-                    "created_at": review.get("created_at", ""),
-                })
-                if len(result) >= int(limit):
-                    return result
-        reviews = {r.get("proposal_id"): r for r in rows}
-        for proposal in self.learning_gate.pending(100000):
-            review = reviews.get(proposal.get("proposal_id"), {})
-            if (review.get("review_status") == "reviewed"
-                    and review.get("chatgpt_decision") == "learn"
-                    and review.get("status") == "human_pending"):
-                result.append(proposal)
-                if len(result) >= int(limit): break
-        return result
+            return {"items": [], "next_cursor": None, "has_more": False}
+
+        reviews = load_critical_json(self._chatgpt_review_path(), [])
+        candidate_history = [
+            row for row in reviews
+            if row.get("source") == "learning_candidate" and row.get("proposal_id")
+        ]
+        candidate_ids = {str(row.get("proposal_id")) for row in candidate_history}
+        gate_ids = {
+            str(row.get("proposal_id"))
+            for row in reviews
+            if row.get("source") != "learning_candidate"
+            and self._human_review_is_pending(row)
+        }
+
+        items = []
+        candidate_has_more = False
+        candidate_phase = cursor is None or cursor in candidate_ids
+        if cursor is not None and str(cursor).startswith("candidate_") and not candidate_phase:
+            raise ValueError("cursor not found")
+
+        if candidate_phase:
+            start = len(candidate_history) - 1
+            if cursor is not None:
+                for index, row in enumerate(candidate_history):
+                    if str(row.get("proposal_id")) == cursor:
+                        start = index - 1
+                        break
+                else:
+                    raise ValueError("cursor not found")
+            for index in range(start, -1, -1):
+                row = candidate_history[index]
+                if not self._human_review_is_pending(row):
+                    continue
+                if len(items) >= limit:
+                    candidate_has_more = True
+                    break
+                items.append(self._human_candidate_item(row))
+
+            if len(items) >= limit:
+                gate_has_more = False
+                if not candidate_has_more and gate_ids:
+                    gate_has_more = bool(
+                        self.learning_gate.pending_page(
+                            1, proposal_ids=gate_ids
+                        )["items"]
+                    )
+                has_more = candidate_has_more or gate_has_more
+                return {
+                    "items": items,
+                    "next_cursor": items[-1]["proposal_id"] if has_more else None,
+                    "has_more": has_more,
+                }
+            gate_cursor = None
+        else:
+            gate_cursor = cursor
+
+        gate_page = self.learning_gate.pending_page(
+            limit - len(items), gate_cursor, proposal_ids=gate_ids
+        )
+        items.extend(gate_page["items"])
+        has_more = gate_page["has_more"]
+        return {
+            "items": items,
+            "next_cursor": items[-1]["proposal_id"] if has_more and items else None,
+            "has_more": has_more,
+        }
+
+    def human_learning_pending(self, limit=50):
+        """Return reviewer-accepted candidates awaiting the human decision."""
+        return self.human_learning_pending_page(limit)["items"]
+
     def learning_history(self, limit=200):
         return self.learning_gate.history(limit)
+
+    def learning_history_page(self, limit=200, cursor=None):
+        """Return a stable page of the complete learning audit history."""
+        return self.learning_gate.history_page(limit, cursor)
+
+    def _human_learning_pending_count(self):
+        """Count the full eligible queue without a fixed proposal scan cap."""
+        reviews = load_critical_json(self._chatgpt_review_path(), [])
+        candidate_count = sum(
+            row.get("source") == "learning_candidate"
+            and self._human_review_is_pending(row)
+            for row in reviews
+        )
+        gate_ids = {
+            str(row.get("proposal_id"))
+            for row in reviews
+            if row.get("source") != "learning_candidate"
+            and self._human_review_is_pending(row)
+        }
+        gate_count = 0
+        if gate_ids:
+            gate_count = len(
+                self.learning_gate.pending_page(
+                    len(gate_ids), proposal_ids=gate_ids
+                )["items"]
+            )
+        return candidate_count + gate_count
 
     def learning_status(self):
         status=dict(self.learning_gate.stats())
         status["gate_pending"] = status.get("pending", 0)
-        status["pending"] = len(self.human_learning_pending(100000))
+        status["pending"] = self._human_learning_pending_count()
         status["candidate_queue"] = self.chatgpt_review_status().get("pending", 0)
         effect=self.effect_learning.stats()
         transfers=self.effect_learning.state.get("transfer_evaluations", [])
