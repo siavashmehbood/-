@@ -56,13 +56,14 @@ def test_dialogue_has_one_canonical_handle_binding():
     assert calls == ["ادامه بده"]
 
 
-def test_dialogue_cleanup_preserves_non_handle_runtime_adapters():
+def test_dialogue_cleanup_preserves_required_runtime_hooks():
     source=Path("core/dialogue.py").read_text(encoding="utf-8")
-    # These adapters affect state/retrieval/reasoning used by the canonical
-    # pipeline; the cleanup must remove only dead handle wrappers.
+    # State and memory hooks still affect the canonical pipeline. Reference
+    # resolution is now class-owned and must not be rebound at module scope.
     assert "LocalDialogueEngine.__init__ = _chain_init" in source
     assert "LocalDialogueEngine._memory = _memory_chain_context" in source
-    assert "ReferenceResolver.resolve = _reference_resolve_v2" in source
+    assert "ReferenceResolver.resolve =" not in source
+    assert "ReferenceResolver=ReferenceResolverStage1" not in source
     assert "LocalDialogueEngine.handle = _canonical_pipeline_handle" in source
 
 
