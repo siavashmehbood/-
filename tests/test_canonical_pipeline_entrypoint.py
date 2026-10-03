@@ -286,3 +286,26 @@ def test_direct_answer_generic_fallback_never_echoes_user_message():
     assert message not in answer
     assert "اگر هدفت ادامه همین موضوع" not in answer
     assert answer == "پیامت رو گرفتم؛ ادامه بده."
+
+
+def test_tool_router_routes_persian_arithmetic_to_safe_calculator():
+    from core.tool_router import ToolRouter
+    assert ToolRouter().choose("بیست و پنج ضربدر چهار چند میشه؟") == (None, {})
+    assert ToolRouter().choose("۲۵ ضربدر ۴ چند میشه؟") == (
+        "calculate", {"expression": "25*4"}
+    )
+    assert ToolRouter().choose("12 + 8 چند میشه؟") == (
+        "calculate", {"expression": "12+8"}
+    )
+
+
+def test_builtin_calculator_is_registered_and_safe(tmp_path):
+    from tools.builtin import build_registry
+
+    class Memory:
+        def search(self, query, limit):
+            return []
+
+    registry=build_registry(tmp_path, Memory())
+    assert registry.run("calculate", expression="25*4") == 100
+    assert registry.run("calculate", expression="(12+8)/2") == 10
