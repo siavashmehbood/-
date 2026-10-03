@@ -190,3 +190,91 @@ def test_learning_tick_auto_reviews_online_candidate_then_waits_for_human(runtim
     pending = runtime.human_learning_pending()
     assert pending and pending[0]["proposal_id"] == proposal_id
     assert runtime.memory.lesson_search("online review fixture", limit=5) == []  # no durable lesson before human approval
+
+
+def test_late_rejection_cannot_rewrite_approved_gate_or_ledger(runtime):
+    from tests.chatgpt_test_helper import mark_chatgpt_correct
+
+    proposal = runtime.knowledge.add_fact(
+        "terminal immutability fixture", "is", "approved", source="fixture"
+    )
+    proposal_id = proposal["proposal_id"]
+    mark_chatgpt_correct(runtime, proposal_id, "terminal fixture")
+
+    approved = runtime.approve_learning(
+        proposal_id, human_confirmed=True, source="test_terminal_immutability"
+    )
+    rejected = runtime.reject_learning(proposal_id)
+
+    assert approved["ok"]
+    assert rejected["ok"] is False
+    assert rejected["reason"] == "proposal_not_pending"
+    assert runtime.learning_gate.get(proposal_id)["status"] == "approved"
+    review = runtime.chatgpt_learning_review_status(proposal_id)["row"]
+    assert review["status"] == "approved"
+    assert review["human_decision"] == "approved"
+    assert runtime.knowledge.query("terminal immutability fixture")
+
+
+def test_bulk_rejection_mirrors_one_exact_snapshot_and_leaves_newer_work_pending(
+        runtime, monkeypatch):
+    proposals = [
+        runtime.learning_gate.request(
+            "memory.add_lesson",
+            {"goal": f"bulk snapshot {index}", "lesson": "unsafe"},
+        )
+        for index in range(3)
+    ]
+    expected_ids = [row["proposal_id"] for row in proposals]
+    original_sync = runtime.sync_chatgpt_learning_reviews
+    calls = []
+    injected = {}
+
+    def sync_exact_snapshot(*args, **kwargs):
+        calls.append(list(kwargs.get("proposal_ids") or []))
+        result = original_sync(*args, **kwargs)
+        if not injected:
+            injected["proposal"] = runtime.learning_gate.request(
+                "memory.add_lesson",
+                {"goal": "newer after snapshot", "lesson": "leave pending"},
+            )
+        return result
+
+    monkeypatch.setattr(runtime, "sync_chatgpt_learning_reviews", sync_exact_snapshot)
+
+    result = runtime.reject_all_learning(3)
+
+    assert result["ok"]
+    assert result["rejected"] == 3
+    assert result["skipped"] == []
+    assert result["remaining"] == 1
+    assert len(calls) == 1
+    assert set(calls[0]) == set(expected_ids)
+    for proposal_id in expected_ids:
+        assert runtime.learning_gate.get(proposal_id)["status"] == "rejected"
+        review = runtime.chatgpt_learning_review_status(proposal_id)["row"]
+        assert review["status"] == "rejected"
+        assert review["human_decision"] == "rejected"
+    assert runtime.learning_gate.get(
+        injected["proposal"]["proposal_id"]
+    )["status"] == "pending"
+
+
+def test_zero_limit_bulk_rejection_does_not_sync_or_decide(runtime, monkeypatch):
+    proposal = runtime.learning_gate.request(
+        "memory.add_lesson", {"goal": "zero bulk", "lesson": "stay pending"}
+    )
+    calls = []
+    monkeypatch.setattr(
+        runtime, "sync_chatgpt_learning_reviews",
+        lambda *args, **kwargs: calls.append((args, kwargs)),
+    )
+
+    result = runtime.reject_all_learning(0)
+
+    assert result["ok"]
+    assert result["rejected"] == 0
+    assert result["skipped"] == []
+    assert result["remaining"] == 1
+    assert calls == []
+    assert runtime.learning_gate.get(proposal["proposal_id"])["status"] == "pending"
