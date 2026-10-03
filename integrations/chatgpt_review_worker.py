@@ -62,6 +62,19 @@ class ChatGPTReviewWorker:
         self.reviews_path.parent.mkdir(parents=True, exist_ok=True)
         atomic_write_json(self.reviews_path, rows)
 
+    @classmethod
+    def _valid_state(cls, value):
+        if not isinstance(value, dict):
+            return False
+        backoff = value.get("backoff_seconds", 15)
+        if isinstance(backoff, bool) or not isinstance(backoff, int) or backoff < 0:
+            return False
+        for key in ("next_allowed_at", "last_request_at", "last_success_at"):
+            timestamp = value.get(key)
+            if timestamp is not None and cls._parse_iso(timestamp) is None:
+                return False
+        return value.get("last_error") is None or isinstance(value.get("last_error"), str)
+
     def _load_state(self):
         default = {
             "next_allowed_at": None,
@@ -70,7 +83,7 @@ class ChatGPTReviewWorker:
             "last_success_at": None,
             "last_error": None,
         }
-        value = load_critical_json(self.state_path, {})
+        value = load_critical_json(self.state_path, {}, validator=self._valid_state)
         default.update({key: value[key] for key in default if key in value})
         return default
 
@@ -79,6 +92,7 @@ class ChatGPTReviewWorker:
         atomic_write_json(self.state_path, state)
 
     def status(self):
+        has_state = self.state_path.exists() or self.state_path.with_suffix(self.state_path.suffix + ".bak").exists()
         try:
             state = self._load_state()
         except StateCorruptionError:
@@ -87,6 +101,7 @@ class ChatGPTReviewWorker:
         now = self.clock()
         next_allowed = self._parse_iso(state.get("next_allowed_at"))
         return {
+            "state": "READY" if has_state else "UNINITIALIZED",
             "next_allowed_at": state.get("next_allowed_at"),
             "backoff_seconds": int(state.get("backoff_seconds") or 15),
             "last_request_at": state.get("last_request_at"),

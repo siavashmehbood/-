@@ -556,6 +556,10 @@ class ChatWindow(QMainWindow):
                 self.chatgpt_pending.setText(
                     f"ناظر: خطا در داده‌های ذخیره‌شده | {status.get('last_error', 'نامشخص')}"
                 )
+            elif status.get("state") == "UNINITIALIZED":
+                self.chatgpt_pending.setText(
+                    f"ناظر: وضعیت بازبینی هنوز ثبت نشده | صف: {pending:,} | بازبینی انسانی: {human_pending:,}"
+                )
             else:
                 self.chatgpt_pending.setText(
                     f"درخواست‌های بازبینی ناظر: {pending:,} | بازبینی انسانی: {human_pending:,}"
@@ -574,14 +578,19 @@ class ChatWindow(QMainWindow):
             )
             error = status.get("last_error")
             failed_state = status.get("state") == "ERROR" or bool(error)
-            self.integrity_status.setText(
-                f"یکپارچگی: خطا — {error or 'داده ناظر نامعتبر'}"
-                if failed_state else "یکپارچگی: سالم"
-            )
+            if failed_state:
+                self.integrity_status.setText(f"یکپارچگی: خطا — {error or 'داده ناظر نامعتبر'}")
+            elif status.get("state") == "UNINITIALIZED":
+                self.integrity_status.setText("یکپارچگی: وضعیت اولیه؛ هنوز داده‌ای ثبت نشده")
+            else:
+                self.integrity_status.setText("یکپارچگی: سالم")
             recovered = status.get("last_success_at")
-            self.recovery_status.setText(
-                f"بازیابی: آخرین موفقیت {recovered}" if recovered else "بازیابی: هنوز موفقیتی ثبت نشده"
-            )
+            if recovered:
+                self.recovery_status.setText(f"بازیابی: آخرین موفقیت {recovered}")
+            elif status.get("state") == "UNINITIALIZED":
+                self.recovery_status.setText("بازیابی: وضعیت ناظر هنوز ثبت نشده")
+            else:
+                self.recovery_status.setText("بازیابی: هنوز موفقیتی ثبت نشده")
             self.review_rows_detail.setText(
                 f"رکوردها: {int(status.get('total', 0) or 0):,} | ردشده در بازبینی: {int(status.get('rejected', 0) or 0):,}"
             )
