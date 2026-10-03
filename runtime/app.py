@@ -850,6 +850,9 @@ class IranRuntime:
 
     def human_learning_pending(self, limit=50):
         """Return reviewer-accepted candidates awaiting the authoritative human decision."""
+        limit = max(0, int(limit))
+        if limit == 0:
+            return []
         rows = load_critical_json(self._chatgpt_review_path(), [])
         result = []
         for review in rows:
@@ -1021,10 +1024,11 @@ class IranRuntime:
 
     @serialized
     def approve_all_learning(self, limit=5000, human_confirmed=False, source="api"):
+        limit = max(0, int(limit))
         if human_confirmed is not True:
             return {"ok":False,"reason":"human_confirmation_required","approved":0,
-                    "remaining":len(self.human_learning_pending(limit))}
-        rows=self.human_learning_pending(limit)
+                    "remaining":self.learning_gate.stats().get("pending",0)}
+        rows = [] if limit == 0 else self.human_learning_pending(limit)
         results=[]
         skipped=[]
         for row in rows:
@@ -1075,7 +1079,7 @@ class IranRuntime:
     @serialized
     def reject_all_learning(self, limit=5000):
         limit = max(0, int(limit))
-        rows = self.learning_gate.pending(limit)
+        rows = [] if limit == 0 else self.learning_gate.pending(limit)
         proposal_ids = [row.get("proposal_id") for row in rows if row.get("proposal_id")]
         if proposal_ids:
             self.sync_chatgpt_learning_reviews(proposal_ids=proposal_ids)
