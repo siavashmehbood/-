@@ -6,6 +6,7 @@ from core.dialogue import CognitiveContext, clean, is_correction, is_follow_up
 from core.context_tracker import ContextTracker
 from core.memory_intelligence import MemoryIntelligence
 from core.reasoning_planning import ReasoningPlanningEngine
+from core.reference_intelligence import ReferenceIntelligence
 from core.semantic_verifier import SemanticVerifier
 
 
@@ -38,6 +39,7 @@ class CognitivePipeline:
         self.context_tracker = ContextTracker.load(__import__("pathlib").Path(self.runtime.root) / "data" / "context_tracker.json")
         self.memory_intelligence = MemoryIntelligence(self.runtime.memory)
         self.reasoning_planning = ReasoningPlanningEngine()
+        self.reference_intelligence = ReferenceIntelligence()
         self.semantic_verifier = SemanticVerifier()
         from core.self_correction import SelfCorrectionEngine
         from core.rasa_foundation import RasaFoundationAdapter
@@ -414,6 +416,30 @@ class CognitivePipeline:
             e.state._push_topic(topic)
             e.state.references["latest"] = topic
             e.state.save(e.state_path)
+
+        # Ordinal history queries are read-only reference lookups. Reuse the
+        # canonical ReferenceIntelligence resolver so direct compatibility
+        # callers and IranRuntime observe the same first/second/.../fifth
+        # semantics without creating another decision path.
+        ordinal_index=self.reference_intelligence._ordinal_index(text)
+        if ordinal_index:
+            resolution=self.reference_intelligence.resolve(text,e.state)
+            candidate=clean(getattr(resolution,"candidate",""))
+            if candidate:
+                ordinal_evidence=[{
+                    "subject":"گفتگو",
+                    "predicate":f"topic_position:{ordinal_index}",
+                    "object":candidate,
+                    "source":"conversation_state",
+                    "resolved":True,
+                }]
+                return self._persist_answer(
+                    text,
+                    f"موضوع شماره {ordinal_index}: «{candidate}».",
+                    "REFERENCE",
+                    .99,
+                    evidence=ordinal_evidence,
+                )
 
         # Deterministic conversation-control routes must win over generic
         # correction and memory retrieval.
