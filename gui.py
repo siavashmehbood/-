@@ -393,12 +393,14 @@ class ChatWindow(QMainWindow):
         if answer != QMessageBox.StandardButton.Yes:
             return
         try:
-            def reject_pending():
-                pending = self.runtime.learning_pending(100000)
-                count = sum(bool(self.runtime.reject_learning(r["proposal_id"]).get("ok")) for r in pending)
-                return {"rejected": count}
-            self._start_job("reject_all", reject_pending,
-                            lambda result: self.status.setText(f"درخواست‌های ردشده: {result.get('rejected', 0)}"))
+            self._start_job(
+                "reject_all",
+                lambda: self.runtime.reject_all_learning(100000),
+                lambda result: self.status.setText(
+                    f"درخواست‌های ردشده: {result.get('rejected', 0)} | "
+                    f"ردنشده: {len(result.get('skipped', []))}"
+                ),
+            )
         except Exception as e:
             QMessageBox.warning(self, "خطا در پاک‌سازی", str(e))
 
