@@ -290,7 +290,12 @@ class CognitivePipeline:
                 previous = next(
                     clean(row[1]).lower()
                     for row in reversed(self.runtime.memory.recent(20))
-                    if isinstance(row, (tuple, list)) and len(row) >= 2 and row[0] == "user"
+                    if (
+                        isinstance(row, (tuple, list))
+                        and len(row) >= 2
+                        and row[0] == "user"
+                        and clean(row[1]) != text
+                    )
                 )
             except Exception:
                 pass
