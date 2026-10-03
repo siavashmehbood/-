@@ -211,3 +211,5 @@ def test_dialogue_knowledge_is_class_owned_and_preserves_local_facts():
         "source": "verified_local_seed",
     }]
 
+
+# Validation marker: exact master 8d0b490a post class-owned refactor.
