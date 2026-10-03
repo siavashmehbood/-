@@ -345,3 +345,14 @@ def test_real_runtime_manual_conversation_quality_regressions(tmp_path):
         assert str(arithmetic).strip() == "100"
     finally:
         runtime.close()
+
+
+def test_orchestrator_calculator_returns_bare_result_for_conversation():
+    from types import SimpleNamespace
+    from core.orchestrator import Orchestrator
+
+    fake = SimpleNamespace(
+        router=SimpleNamespace(choose=lambda text: ("calculate", {"expression": "25*4"})),
+        run_tool=lambda name, **kwargs: 100,
+    )
+    assert Orchestrator._auto_tool(fake, "۲۵ ضربدر ۴ چند میشه؟ فقط جواب بده.") == "100"
