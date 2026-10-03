@@ -290,7 +290,13 @@ def test_direct_answer_generic_fallback_never_echoes_user_message():
 
 def test_tool_router_routes_persian_arithmetic_to_safe_calculator():
     from core.tool_router import ToolRouter
-    assert ToolRouter().choose("بیست و پنج ضربدر چهار چند میشه؟") == (None, {})
+    assert ToolRouter().choose("بیست و پنج ضربدر چهار چند میشه؟") == (
+        "calculate", {"expression": "25*4"}
+    )
+    assert ToolRouter().choose("دوازده به علاوه هشت") == ("calculate", {"expression": "12+8"})
+    assert ToolRouter().choose("صد تقسیم بر چهار") == ("calculate", {"expression": "100/4"})
+    assert ToolRouter().choose("سی منهای پنج") == ("calculate", {"expression": "30-5"})
+    assert ToolRouter().choose("دو ضربدر سه") == ("calculate", {"expression": "2*3"})
     assert ToolRouter().choose("۲۵ ضربدر ۴ چند میشه؟") == (
         "calculate", {"expression": "25*4"}
     )
@@ -321,6 +327,8 @@ def test_real_runtime_manual_conversation_quality_regressions(tmp_path):
     try:
         greeting = runtime.handle("سلام، هستی؟")
         assert greeting
+        assert any(x in greeting for x in ("سلام", "هستم"))
+        assert not any(x in greeting for x in ("هدف، زمینه", "شواهد، گزینه", "چند مرحله تحلیل"))
         assert "متوجه شدم:" not in greeting
         assert "اگر هدفت ادامه همین موضوع" not in greeting
 
@@ -335,14 +343,20 @@ def test_real_runtime_manual_conversation_quality_regressions(tmp_path):
         style = runtime.handle("با من مثل یک دستیار عادی حرف بزن.")
         assert "با من مثل یک دستیار عادی حرف بزن" not in style
         assert "اگر هدفت ادامه همین موضوع" not in style
+        assert any(x in style for x in ("طبیعی", "مستقیم", "حتماً"))
 
         support = runtime.handle("امروز حالم خوب نیست. یکم باهام حرف بزن.")
         assert support
         assert "امروز حالم خوب نیست" not in support
         assert "اگر هدفت ادامه همین موضوع" not in support
+        assert support != style
+        assert any(x in support for x in ("حالت", "اینجام", "حرف", "اذیت"))
 
         arithmetic = runtime.handle("۲۵ ضربدر ۴ چند میشه؟ فقط جواب بده.")
         assert str(arithmetic).strip() == "100"
+
+        word_arithmetic = runtime.handle("بیست و پنج ضربدر چهار چند میشه؟ فقط جواب بده.")
+        assert str(word_arithmetic).strip() in {"100", "۱۰۰"}
     finally:
         runtime.close()
 
