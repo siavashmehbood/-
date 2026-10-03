@@ -70,10 +70,16 @@ def test_runtime_binds_legacy_components_to_cognitive_system():
     assert "self.cognitive_system.bind_legacy_adapters()" in source
 
 
-def test_dialogue_pipeline_import_is_lazy():
+def test_dialogue_handle_is_class_owned_and_never_instantiates_parallel_pipeline():
+    from core.dialogue import LocalDialogueEngine
     source = Path("core/dialogue.py").read_text(encoding="utf-8")
-    assert "from core.cognitive_pipeline import CognitivePipeline" in source
-    assert "def _canonical_pipeline_handle(self, text):\n    from core.cognitive_pipeline import CognitivePipeline" in source
+    assert "from core.cognitive_pipeline import CognitivePipeline" not in source
+    assert "_canonical_pipeline_handle" not in source
+    assert "LocalDialogueEngine.handle =" not in source
+    assert LocalDialogueEngine.handle.__qualname__ == "LocalDialogueEngine.handle"
+    handle_source = __import__("inspect").getsource(LocalDialogueEngine.handle)
+    assert "_canonical_system" in handle_source
+    assert ".dispatch(" in handle_source
 
 
 def test_architecture_contract_has_one_decision_owner():
