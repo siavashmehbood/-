@@ -93,3 +93,26 @@ def test_question_analyzer_and_answer_verifier_are_class_owned():
         plan,
     )
     assert result.status == "PASS"
+
+
+def test_reference_resolver_is_class_owned_and_uses_reference_intelligence():
+    source=Path("core/dialogue.py").read_text(encoding="utf-8")
+    assert "ReferenceResolver.resolve =" not in source
+    assert "ReferenceResolver=ReferenceResolverStage1" not in source
+    assert "def _reference_resolve_v2(" not in source
+    assert "def _resolve_chain_context(" not in source
+
+    from core.dialogue import ConversationState, ReferenceResolver, ReferenceResolverStage1
+    assert ReferenceResolver is not ReferenceResolverStage1
+
+    state=ConversationState()
+    state.topic_stack=["پایتون","Django"]
+    state.current_topic="حافظه"
+    state.active_goal="حافظه"
+    resolver=ReferenceResolver()
+
+    assert resolver.resolve("موضوع قبلی",state) == "Django"
+    assert resolver.resolve("بحث اول",state) == "پایتون"
+    assert resolver.resolve("همین موضوع",state) == "حافظه"
+    assert "reference_trace" in state.references
+    assert isinstance(state.references["reference_trace"],dict)
