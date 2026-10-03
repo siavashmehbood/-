@@ -64,3 +64,32 @@ def test_dialogue_cleanup_preserves_non_handle_runtime_adapters():
     assert "LocalDialogueEngine._memory = _memory_chain_context" in source
     assert "ReferenceResolver.resolve = _reference_resolve_v2" in source
     assert "LocalDialogueEngine.handle = _canonical_pipeline_handle" in source
+
+
+def test_question_analyzer_and_answer_verifier_are_class_owned():
+    source=Path("core/dialogue.py").read_text(encoding="utf-8")
+    assert "QuestionAnalyzer.analyze =" not in source
+    assert "AnswerVerifier.verify =" not in source
+    assert "def _analyze_v2(" not in source
+    assert "def _analyze_v3(" not in source
+    assert "def _analyze_v4(" not in source
+    assert "def _verify_v2(" not in source
+
+    from core.dialogue import QuestionAnalyzer, AnswerVerifier, CognitiveContext, AnswerPlan
+    parsed=QuestionAnalyzer().analyze("پایتون چیه و چرا محبوب است؟")
+    assert parsed["question_type"] == "why"
+    assert parsed["question_units"] == ["پایتون چیه", "چرا محبوب است"]
+
+    context=CognitiveContext(
+        user_message="چرا؟",
+        question_type="why",
+        question_units=["چرا؟"],
+        uncertainty=.9,
+    )
+    plan=AnswerPlan(["چرا؟"], answer_type="UNKNOWN")
+    result=AnswerVerifier().verify(
+        context,
+        "اطلاعات کافی ندارم؛ نمی‌خواهم حدس بزنم.",
+        plan,
+    )
+    assert result.status == "PASS"
