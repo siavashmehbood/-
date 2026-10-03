@@ -1086,7 +1086,6 @@ REF_MARKERS = REF_MARKERS + ("این قسمت",)
 
 # v0.53: evidence-grounded realization bridge. It consumes the existing local
 # knowledge, memory and learning layers without introducing a new model/runtime.
-from core.grounded_synthesizer import GroundedSynthesizer
 
 
 # v0.52b: reasoning-aware context repair.
