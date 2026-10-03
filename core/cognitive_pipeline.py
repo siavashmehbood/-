@@ -221,20 +221,32 @@ class CognitivePipeline:
         # A raw user turn or a near-copy of the question is never accepted as a
         # final answer merely because retrieval found similar text.
         try:
-            recent_users=[row[1] for row in self.runtime.memory.recent(20)
-                          if isinstance(row,(tuple,list)) and len(row)>=2 and row[0]=="user"]
-            semantic_turn=getattr(self,"last_semantic_turn",None)
-            semantic_answer=""
-            if semantic_turn is not None:
-                linguistic=getattr(semantic_turn,"linguistic",None)
-                semantic_question=clean(str(getattr(linguistic,"raw_text","") or ""))
-                if semantic_question == clean(text):
-                    semantic_answer=str(getattr(semantic_turn,"semantic_answer","") or "")
-            answer,blocked,reason=self.semantic_intelligence.anti_echo(
-                text,answer,recent_users,semantic_answer)
-            if blocked:
-                answer_type="SEMANTIC_REPAIR" if semantic_answer else "ANTI_ECHO"
-                self._emit("anti_echo_guard",{"blocked":True,"reason":reason,"canonical":True})
+            evidence_backed=False
+            if evidence:
+                evidence_check=self.semantic_verifier.verify(
+                    text,answer,
+                    constraints=getattr(self.engine.state,"remembered_constraints",[]),
+                    rejected_answers=getattr(self.engine.state,"rejected_answers",[]),
+                    evidence=evidence,
+                )
+                evidence_backed=bool(
+                    evidence_check.accepted and evidence_check.evidence_status=="SUPPORTED"
+                )
+            if not evidence_backed:
+                recent_users=[row[1] for row in self.runtime.memory.recent(20)
+                              if isinstance(row,(tuple,list)) and len(row)>=2 and row[0]=="user"]
+                semantic_turn=getattr(self,"last_semantic_turn",None)
+                semantic_answer=""
+                if semantic_turn is not None:
+                    linguistic=getattr(semantic_turn,"linguistic",None)
+                    semantic_question=clean(str(getattr(linguistic,"raw_text","") or ""))
+                    if semantic_question == clean(text):
+                        semantic_answer=str(getattr(semantic_turn,"semantic_answer","") or "")
+                answer,blocked,reason=self.semantic_intelligence.anti_echo(
+                    text,answer,recent_users,semantic_answer)
+                if blocked:
+                    answer_type="SEMANTIC_REPAIR" if semantic_answer else "ANTI_ECHO"
+                    self._emit("anti_echo_guard",{"blocked":True,"reason":reason,"canonical":True})
         except Exception:
             pass
         checked = self.semantic_verifier.verify(
