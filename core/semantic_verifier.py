@@ -136,12 +136,24 @@ class SemanticVerifier:
         else:
             reasons.append("low_question_alignment")
         low_a = a.lower()
+        denies_api = bool(re.search(
+            r"(?:بدون|فاقد|عدم\\s+استفاده\\s+از|استفاده\\s+نمی[^ ]*)\\s+(?:از\\s+)?api",
+            low_a,
+        ))
+        denies_online = bool(re.search(
+            r"(?:بدون|فاقد|عدم\\s+استفاده\\s+از|استفاده\\s+نمی[^ ]*)\\s+(?:از\\s+)?(?:شبکه|سرویس\\s+آنلاین|cloud)",
+            low_a,
+        ))
         for constraint in constraints:
             c = str(constraint).lower()
-            if c == "آفلاین" and any(x in low_a for x in ("api", "شبکه", "سرویس آنلاین", "cloud")):
-                contradictions.append("offline_constraint")
-            if c == "بدون api" and ("api" in low_a or "مدل آماده" in low_a):
-                contradictions.append("no_api_constraint")
+            if c == "آفلاین":
+                uses_api = "api" in low_a and not denies_api
+                uses_online = any(x in low_a for x in ("شبکه", "سرویس آنلاین", "cloud")) and not denies_online
+                if uses_api or uses_online:
+                    contradictions.append("offline_constraint")
+            if c == "بدون api":
+                if ("api" in low_a and not denies_api) or "مدل آماده" in low_a:
+                    contradictions.append("no_api_constraint")
         if contradictions:
             score -= .45
             reasons.append("constraint_contradiction")

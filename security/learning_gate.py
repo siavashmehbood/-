@@ -88,8 +88,20 @@ class LearningGate:
         self._local.bypass_depth=int(getattr(self._local,'bypass_depth',0))+1
         try: yield
         finally: self._local.bypass_depth=max(0,int(getattr(self._local,'bypass_depth',1))-1)
+    @staticmethod
+    def _snapshot(value):
+        return json.loads(json.dumps(
+            value, ensure_ascii=False, sort_keys=True, default=str
+        ))
+
     def request(self,kind,payload,summary=''):
         if self.bypassed: return None
+        if not isinstance(kind,str) or not kind.strip():
+            raise ValueError('learning kind must be a non-empty string')
+        kind=kind.strip()
+        if not isinstance(payload,dict):
+            raise TypeError('learning payload must be a dict')
+        payload=self._snapshot(payload)
         def stable(value):
             if isinstance(value, dict):
                 return {k:stable(v) for k,v in value.items() if k not in {"time", "timestamp", "created_at", "updated_at", "retrieved_at", "_external_validation", "episode_id", "attempt"}}
@@ -97,33 +109,89 @@ class LearningGate:
             return value
         identity = stable(payload)
         canonical=json.dumps(identity,ensure_ascii=False,sort_keys=True,default=str)
-        proposal_id='learn_'+hashlib.sha256((str(kind)+'|'+canonical).encode('utf-8')).hexdigest()[:20]
+        proposal_id='learn_'+hashlib.sha256((kind+'|'+canonical).encode('utf-8')).hexdigest()[:20]
         with self._lock, self._process_lock():
             existing=next((r for r in self._rows if r.get('proposal_id')==proposal_id and r.get('status') in {'pending', 'rejected'}),None)
-            if existing: return dict(existing)
+            if existing: return self._snapshot(existing)
             approved=next((r for r in self._rows if r.get('proposal_id')==proposal_id and r.get('status')=='approved'),None)
-            if approved: return dict(approved)
+            if approved: return self._snapshot(approved)
             duplicate_key=self._learning_duplicate_key(kind, payload)
             if duplicate_key is not None:
                 duplicate=next((r for r in reversed(self._rows)
                                  if r.get('kind')==kind and r.get('status') in {'pending','approved'}
                                  and self._learning_duplicate_key(r.get('kind'), r.get('payload') or {})==duplicate_key),None)
                 if duplicate:
-                    return dict(duplicate)
+                    return self._snapshot(duplicate)
             now=datetime.now().isoformat(timespec='seconds')
-            row={'proposal_id':proposal_id,'kind':str(kind),'summary':str(summary or kind),'payload':payload,'status':'pending','created_at':now,'updated_at':now}
-            self._rows.append(row); self._save(); return dict(row)
+            row={'proposal_id':proposal_id,'kind':kind,'summary':str(summary or kind),'payload':payload,'status':'pending','created_at':now,'updated_at':now}
+            self._rows.append(row); self._save(); return self._snapshot(row)
     def _save(self): atomic_write_json(self.path,self._rows)
+
+    @staticmethod
+    def _normalize_limit(limit):
+        try:
+            return max(0,int(limit))
+        except (TypeError,ValueError):
+            raise ValueError('limit must be an integer') from None
+
+    @staticmethod
+    def _normalize_cursor(cursor):
+        if cursor is None: return None
+        cursor=str(cursor).strip()
+        if not cursor: raise ValueError('cursor must be a proposal id')
+        return cursor
+
+    def _page(self,limit,cursor=None,status=None,proposal_ids=None):
+        limit=self._normalize_limit(limit)
+        cursor=self._normalize_cursor(cursor)
+        if isinstance(proposal_ids,(str,bytes)): proposal_ids=[proposal_ids]
+        allowed=None if proposal_ids is None else {
+            str(proposal_id) for proposal_id in proposal_ids if proposal_id is not None
+        }
+        if limit == 0:
+            return {'items':[],'next_cursor':None,'has_more':False}
+        with self._lock, self._process_lock():
+            start=len(self._rows)-1
+            if cursor is not None:
+                for index,row in enumerate(self._rows):
+                    if str(row.get('proposal_id')) == cursor:
+                        start=index-1
+                        break
+                else:
+                    raise ValueError('cursor not found')
+            result=[]
+            has_more=False
+            for index in range(start,-1,-1):
+                row=self._rows[index]
+                if status is not None and row.get('status') != status: continue
+                if allowed is not None and str(row.get('proposal_id')) not in allowed: continue
+                if len(result) >= limit:
+                    has_more=True
+                    break
+                result.append(self._snapshot(row))
+            return {
+                'items':result,
+                'next_cursor':result[-1].get('proposal_id') if has_more and result else None,
+                'has_more':has_more,
+            }
+
+    def pending_page(self,limit=50,cursor=None,proposal_ids=None):
+        return self._page(limit,cursor,status='pending',proposal_ids=proposal_ids)
+
+    def history_page(self,limit=200,cursor=None):
+        return self._page(limit,cursor)
+
     def pending(self,limit=50):
-        with self._lock, self._process_lock():
-            return [dict(r) for r in self._rows if r.get('status')=='pending'][-int(limit):][::-1]
+        return self.pending_page(limit)['items']
+
     def history(self,limit=200):
-        with self._lock, self._process_lock():
-            return [dict(r) for r in self._rows[-int(limit):]][::-1]
+        return self.history_page(limit)['items']
+
     def get(self,proposal_id):
         with self._lock, self._process_lock():
             row=next((r for r in self._rows if r.get('proposal_id')==str(proposal_id)),None)
-            return dict(row) if row else None
+            return self._snapshot(row) if row else None
+
     def decide_many(self, proposal_ids, status='approved'):
         results=[]
         for proposal_id in list(proposal_ids or []):
@@ -137,8 +205,8 @@ class LearningGate:
         with self._lock, self._process_lock():
             row=next((r for r in self._rows if r.get('proposal_id')==str(proposal_id)),None)
             if not row: return None
-            if row.get('status')!='pending': return dict(row)
-            row['status']=status; row['updated_at']=datetime.now().isoformat(timespec='seconds'); self._save(); return dict(row)
+            if row.get('status')!='pending': return self._snapshot(row)
+            row['status']=status; row['updated_at']=datetime.now().isoformat(timespec='seconds'); self._save(); return self._snapshot(row)
     def stats(self):
         with self._lock, self._process_lock():
             pending=sum(r.get('status')=='pending' for r in self._rows)

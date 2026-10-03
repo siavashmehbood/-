@@ -84,5 +84,105 @@ class LearningGateTests(unittest.TestCase):
             memory.close()
 
 
+    def test_payload_and_returned_rows_are_independent_snapshots(self):
+        root,gate,memory,knowledge,learning=self.make()
+        try:
+            payload={'subject':'snapshot','metadata':{'items':['original']}}
+            proposal=gate.request('knowledge.add_fact',payload,'snapshot fixture')
+            payload['metadata']['items'].append('caller mutation')
+            proposal['payload']['metadata']['items'].append('return mutation')
+
+            stored=gate.get(proposal['proposal_id'])
+            self.assertEqual(stored['payload']['metadata']['items'],['original'])
+
+            pending=gate.pending(10)
+            pending[0]['payload']['metadata']['items'].append('pending mutation')
+            stored_again=gate.get(proposal['proposal_id'])
+            self.assertEqual(stored_again['payload']['metadata']['items'],['original'])
+        finally:
+            memory.close()
+
+    def test_invalid_request_shapes_fail_without_poisoning_durable_queue(self):
+        root,gate,memory,knowledge,learning=self.make()
+        try:
+            with self.assertRaises(ValueError):
+                gate.request('   ',{})
+            with self.assertRaises(TypeError):
+                gate.request('memory.add_lesson',[])
+            with self.assertRaises(TypeError):
+                gate.request('memory.add_lesson',None)
+            self.assertEqual(gate.history(),[])
+            reloaded=LearningGate(root/'proposals.json')
+            self.assertEqual(reloaded.history(),[])
+        finally:
+            memory.close()
+
+    def test_pending_cursor_is_stable_when_new_rows_arrive_and_cursor_becomes_terminal(self):
+        root,gate,memory,knowledge,learning=self.make()
+        try:
+            proposals=[
+                gate.request('memory.add_lesson',{'goal':f'page-{index}','lesson':'safe'})
+                for index in range(5)
+            ]
+            first=gate.pending_page(2)
+            self.assertEqual(
+                [row['proposal_id'] for row in first['items']],
+                [proposals[4]['proposal_id'],proposals[3]['proposal_id']],
+            )
+            self.assertTrue(first['has_more'])
+            cursor=first['next_cursor']
+
+            newest=gate.request(
+                'memory.add_lesson',{'goal':'newest-after-page','lesson':'safe'}
+            )
+            gate.decide(cursor,'rejected')
+            second=gate.pending_page(2,cursor)
+            self.assertEqual(
+                [row['proposal_id'] for row in second['items']],
+                [proposals[2]['proposal_id'],proposals[1]['proposal_id']],
+            )
+            seen={row['proposal_id'] for row in first['items']+second['items']}
+            self.assertNotIn(newest['proposal_id'],seen)
+            self.assertEqual(len(seen),4)
+
+            third=gate.pending_page(2,second['next_cursor'])
+            self.assertEqual(
+                [row['proposal_id'] for row in third['items']],
+                [proposals[0]['proposal_id']],
+            )
+            self.assertFalse(third['has_more'])
+            self.assertIsNone(third['next_cursor'])
+        finally:
+            memory.close()
+
+    def test_page_limits_filters_and_unknown_cursors_fail_safely(self):
+        root,gate,memory,knowledge,learning=self.make()
+        try:
+            proposals=[
+                gate.request('memory.add_lesson',{'goal':f'filter-{index}','lesson':'safe'})
+                for index in range(4)
+            ]
+            self.assertEqual(gate.pending(0),[])
+            self.assertEqual(gate.pending(-5),[])
+            self.assertEqual(gate.history(0),[])
+            self.assertEqual(
+                gate.pending_page(0),
+                {'items':[],'next_cursor':None,'has_more':False},
+            )
+            filtered=gate.pending_page(
+                10,proposal_ids=[proposals[0]['proposal_id'],proposals[2]['proposal_id']]
+            )
+            self.assertEqual(
+                [row['proposal_id'] for row in filtered['items']],
+                [proposals[2]['proposal_id'],proposals[0]['proposal_id']],
+            )
+            with self.assertRaises(ValueError):
+                gate.pending_page(2,'missing-proposal-id')
+            with self.assertRaises(ValueError):
+                gate.pending_page('not-an-integer')
+        finally:
+            memory.close()
+
+
 if __name__=='__main__':
     unittest.main()

@@ -74,7 +74,25 @@ class ConversationState:
     conversation_confidence: float = 0.0
     topic_history: list = field(default_factory=list)
     topic_goals: dict = field(default_factory=dict)
+    topic_goal_history: dict = field(default_factory=dict)
     remembered_constraints: list = field(default_factory=list)
+
+    def set_topic_goal(self, project, goal):
+        project, goal = clean(project), clean(goal)
+        if not project or not goal:
+            return
+        versions = self.topic_goal_history.setdefault(project, [])
+        if not versions or versions[-1] != goal:
+            versions.append(goal)
+            self.topic_goal_history[project] = versions[-20:]
+        self.topic_goals[project] = goal
+
+    def goal_versions(self, project):
+        project = clean(project)
+        versions = self.topic_goal_history.get(project, [])
+        if not versions and self.topic_goals.get(project):
+            versions = [self.topic_goals[project]]
+        return [clean(value) for value in versions if clean(value)]
 
     def _push_topic(self, topic):
         topic = clean(topic)
@@ -83,6 +101,7 @@ class ConversationState:
         if self.current_topic and self.current_topic != topic:
             if self.current_topic not in self.topic_stack:
                 self.topic_stack.append(self.current_topic)
+        self.topic_stack = [value for value in self.topic_stack if value != topic]
         if topic not in self.topic_history:
             self.topic_history.append(topic)
             self.topic_history = self.topic_history[-30:]
@@ -146,21 +165,31 @@ class ConversationState:
     def restore_previous_topic(self):
         if not self.topic_stack:
             return ""
-        previous = self.topic_stack.pop()
         current = self.current_topic
+        if current:
+            self.topic_stack = [value for value in self.topic_stack if value != current]
+        if not self.topic_stack:
+            return ""
+        previous = self.topic_stack.pop()
         if current and current != previous:
             self.topic_stack.append(current)
         self.current_topic = previous
         return previous
 
     def topic_by_index(self, index):
-        all_topics = self.topic_stack + ([self.current_topic] if self.current_topic else [])
-        if not all_topics:
-            return ""
+        all_topics = [
+            value for value in self.topic_stack
+            if not self.current_topic or value != self.current_topic
+        ]
+        if self.current_topic:
+            all_topics.append(self.current_topic)
         try:
-            return all_topics[int(index) - 1]
-        except (ValueError, IndexError):
+            position = int(index)
+        except (TypeError, ValueError):
             return ""
+        if position < 1 or position > len(all_topics):
+            return ""
+        return all_topics[position - 1]
 
     def to_dict(self):
         return asdict(self)
@@ -192,6 +221,27 @@ class ConversationState:
             stack = data.get("topic_stack")
             if isinstance(stack, list):
                 data["topic_stack"] = [str(x).replace("\u200c","").strip() for x in stack]
+            goals = data.get("topic_goals")
+            history = data.get("topic_goal_history")
+            if isinstance(goals, dict):
+                normalized_goals = {
+                    persisted_norm(project): persisted_norm(goal)
+                    for project, goal in goals.items()
+                    if persisted_norm(project) and persisted_norm(goal)
+                }
+                data["topic_goals"] = normalized_goals
+                if not isinstance(history, dict):
+                    history = {}
+                normalized_history = {}
+                for project, values in history.items():
+                    key = persisted_norm(project)
+                    rows = values if isinstance(values, list) else [values]
+                    cleaned = [persisted_norm(value) for value in rows if persisted_norm(value)]
+                    if key and cleaned:
+                        normalized_history[key] = cleaned[-20:]
+                for project, goal in normalized_goals.items():
+                    normalized_history.setdefault(project, [goal])
+                data["topic_goal_history"] = normalized_history
             return cls.from_dict(data)
         except (OSError, ValueError, TypeError): return cls()
 
