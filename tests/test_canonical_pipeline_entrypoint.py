@@ -132,6 +132,47 @@ def test_question_analyzer_and_answer_verifier_are_class_owned():
     assert result.status == "PASS"
 
 
+def test_answer_repair_is_class_owned_and_preserves_learning_policy():
+    source=Path("core/dialogue.py").read_text(encoding="utf-8")
+    assert "AnswerRepair.repair =" not in source
+    assert "_repair_learning" not in source
+    assert "_PREV_REPAIR_LEARNING" not in source
+
+    from core.dialogue import AnswerRepair, CognitiveContext, AnswerPlan, VerificationResult
+    assert AnswerRepair.repair.__qualname__ == "AnswerRepair.repair"
+    repair=AnswerRepair()
+
+    uncertain=CognitiveContext(
+        user_message="ادامه بده",
+        uncertainty=.9,
+        relevant_knowledge=[],
+    )
+    plan=AnswerPlan(["ادامه بده"],steps=["avoid_recent_failed_pattern"])
+    verification=VerificationResult("PASS",.9)
+    guarded=repair.repair(uncertain,"پاسخ قبلی",verification,plan)
+    assert guarded.startswith("UNKNOWN:")
+
+    follow=CognitiveContext(
+        user_message="چرا؟",
+        question_type="follow_up",
+        current_topic="پایتون",
+    )
+    follow_plan=AnswerPlan(["چرا؟"],steps=["preserve_conversation_context"])
+    followed=repair.repair(follow,"چون خواناست.",verification,follow_plan)
+    assert "پایتون" in followed
+    assert "چون خواناست" in followed
+
+
+def test_dialogue_module_has_no_live_class_method_monkeypatches():
+    import re
+    source=Path("core/dialogue.py").read_text(encoding="utf-8")
+    bindings=re.findall(
+        r"(?m)^[A-Z][A-Za-z0-9_]*\.[A-Za-z_][A-Za-z0-9_]*\s*=\s*[A-Za-z_]",
+        source,
+    )
+    assert bindings == []
+
+
 def test_reference_resolver_is_class_owned_and_uses_reference_intelligence():
     source=Path("core/dialogue.py").read_text(encoding="utf-8")
     assert "ReferenceResolver.resolve =" not in source
