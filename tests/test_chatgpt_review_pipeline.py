@@ -146,6 +146,7 @@ class ChatGPTReviewPipelineTests(unittest.TestCase):
         )
         runtime.sync_chatgpt_learning_reviews()
         target = self.add_candidate(gate, "older target outside bounded window")
+        original_pending = gate.pending
         gate.pending = Mock(side_effect=AssertionError("targeted path used bounded scan"))
         seen = []
         runtime.chatgpt_review_worker = ChatGPTReviewWorker(
@@ -169,6 +170,7 @@ class ChatGPTReviewPipelineTests(unittest.TestCase):
             )["reviewed"]
         )
         self.assertEqual(gate.get(target["proposal_id"])["status"], "pending")
+        gate.pending = original_pending
         self.assertEqual(
             runtime.human_learning_pending(10)[0]["proposal_id"],
             target["proposal_id"],
