@@ -521,19 +521,61 @@ class AnswerVerifier:
 
 class AnswerRepair:
     def repair(self, context, answer, verification, plan):
+        """Repair a candidate answer without introducing a parallel decision path.
+
+        Learned plan steps may tighten uncertainty handling or preserve follow-up
+        context, but the repair remains a deterministic subordinate stage inside
+        the canonical CognitiveSystem pipeline.
+        """
+        steps = set(plan.steps or [])
+        if (
+            "avoid_recent_failed_pattern" in steps
+            and verification.status == "PASS"
+            and context.uncertainty >= .70
+            and not context.relevant_knowledge
+        ):
+            return (
+                "UNKNOWN: اطلاعات محلی کافی برای پاسخ مطمئن ندارم؛ "
+                "نمی‌خواهم همان الگوی قبلیِ نامطمئن را تکرار کنم."
+            )
+
         if verification.status == "CLARIFY":
-            return "برای پاسخ دقیق، فقط یک مورد را مشخص کن: منظورت دقیقاً کدام موضوع است؟"
-        if "evidence_not_used" in verification.reasons and context.relevant_knowledge:
+            repaired = "برای پاسخ دقیق، فقط یک مورد را مشخص کن: منظورت دقیقاً کدام موضوع است؟"
+        elif "evidence_not_used" in verification.reasons and context.relevant_knowledge:
             fact = context.relevant_knowledge[0]
             obj = str(fact.get("object", fact.get("value", "")))
-            return f"پاسخ مستقیم: {obj}."
-        if "too_generic" in verification.reasons and context.question_type == "why":
+            repaired = f"پاسخ مستقیم: {obj}."
+        elif "too_generic" in verification.reasons and context.question_type == "why":
             if context.reasoning.get("hypotheses"):
-                return "دلیل قطعی ندارم؛ مهم‌ترین علت‌های محتمل این‌ها هستند: " + "، ".join(context.reasoning["hypotheses"][:3]) + "."
-        if verification.missing_units:
+                repaired = (
+                    "دلیل قطعی ندارم؛ مهم‌ترین علت‌های محتمل این‌ها هستند: "
+                    + "، ".join(context.reasoning["hypotheses"][:3])
+                    + "."
+                )
+            else:
+                repaired = answer
+        elif verification.missing_units:
             missing = verification.missing_units
-            return answer.rstrip() + "\n\nبخش باقی‌مانده سؤال: «" + "» و «".join(missing) + "». برای این بخش شواهد کافی ندارم."
-        return answer
+            repaired = (
+                answer.rstrip()
+                + "\n\nبخش باقی‌مانده سؤال: «"
+                + "» و «".join(missing)
+                + "». برای این بخش شواهد کافی ندارم."
+            )
+        else:
+            repaired = answer
+
+        if (
+            "preserve_conversation_context" in steps
+            and context.question_type == "follow_up"
+            and context.current_topic
+            and context.current_topic not in str(repaired)
+        ):
+            return (
+                f"با توجه به موضوع قبلی «{context.current_topic}»، "
+                f"{str(repaired).lstrip()}"
+            )
+        return repaired
 
 
 class LocalDialogueEngine:
@@ -1106,15 +1148,4 @@ class ReferenceResolverStage1:
 
 
 # v0.41b: deterministic multi-intent answer assembly for compound Persian questions.
-# v0.41-learning: make learned dialogue policy affect the actual response path.
-_PREV_REPAIR_LEARNING = AnswerRepair.repair
-def _repair_learning(self, context, answer, verification, plan):
-    steps = set(plan.steps or [])
-    if "avoid_recent_failed_pattern" in steps and verification.status == "PASS" and context.uncertainty >= .70 and not context.relevant_knowledge:
-        return "UNKNOWN: اطلاعات محلی کافی برای پاسخ مطمئن ندارم؛ نمی‌خواهم همان الگوی قبلیِ نامطمئن را تکرار کنم."
-    repaired = _PREV_REPAIR_LEARNING(self, context, answer, verification, plan)
-    if "preserve_conversation_context" in steps and context.question_type == "follow_up" and context.current_topic:
-        if context.current_topic not in str(repaired):
-            return f"با توجه به موضوع قبلی «{context.current_topic}»، {str(repaired).lstrip()}"
-    return repaired
-AnswerRepair.repair = _repair_learning
+# v0.41-learning: learned repair policy is owned directly by AnswerRepair.repair.
