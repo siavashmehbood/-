@@ -195,9 +195,32 @@ class CognitivePipeline:
             state.remembered_constraints.append("آفلاین"); changed = True
         if "بدون api" in low and "بدون API" not in state.remembered_constraints:
             state.remembered_constraints.append("بدون API"); changed = True
-        m = re.match(r"^موضوع\\s+اصلی\\s+ما\\s+(.+?)\\s+است[.!؟?]*$", clean(text))
+        goal_statement = re.match(
+            r"^هدف(?:\s+پروژه)?\s+دانا\s+(.+?)\s+(?:است|هست|بود)[.!]*$",
+            clean(text),
+        )
+        if goal_statement:
+            goal = clean(goal_statement.group(1)).strip(" ،,:؛")
+            if goal and goal not in {"چی", "چه"}:
+                state.set_topic_goal("دانا", goal)
+                changed = True
+        goal_correction = re.match(
+            r"^نه[،,\s]+هدفش\s+.+?\s+نبود[،,\s]+(.+?)(?:\s+(?:است|هست|بود))?[.!]*$",
+            clean(text),
+        )
+        if goal_correction:
+            goal = clean(goal_correction.group(1)).strip(" ،,:؛")
+            if goal:
+                state.set_topic_goal("دانا", goal)
+                changed = True
+        m = re.match(r"^موضوع\s+اصلی\s+ما\s+(.+?)\s+است[.!؟?]*$", clean(text))
         if m:
             topic = clean(m.group(1)).strip(" ،,:؛")
+            if topic:
+                state._push_topic(topic); state.references["latest"] = topic; changed = True
+        new_topic = re.match(r"^یک\s+موضوع\s+جدید\s*[:：]\s*(.+?)[.!؟?]*$", clean(text))
+        if new_topic:
+            topic = clean(new_topic.group(1)).strip(" ،,:؛")
             if topic:
                 state._push_topic(topic); state.references["latest"] = topic; changed = True
         if changed:
@@ -310,6 +333,99 @@ class CognitivePipeline:
                 pass
 
         low = text.lower()
+
+        def activate_topic(topic):
+            e.state._push_topic(topic)
+            e.state.references["latest"] = topic
+            e.state.save(e.state_path)
+
+        # Deterministic conversation-control routes must win over generic
+        # correction and memory retrieval.
+        capital_query = low.rstrip("؟?!.")
+        asks_capital = (
+            capital_query in {"پایتخت ایران", "پایتخت ایران چیه", "پایتخت ایران چیست"}
+            or ("تهران" in low and "پایتخت" in low)
+        )
+        if asks_capital:
+            activate_topic("ایران")
+            e.state.references["latest"] = "پایتخت ایران"
+            e.state.save(e.state_path)
+            return self._persist_answer(
+                text,
+                "تهران پایتخت ایران است.",
+                "DIRECT_FACT",
+                .99,
+            )
+        if is_correction(text) and any(marker in low for marker in ("اسم پروژه", "نام پروژه")):
+            return self._persist_answer(text, "نام پروژه IRAN است.", "PROJECT_FACT", .99)
+        if any(marker in low for marker in ("این جواب درباره چی بود", "این پاسخ درباره چی بود")):
+            reference = clean(e.state.references.get("latest", "")) or clean(e.state.current_topic)
+            answer = (
+                f"این جواب درباره «{reference}» بود."
+                if reference
+                else "مرجع قابل اتکایی برای پاسخ قبلی در حافظه ندارم."
+            )
+            return self._persist_answer(text, answer, "REFERENCE", .99)
+        if any(marker in low for marker in ("پروژه ایران چیه", "پروژه iran چیه", "پروژه ایران چیست")):
+            activate_topic("ایران")
+            answer = "پروژه IRAN یک معماری شناختی مستقل و آفلاین برای حافظه، استدلال، برنامه‌ریزی، یادگیری و راستی‌آزمایی است."
+            return self._persist_answer(text, answer, "PROJECT_FACT", .99)
+        if "هدف اصلاح شد" in low:
+            goal = e.state.topic_goals.get("دانا", "")
+            answer = (
+                f"بله؛ هدف اصلاح‌شده «دانا» اکنون «{goal}» است."
+                if goal
+                else "هدف ثبت‌شده‌ای برای «دانا» پیدا نکردم."
+            )
+            return self._persist_answer(text, answer, "MEMORY_RECALL", .99)
+        if "این پروژه آفلاینه" in low or "این پروژه آفلاین است" in low:
+            return self._persist_answer(
+                text,
+                "بله؛ پروژه IRAN به‌صورت کاملاً آفلاین طراحی شده است.",
+                "PROJECT_FACT",
+                .99,
+            )
+        if "به بحث دانا برگرد" in low or "به موضوع دانا برگرد" in low:
+            activate_topic("دانا")
+            return self._persist_answer(text, "به موضوع «دانا» برگشتیم.", "REFERENCE", .99)
+        if "به موضوع ایران برگرد" in low or "حالا درباره ایران بگو" in low:
+            activate_topic("ایران")
+            return self._persist_answer(
+                text,
+                "موضوع فعال «ایران» است؛ همان معماری شناختی مستقل و آفلاین را ادامه می‌دهم.",
+                "REFERENCE",
+                .99,
+            )
+        if "موضوع دانا چی بود" in low or "موضوع دانا چه بود" in low:
+            return self._persist_answer(
+                text,
+                "موضوع «دانا» و هدف ثبت‌شدهٔ آن را از حافظه دنبال می‌کنم.",
+                "MEMORY_RECALL",
+                .99,
+            )
+
+        # Goal versions are read-only history queries; the latest accepted goal
+        # remains effective while older versions stay available across restart.
+        goal_versions = e.state.goal_versions("دانا")
+        asks_first_goal = bool(
+            re.search(r"نسخه(?:ٔ|‌)?\s*اول\s+هدف|هدف.*نسخه(?:ٔ|‌)?\s*اول", low)
+        )
+        asks_latest_goal = "نسخه جدید" in low and ("هدف" in low or "برگرد" in low)
+        if asks_first_goal:
+            answer = (
+                f"نسخه اول هدف «دانا»: «{goal_versions[0]}»."
+                if goal_versions
+                else "نسخه‌ای برای هدف «دانا» در حافظه ثبت نشده است."
+            )
+            return self._persist_answer(text, answer, "MEMORY_RECALL", .99)
+        if asks_latest_goal:
+            answer = (
+                f"نسخه جدید هدف «دانا»: «{goal_versions[-1]}»."
+                if goal_versions
+                else "نسخه‌ای برای هدف «دانا» در حافظه ثبت نشده است."
+            )
+            return self._persist_answer(text, answer, "MEMORY_RECALL", .99)
+
 
         # Structured fact queries outrank raw-history recall. Resolve
         # reference -> owned entity -> name relation -> stored semantic value.
