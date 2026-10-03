@@ -34,3 +34,33 @@ def test_canonical_pipeline_is_not_monkeypatched_at_module_scope():
     source=Path("core/cognitive_pipeline.py").read_text(encoding="utf-8")
     assert "CognitivePipeline.run =" not in source
     assert "setattr(CognitivePipeline" not in source
+
+
+def test_dialogue_has_one_canonical_handle_binding():
+    import re
+    from types import SimpleNamespace
+    from core.dialogue import LocalDialogueEngine
+
+    source=Path("core/dialogue.py").read_text(encoding="utf-8")
+    bindings=re.findall(r"(?m)^LocalDialogueEngine\.handle\s*=\s*([A-Za-z0-9_]+)",source)
+    assert bindings == ["_canonical_pipeline_handle"]
+
+    calls=[]
+    class Canonical:
+        def dispatch(self,text):
+            calls.append(text)
+            return "canonical-response"
+
+    dialogue=SimpleNamespace(_canonical_system=Canonical())
+    assert LocalDialogueEngine.handle(dialogue,"ادامه بده") == "canonical-response"
+    assert calls == ["ادامه بده"]
+
+
+def test_dialogue_cleanup_preserves_non_handle_runtime_adapters():
+    source=Path("core/dialogue.py").read_text(encoding="utf-8")
+    # These adapters affect state/retrieval/reasoning used by the canonical
+    # pipeline; the cleanup must remove only dead handle wrappers.
+    assert "LocalDialogueEngine.__init__ = _chain_init" in source
+    assert "LocalDialogueEngine._memory = _memory_chain_context" in source
+    assert "ReferenceResolver.resolve = _reference_resolve_v2" in source
+    assert "LocalDialogueEngine.handle = _canonical_pipeline_handle" in source
