@@ -465,6 +465,24 @@ class CognitivePipeline:
                 .99,
             )
 
+        # Project-goal recall is a read-only state query. Resolve it before
+        # semantic/retrieval fallbacks so a pronoun like «هدفش» binds to the
+        # active project rather than being reinterpreted as a generic question.
+        asks_project_goal = bool(re.search(r"(?:هدف(?:ش|\s+[^ ]+)?)\s+(?:چی|چه)\s+بود", low))
+        if asks_project_goal:
+            explicit = re.search(r"هدف\s+(?P<project>[آ-یA-Za-z0-9_-]+)\s+(?:چی|چه)\s+بود", clean(text), re.I)
+            project = clean(explicit.group("project")) if explicit else clean(e.state.current_topic)
+            if project:
+                goal,goal_evidence=self._project_goal(project)
+                if goal:
+                    return self._persist_answer(
+                        text,
+                        f"هدف ثبت‌شده برای «{project}»: «{goal}».",
+                        "MEMORY_RECALL",
+                        .99,
+                        evidence=goal_evidence,
+                    )
+
         # Goal versions are read-only history queries; the latest accepted goal
         # remains effective while older versions stay available across restart.
         goal_versions = e.state.goal_versions("دانا")
@@ -752,17 +770,6 @@ class CognitivePipeline:
                     lines.append(f"• {labels[pred]}: {obj}")
             answer = "تا این لحظه این اطلاعات صریح را از تو دارم:\n" + "\n".join(lines) if lines else "فعلاً اطلاعات صریح قابل‌بازیابی از تو ندارم."
             return self._persist_answer(text, answer, "MEMORY", .99)
-        if "هدف دانا چی بود" in low or "هدفش چی بود" in low:
-            goal,goal_evidence=self._project_goal("دانا")
-            if goal:
-                return self._persist_answer(
-                    text,
-                    f"هدف ثبت‌شده برای «دانا»: «{goal}».",
-                    "MEMORY",
-                    .99,
-                    evidence=goal_evidence,
-                )
-
         # Establish multi-turn conversational goals before generic retrieval.
         try:
             preview=e._parse(text); preview_meaning=e.understanding.analyze(text,e.state,preview)
