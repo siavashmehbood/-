@@ -278,7 +278,7 @@ def test_direct_answer_generic_fallback_never_echoes_user_message():
     from types import SimpleNamespace
     from core.dialogue import CognitiveContext, LocalDialogueEngine
 
-    dialogue=SimpleNamespace()
+    dialogue=SimpleNamespace(_compose_conversational=lambda context: None)
     message="با من مثل یک دستیار عادی حرف بزن"
     context=CognitiveContext(user_message=message)
     answer=LocalDialogueEngine._direct_answer(dialogue,context)
