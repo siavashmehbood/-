@@ -144,3 +144,34 @@ def test_reference_resolver_is_class_owned_and_uses_reference_intelligence():
     assert resolver.resolve("همین موضوع",state) == "حافظه"
     assert "reference_trace" in state.references
     assert isinstance(state.references["reference_trace"],dict)
+
+def test_direct_answer_is_class_owned_and_preserves_priority_contracts():
+    source=Path("core/dialogue.py").read_text(encoding="utf-8")
+    assert "LocalDialogueEngine._direct_answer =" not in source
+    assert "LocalDialogueEngine._direct_answer=" not in source
+    assert "def _direct_answer_v" not in source
+
+    from types import SimpleNamespace
+    from core.dialogue import CognitiveContext, LocalDialogueEngine
+
+    assert LocalDialogueEngine._direct_answer.__qualname__ == (
+        "LocalDialogueEngine._direct_answer"
+    )
+
+    dialogue=SimpleNamespace()
+    feedback=CognitiveContext(user_message="درست بود")
+    assert LocalDialogueEngine._direct_answer(dialogue,feedback) == (
+        "بازخورد شما ثبت شد و برای انتخاب راهبرد پاسخ‌های بعدی استفاده می‌شود."
+    )
+
+    compound=CognitiveContext(
+        user_message="پایتون چیه و چرا محبوب است؟",
+        question_type="why",
+        question_units=["پایتون چیه","چرا محبوب است"],
+    )
+    answer=LocalDialogueEngine._direct_answer(dialogue,compound)
+    assert answer.splitlines() == [
+        "1) پایتون یک زبان برنامه‌نویسی سطح‌بالا و چندمنظوره است.",
+        "2) به‌خاطر خوانایی، کتابخانه‌های گسترده و کاربردهای متنوع محبوب است.",
+    ]
+
