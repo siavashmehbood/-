@@ -93,7 +93,7 @@ def test_dialogue_cleanup_preserves_required_runtime_hooks_as_class_owned_method
     assert "_chain_init" not in source
     assert "_memory_chain_context" not in source
     assert "ReferenceResolver.resolve =" not in source
-    assert "ReferenceResolver=ReferenceResolverStage1" not in source
+    assert "ReferenceResolverStage1" not in source
 
     init_src=inspect.getsource(LocalDialogueEngine.__init__)
     memory_src=inspect.getsource(LocalDialogueEngine._memory)
@@ -176,12 +176,12 @@ def test_dialogue_module_has_no_live_class_method_monkeypatches():
 def test_reference_resolver_is_class_owned_and_uses_reference_intelligence():
     source=Path("core/dialogue.py").read_text(encoding="utf-8")
     assert "ReferenceResolver.resolve =" not in source
-    assert "ReferenceResolver=ReferenceResolverStage1" not in source
+    assert "ReferenceResolverStage1" not in source
     assert "def _reference_resolve_v2(" not in source
     assert "def _resolve_chain_context(" not in source
 
-    from core.dialogue import ConversationState, ReferenceResolver, ReferenceResolverStage1
-    assert ReferenceResolver is not ReferenceResolverStage1
+    from core.dialogue import ConversationState, ReferenceResolver
+    assert ReferenceResolver.__qualname__ == "ReferenceResolver"
 
     state=ConversationState()
     state.topic_stack=["پایتون","Django"]
