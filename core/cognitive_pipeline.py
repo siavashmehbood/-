@@ -142,7 +142,16 @@ class CognitivePipeline:
             answer = "UNKNOWN: پاسخ تولیدشده بررسی سازگاری را نگذرانده است."
             answer_type = "UNKNOWN"
         e = self.engine
-        e.state.update(text, answer, answer_type, {}, score)
+        read_only_types = {
+            "MEMORY", "MEMORY_RECALL", "REFERENCE", "CONSTRAINT",
+            "PROJECT_FACT", "DIRECT_FACT", "UNKNOWN"
+        }
+        state_parsed = {
+            "intent": "question"
+            if answer_type in read_only_types or any(mark in text for mark in ("؟", "?"))
+            else "general"
+        }
+        e.state.update(text, answer, answer_type, state_parsed, score)
         e.state.save(e.state_path)
         try:
             self.runtime.memory.add("user", text, .72)
@@ -247,92 +256,6 @@ class CognitivePipeline:
         foundation_meaning = e.understanding.analyze(text, e.state, foundation_parsed)
         self.conversation_foundation.ingest(foundation_meaning, foundation_parsed)
 
-        # Semantic intelligence sits under CognitiveSystem and above retrieval.
-        # It analyzes structure, extracts explicit facts and resolves semantic
-        # references before raw conversation-history similarity is considered.
-        try:
-            foundation_slots=self.conversation_foundation.current_state().get("slots",{})
-            source_turn=int(getattr(e.state,"turns",0) or 0) + 1
-            semantic_turn=self.semantic_intelligence.analyze(
-                text,slots=foundation_slots,source_turn=source_turn)
-            self.last_semantic_turn=semantic_turn
-            semantic_stored=self.semantic_intelligence.persist_explicit_facts(
-                semantic_turn,self.runtime.user_model)
-            self.semantic_intelligence.sync_foundation(
-                semantic_turn,self.conversation_foundation)
-            semantic_answer=self.semantic_intelligence.answer(semantic_turn)
-
-            # Phase 2 consumes the structured Phase-1 representation. Soar does
-            # not re-parse Persian and does not own final answers/actions.
-            cognitive_engine=getattr(self,"cognitive_engine",None)
-            if cognitive_engine is not None:
-                cycle=cognitive_engine.cycle(
-                    semantic_turn, e.state, parsed=foundation_parsed)
-                self.last_cognitive_cycle=cycle
-                foundation_parsed["soar_operator"]=cycle.selected_operator
-                foundation_parsed["soar_status"]=cycle.status
-                foundation_parsed["soar_uncertainty"]=cycle.uncertainty
-                e.last_cognitive_trace=cycle.to_dict()
-                self._emit("cognitive_cycle",{
-                    "backend":cycle.backend,
-                    "real_soar":cycle.real_soar,
-                    "status":cycle.status,
-                    "operator":cycle.selected_operator,
-                    "impasse":cycle.impasse,
-                    "cycles":cycle.cycle_count,
-                    "canonical":True,
-                })
-
-            self._emit("semantic_analysis",semantic_turn.public_trace())
-            e.last_semantic_trace={
-                "raw_input": text,
-                "linguistic_analysis": semantic_turn.linguistic.to_dict(),
-                "entities": [__import__("dataclasses").asdict(x) for x in semantic_turn.linguistic.entities],
-                "facts": [__import__("dataclasses").asdict(x) for x in semantic_turn.facts],
-                "resolved_references": list(semantic_turn.resolved_references),
-                "retrieved_evidence": [x.to_dict() for x in semantic_turn.evidence],
-                "answer_candidate": semantic_answer,
-                "cognitive_cycle": getattr(e,"last_cognitive_trace",{}),
-            }
-            if semantic_stored:
-                self._emit("semantic_facts_stored",{
-                    "count":len(semantic_stored),
-                    "relations":[x.get("predicate","") for x in semantic_stored],
-                    "canonical":True,
-                })
-            if semantic_answer:
-                e.last_semantic_trace["final_answer"]=semantic_answer
-                return self._persist_answer(text,semantic_answer,"SEMANTIC_FACT",.99)
-        except Exception as semantic_error:
-            # Optional semantic analysis is fail-safe. The existing canonical
-            # pipeline remains available and the failure is observable.
-            self._emit("semantic_analysis_fallback",{
-                "error_type":type(semantic_error).__name__,
-                "canonical":True,
-            })
-
-        # Explicit legacy user facts are learned before interpretation; questions do not create facts.
-        extracted = []
-        try:
-            if hasattr(self.runtime, "user_model"):
-                extracted = self.runtime.user_model.record(text)
-        except Exception:
-            pass
-        if extracted:
-            self._emit("user_model_update", {"extracted": extracted, "count": len(extracted), "source": "canonical_pipeline"})
-            # Mirror explicit structured facts into the Rasa foundation tracker.
-            # This is conversational state only; durable fact ownership stays in IRAN Memory/UserModel.
-            try:
-                for fact in extracted:
-                    predicate = str(fact.get("predicate", ""))
-                    if predicate.startswith("owned_name:"):
-                        entity = predicate.split(":", 1)[1]
-                        self.conversation_foundation.set_slot(f"user.owned_name.{entity}", fact.get("object"))
-                        self.conversation_foundation.set_slot("user.last_owned_entity", entity)
-                self.conversation_foundation.save()
-            except Exception:
-                pass
-
         low = text.lower()
 
         def activate_topic(topic):
@@ -426,6 +349,141 @@ class CognitivePipeline:
                 else "نسخه‌ای برای هدف «دانا» در حافظه ثبت نشده است."
             )
             return self._persist_answer(text, answer, "MEMORY_RECALL", .99)
+
+        # Specific history queries must run before broad semantic/history fallback.
+        if "آخرین اصلاح" in low:
+            correction = next((clean(x) for x in reversed(e.state.corrections) if clean(x) != text), "")
+            answer = (
+                f"آخرین اصلاح ثبت‌شده: «{correction}»."
+                if correction
+                else "اصلاحی در حافظه گفتگو ثبت نشده است."
+            )
+            return self._persist_answer(text, answer, "MEMORY_RECALL", .99)
+
+        asks_for_project_list = (
+            "پروژه" in low
+            and any(marker in low for marker in ("چه پروژه", "کدام پروژه", "چه پروژه‌هایی", "چه پروژه هایی"))
+            and any(marker in low for marker in ("گفتم", "یادت", "گفته"))
+        )
+        if asks_for_project_list:
+            projects = []
+
+            def remember_project(value):
+                value = clean(value)
+                value = re.sub(r"^پروژه\s+", "", value, flags=re.I).strip(" ،,:؛؟?!")
+                if value.lower() in {"", "من", "ما", "خودم", "فعلی", "جدید", "بود"}:
+                    return
+                if value not in projects:
+                    projects.append(value)
+
+            try:
+                for fact in self.runtime.user_model.facts(predicate="work_on", limit=100):
+                    remember_project(fact.get("object", ""))
+            except Exception:
+                pass
+            for project in e.state.topic_goals:
+                remember_project(project)
+            try:
+                for row in self.runtime.memory.recent(120):
+                    if not isinstance(row, (tuple, list)) or len(row) < 2 or row[0] != "user":
+                        continue
+                    message = clean(row[1])
+                    for match in re.finditer(r"(?:پروژه|project)\s+([آ-یA-Za-z0-9_-]+)", message, re.I):
+                        remember_project(match.group(1))
+            except Exception:
+                pass
+            answer = (
+                "پروژه‌هایی که در گفتگو نام بردی: " + "، ".join(projects) + "."
+                if projects
+                else "نام پروژه‌ای در حافظه گفتگو پیدا نکردم."
+            )
+            return self._persist_answer(text, answer, "MEMORY_RECALL", .99)
+
+        # Semantic intelligence sits under CognitiveSystem and above retrieval.
+        # It analyzes structure, extracts explicit facts and resolves semantic
+        # references before raw conversation-history similarity is considered.
+        try:
+            foundation_slots=self.conversation_foundation.current_state().get("slots",{})
+            source_turn=int(getattr(e.state,"turns",0) or 0) + 1
+            semantic_turn=self.semantic_intelligence.analyze(
+                text,slots=foundation_slots,source_turn=source_turn)
+            self.last_semantic_turn=semantic_turn
+            semantic_stored=self.semantic_intelligence.persist_explicit_facts(
+                semantic_turn,self.runtime.user_model)
+            self.semantic_intelligence.sync_foundation(
+                semantic_turn,self.conversation_foundation)
+            semantic_answer=self.semantic_intelligence.answer(semantic_turn)
+
+            # Phase 2 consumes the structured Phase-1 representation. Soar does
+            # not re-parse Persian and does not own final answers/actions.
+            cognitive_engine=getattr(self,"cognitive_engine",None)
+            if cognitive_engine is not None:
+                cycle=cognitive_engine.cycle(
+                    semantic_turn, e.state, parsed=foundation_parsed)
+                self.last_cognitive_cycle=cycle
+                foundation_parsed["soar_operator"]=cycle.selected_operator
+                foundation_parsed["soar_status"]=cycle.status
+                foundation_parsed["soar_uncertainty"]=cycle.uncertainty
+                e.last_cognitive_trace=cycle.to_dict()
+                self._emit("cognitive_cycle",{
+                    "backend":cycle.backend,
+                    "real_soar":cycle.real_soar,
+                    "status":cycle.status,
+                    "operator":cycle.selected_operator,
+                    "impasse":cycle.impasse,
+                    "cycles":cycle.cycle_count,
+                    "canonical":True,
+                })
+
+            self._emit("semantic_analysis",semantic_turn.public_trace())
+            e.last_semantic_trace={
+                "raw_input": text,
+                "linguistic_analysis": semantic_turn.linguistic.to_dict(),
+                "entities": [__import__("dataclasses").asdict(x) for x in semantic_turn.linguistic.entities],
+                "facts": [__import__("dataclasses").asdict(x) for x in semantic_turn.facts],
+                "resolved_references": list(semantic_turn.resolved_references),
+                "retrieved_evidence": [x.to_dict() for x in semantic_turn.evidence],
+                "answer_candidate": semantic_answer,
+                "cognitive_cycle": getattr(e,"last_cognitive_trace",{}),
+            }
+            if semantic_stored:
+                self._emit("semantic_facts_stored",{
+                    "count":len(semantic_stored),
+                    "relations":[x.get("predicate","") for x in semantic_stored],
+                    "canonical":True,
+                })
+            if semantic_answer:
+                e.last_semantic_trace["final_answer"]=semantic_answer
+                return self._persist_answer(text,semantic_answer,"SEMANTIC_FACT",.99)
+        except Exception as semantic_error:
+            # Optional semantic analysis is fail-safe. The existing canonical
+            # pipeline remains available and the failure is observable.
+            self._emit("semantic_analysis_fallback",{
+                "error_type":type(semantic_error).__name__,
+                "canonical":True,
+            })
+
+        # Explicit legacy user facts are learned before interpretation; questions do not create facts.
+        extracted = []
+        try:
+            if hasattr(self.runtime, "user_model"):
+                extracted = self.runtime.user_model.record(text)
+        except Exception:
+            pass
+        if extracted:
+            self._emit("user_model_update", {"extracted": extracted, "count": len(extracted), "source": "canonical_pipeline"})
+            # Mirror explicit structured facts into the Rasa foundation tracker.
+            # This is conversational state only; durable fact ownership stays in IRAN Memory/UserModel.
+            try:
+                for fact in extracted:
+                    predicate = str(fact.get("predicate", ""))
+                    if predicate.startswith("owned_name:"):
+                        entity = predicate.split(":", 1)[1]
+                        self.conversation_foundation.set_slot(f"user.owned_name.{entity}", fact.get("object"))
+                        self.conversation_foundation.set_slot("user.last_owned_entity", entity)
+                self.conversation_foundation.save()
+            except Exception:
+                pass
 
 
         # Structured fact queries outrank raw-history recall. Resolve
