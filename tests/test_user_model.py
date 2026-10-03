@@ -73,8 +73,14 @@ class UserModelRuntimeTests(unittest.TestCase):
 if __name__=='__main__': unittest.main()
 
 
-def test_extracts_name_from_compound_social_turn(user_model):
-    facts = user_model.extract_explicit_facts("آره من سیاوشم. امروز می‌خوام باهات چندتا تست انجام بدم، آماده‌ای؟")
+def test_extracts_name_from_compound_social_turn(tmp_path):
+    import shutil
+    from pathlib import Path
+    from runtime.app import IranRuntime
+
+    shutil.copy(Path(__file__).parents[1] / "config.json", tmp_path)
+    runtime = IranRuntime(tmp_path)
+    facts = runtime.user_model.extract_explicit_facts("آره من سیاوشم. امروز می‌خوام باهات چندتا تست انجام بدم، آماده‌ای؟")
     assert any(
         fact.get("predicate") == "name" and fact.get("object") == "سیاوش"
         for fact in facts
