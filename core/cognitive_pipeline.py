@@ -301,6 +301,17 @@ class CognitivePipeline:
                     if fact:
                         project_name = clean(fact[0].get("object", "")) or project_name
                         source = "durable_user_profile"
+                    if project_name == "IRAN":
+                        entity_id = self.semantic_intelligence.retriever.related_entity("works_on")
+                        row = self.runtime.memory.conn.execute(
+                            "SELECT value FROM semantic_facts "
+                            "WHERE subject=? AND predicate='name' "
+                            "ORDER BY updated_at DESC,id DESC LIMIT 1",
+                            (entity_id,),
+                        ).fetchone()
+                        if row and clean(row[0]):
+                            project_name = clean(row[0])
+                            source = "semantic_fact_graph"
                 except Exception:
                     pass
             identity_evidence = [{
