@@ -138,6 +138,20 @@ def test_goal_recall_is_grounded_by_current_conversation_state(tmp_path):
             "answer": answer,
             "trace": getattr(getattr(runtime.dialogue, "last_trace", None), "__dict__", None),
         }
+        persisted = pipeline._persist_answer(
+            "هدفش چی بود؟",
+            f"هدف ثبت‌شده برای «دانا»: «{goal}».",
+            "MEMORY_RECALL",
+            .99,
+            evidence=evidence,
+        )
+        assert "فروش کتاب" in persisted, {
+            "persisted": persisted,
+            "goal": goal,
+            "evidence": evidence,
+            "verify": direct,
+            "trace": getattr(getattr(runtime.dialogue, "last_trace", None), "__dict__", None),
+        }
         assert "فروش کتاب" in answer, {
             "answer": answer,
             "goal": goal,
