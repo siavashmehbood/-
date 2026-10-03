@@ -109,41 +109,75 @@ class ConversationState:
         self.current_topic = topic
 
     def update(self, user_text, answer="", answer_type="", parsed=None, confidence=0.0, reference=None):
+        """Commit one conversational turn without module-level rebinding."""
         text = clean(user_text)
         parsed = parsed or {}
         self.turns += 1
         self.last_user_message = text
-        self.current_question = text if parsed.get("question_units") or "؟" in text else self.current_question
         if answer:
             self.last_assistant_answer = clean(answer)
         if answer_type:
             self.last_answer_type = answer_type
-        goal = clean(parsed.get("goal", ""))
-        entities = parsed.get("entities") or []
-        self.entities = [e.get("text", e) if isinstance(e, dict) else str(e) for e in entities][:20]
+        self.current_question = (
+            text if parsed.get("question_units") or "؟" in text
+            else self.current_question
+        )
         self.active_constraints = list(parsed.get("constraints") or [])[:10]
-        if goal and not is_follow_up(text) and not is_correction(text):
-            self.active_goal = goal
+
         if is_correction(text):
-            if text not in self.corrections:
-                self.corrections.append(text)
-            if text not in self.unresolved_questions:
-                self.unresolved_questions.append(text)
-            self.corrections = self.corrections[-20:]
-            self.unresolved_questions = self.unresolved_questions[-20:]
+            target = re.sub(
+                r"^(نه[،, ]*|منظورم[ ]*|اشتباهه[،, ]*|اشتباه است[،, ]*)",
+                "",
+                bare(text),
+            ).strip(" :،")
+            target = re.sub(r"\s+(?:بود|هست|است)$", "", target).strip()
+            self.corrections.append(text)
+            self.unresolved_questions.append(text)
+            if target:
+                self.references["latest"] = target
+                self._push_topic(target)
+            self.conversation_confidence = max(
+                0.0, min(1.0, float(confidence or 0.0))
+            )
+            return
+
         if reference:
             self.references["latest"] = reference
-        if not is_follow_up(text) and not is_correction(text):
-            candidate = self._topic_from_parsed(parsed) or goal
-            if candidate and substantive(candidate):
-                self._push_topic(candidate)
-                self.references['latest_topic'] = candidate
-                self.references['latest'] = candidate
-            elif substantive(text) and parsed.get("intent") not in {"question"}:
-                self._push_topic(text)
-        if self.current_topic and not is_follow_up(text) and not is_correction(text):
-            self.references['latest_topic'] = self.current_topic
-        self.conversation_confidence = max(0.0, min(1.0, float(confidence or 0.0)))
+            if not is_follow_up(text):
+                self._push_topic(reference)
+                if self.current_topic:
+                    self.references["latest_topic"] = self.current_topic
+                self.conversation_confidence = max(
+                    0.0, min(1.0, float(confidence or 0.0))
+                )
+                return
+
+        explicit_reference = any(
+            marker in text for marker in ("موضوع قبلی", "بحث اول", "بحث دوم")
+        )
+        if is_follow_up(text) or explicit_reference:
+            self.conversation_confidence = max(
+                0.0, min(1.0, float(confidence or 0.0))
+            )
+            return
+
+        previous_topic = self.current_topic
+        goal = clean(parsed.get("goal", ""))
+        candidate = self._topic_from_parsed(parsed) or goal
+        if candidate and substantive(candidate):
+            self._push_topic(candidate)
+        elif substantive(text) and parsed.get("intent") not in {"question"}:
+            self._push_topic(text)
+        if goal:
+            self.active_goal = goal
+
+        if bare(text).lower() in {"سلام", "درود", "hello", "hi"}:
+            self.current_topic = previous_topic or ""
+        if self.current_topic:
+            self.references["latest_topic"] = self.current_topic
+        self.conversation_confidence = max(
+            0.0, min(1.0, float(confidence or 0.0))
+        )
 
     @staticmethod
     def _topic_from_parsed(parsed):
@@ -812,34 +846,6 @@ class LocalDialogueEngine:
         return list(self.turn_traces)
 
 
-# v0.40a: correction and topic semantics are applied at the state boundary.
-def _state_update_v2(self, user_text, answer="", answer_type="", parsed=None, confidence=0.0, reference=None):
-    text = clean(user_text); parsed = parsed or {}
-    self.turns += 1; self.last_user_message = text
-    if answer: self.last_assistant_answer = clean(answer)
-    if answer_type: self.last_answer_type = answer_type
-    self.current_question = text if parsed.get("question_units") or "؟" in text else self.current_question
-    self.active_constraints = list(parsed.get("constraints") or [])[:10]
-    if is_correction(text):
-        target = re.sub(r"^(نه[،, ]*|منظورم[ ]*|اشتباهه[،, ]*|اشتباه است[،, ]*)", "", bare(text)).strip(" :،")
-        self.corrections.append(text); self.unresolved_questions.append(text)
-        if target:
-            self.references["latest"] = target
-            self._push_topic(target)
-        self.conversation_confidence = max(.0, min(1., float(confidence or 0)))
-        return
-    if reference:
-        self.references["latest"] = reference
-    if is_follow_up(text) or "موضوع قبلی" in text or "بحث اول" in text or "بحث دوم" in text:
-        self.conversation_confidence = max(.0, min(1., float(confidence or 0)))
-        return
-    goal = clean(parsed.get("goal", ""))
-    candidate = self._topic_from_parsed(parsed) or goal
-    if candidate and substantive(candidate): self._push_topic(candidate)
-    elif substantive(text) and parsed.get("intent") not in {"question"}: self._push_topic(text)
-    if goal: self.active_goal = goal
-    self.conversation_confidence = max(.0, min(1., float(confidence or 0)))
-ConversationState.update = _state_update_v2
 
 
 
@@ -899,38 +905,12 @@ LocalDialogueEngine._direct_answer = _direct_answer_v2
 
 
 
-# Keep generic social turns out of the topic stack.
-_prev_state_update_v2=ConversationState.update
-def _state_update_v3(self,user_text,answer="",answer_type="",parsed=None,confidence=0.0,reference=None):
-    text=clean(user_text)
-    if bare(text).lower() in {"سلام","درود","hello","hi"}:
-        old=self.current_topic
-        _prev_state_update_v2(self,text,answer,answer_type,parsed,confidence,reference)
-        if old:self.current_topic=old
-        else:self.current_topic=""
-        return
-    return _prev_state_update_v2(self,text,answer,answer_type,parsed,confidence,reference)
-ConversationState.update=_state_update_v3
 
 
 # v0.40c: complete common Persian reference phrases and compound-question splitting.
 REF_MARKERS = REF_MARKERS + ("این قسمت",)
 
 
-_prev_state_update_v3=ConversationState.update
-def _state_update_v4(self,user_text,answer="",answer_type="",parsed=None,confidence=0.0,reference=None):
-    text=clean(user_text)
-    if is_correction(text):
-        parsed=parsed or {}; self.turns+=1; self.last_user_message=text
-        if answer:self.last_assistant_answer=clean(answer)
-        if answer_type:self.last_answer_type=answer_type
-        target=re.sub(r"^(نه[،, ]*|منظورم[ ]*|اشتباهه[،, ]*|اشتباه است[،, ]*)","",bare(text)).strip(" :،")
-        target=re.sub(r"\s+(?:بود|هست|است)$","",target).strip()
-        self.corrections.append(text); self.unresolved_questions.append(text)
-        if target:self.references["latest"]=target; self._push_topic(target)
-        self.conversation_confidence=max(0.,min(1.,float(confidence or 0))); return
-    return _prev_state_update_v3(self,user_text,answer,answer_type,parsed,confidence,reference)
-ConversationState.update=_state_update_v4
 
 
 
@@ -968,21 +948,6 @@ def _direct_answer_v4(self, context):
 LocalDialogueEngine._direct_answer=_direct_answer_v4
 
 
-# v0.40f: when a short turn inherits a reference, keep that referenced topic active.
-_prev_state_update_v4=ConversationState.update
-def _state_update_v5(self,user_text,answer="",answer_type="",parsed=None,confidence=0.0,reference=None):
-    if reference and not is_correction(user_text) and not is_follow_up(user_text):
-        text=clean(user_text); self.turns+=1; self.last_user_message=text
-        if answer:self.last_assistant_answer=clean(answer)
-        if answer_type:self.last_answer_type=answer_type
-        self.references["latest"]=reference; self._push_topic(reference)
-        self.current_question=text if (parsed or {}).get("question_units") or "؟" in text else self.current_question
-        self.conversation_confidence=max(0.,min(1.,float(confidence or 0))); return
-    result=_prev_state_update_v4(self,user_text,answer,answer_type,parsed,confidence,reference)
-    if self.current_topic and not is_follow_up(user_text) and not is_correction(user_text):
-        self.references['latest_topic']=self.current_topic
-    return result
-ConversationState.update=_state_update_v5
 
 
 # v0.40g: expose the canonical turn artifacts to the runtime telemetry layer.
