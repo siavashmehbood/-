@@ -249,11 +249,18 @@ class CognitivePipeline:
                     self._emit("anti_echo_guard",{"blocked":True,"reason":reason,"canonical":True})
         except Exception:
             pass
+        verification_evidence = (
+            self.verification_evidence(question=text) if evidence is None else evidence
+        )
+        # Preserve the exact evidence packet used by this canonical route so
+        # CognitiveSystem's final guard verifies the same claim instead of
+        # reconstructing a broader history-scoped packet.
+        self.last_verification_evidence = list(verification_evidence or [])
         checked = self.semantic_verifier.verify(
             text, answer,
             constraints=getattr(self.engine.state, "remembered_constraints", []),
             rejected_answers=getattr(self.engine.state, "rejected_answers", []),
-            evidence=self.verification_evidence(question=text) if evidence is None else evidence,
+            evidence=verification_evidence,
         )
         score = min(score, checked.score)
         if not checked.accepted:
