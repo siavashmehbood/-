@@ -701,6 +701,9 @@ class CognitivePipeline:
         if "هدف دانا چی بود" in low or "هدفش چی بود" in low:
             goal = e.state.topic_goals.get("دانا", "")
             if not goal:
+                versions=e.state.goal_versions("دانا")
+                goal=versions[-1] if versions else ""
+            if not goal:
                 goal = next((f.get("object", "") for f in self.runtime.user_model.current_profile(limit=30) if f.get("predicate") == "goal"), "")
             if goal:
                 goal_evidence = [{
