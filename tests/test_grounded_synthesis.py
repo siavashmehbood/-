@@ -1,3 +1,4 @@
+import core.dialogue as dialogue
 from core.grounded_synthesizer import GroundedSynthesizer
 from knowledge.knowledge_graph import KnowledgeGraph
 
@@ -83,3 +84,8 @@ def test_telemetry_and_user_questions_are_not_knowledge():
     ]))
     rows=synth._memory('درباره پروژه دانا توضیح بده')
     assert len(rows)==1 and 'فروشگاه کتاب' in rows[0][1]
+
+
+def test_grounded_synthesizer_has_one_canonical_import_boundary():
+    assert GroundedSynthesizer.__module__ == "core.grounded_synthesizer"
+    assert not hasattr(dialogue, "GroundedSynthesizer")

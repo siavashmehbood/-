@@ -93,7 +93,7 @@ def test_dialogue_cleanup_preserves_required_runtime_hooks_as_class_owned_method
     assert "_chain_init" not in source
     assert "_memory_chain_context" not in source
     assert "ReferenceResolver.resolve =" not in source
-    assert "ReferenceResolver=ReferenceResolverStage1" not in source
+    assert "ReferenceResolverStage1" not in source
 
     init_src=inspect.getsource(LocalDialogueEngine.__init__)
     memory_src=inspect.getsource(LocalDialogueEngine._memory)
@@ -176,12 +176,12 @@ def test_dialogue_module_has_no_live_class_method_monkeypatches():
 def test_reference_resolver_is_class_owned_and_uses_reference_intelligence():
     source=Path("core/dialogue.py").read_text(encoding="utf-8")
     assert "ReferenceResolver.resolve =" not in source
-    assert "ReferenceResolver=ReferenceResolverStage1" not in source
+    assert "ReferenceResolverStage1" not in source
     assert "def _reference_resolve_v2(" not in source
     assert "def _resolve_chain_context(" not in source
 
-    from core.dialogue import ConversationState, ReferenceResolver, ReferenceResolverStage1
-    assert ReferenceResolver is not ReferenceResolverStage1
+    from core.dialogue import ConversationState, ReferenceResolver
+    assert ReferenceResolver.__qualname__ == "ReferenceResolver"
 
     state=ConversationState()
     state.topic_stack=["پایتون","Django"]
@@ -261,3 +261,112 @@ def test_dialogue_knowledge_is_class_owned_and_preserves_local_facts():
         "source": "verified_local_seed",
     }]
 
+def test_reference_markers_are_static_and_preserve_resolution():
+    source=Path("core/dialogue.py").read_text(encoding="utf-8")
+    assert source.count("REF_MARKERS = (") == 1
+    assert "REF_MARKERS = REF_MARKERS +" not in source
+
+    from core.dialogue import ConversationState, ReferenceResolver, REF_MARKERS
+    assert isinstance(REF_MARKERS, tuple)
+    assert REF_MARKERS.count("این قسمت") == 1
+
+    state=ConversationState(current_topic="حافظه")
+    assert ReferenceResolver().resolve("این قسمت را بهتر کن", state) == "حافظه"
+
+
+def test_direct_answer_generic_fallback_never_echoes_user_message():
+    from types import SimpleNamespace
+    from core.dialogue import CognitiveContext, LocalDialogueEngine
+
+    dialogue=SimpleNamespace(_compose_conversational=lambda context: None)
+    message="با من مثل یک دستیار عادی حرف بزن"
+    context=CognitiveContext(user_message=message)
+    answer=LocalDialogueEngine._direct_answer(dialogue,context)
+
+    assert message not in answer
+    assert "اگر هدفت ادامه همین موضوع" not in answer
+    assert answer == "پیامت رو گرفتم؛ ادامه بده."
+
+
+def test_tool_router_routes_persian_arithmetic_to_safe_calculator():
+    from core.tool_router import ToolRouter
+    assert ToolRouter().choose("بیست و پنج ضربدر چهار چند میشه؟") == (
+        "calculate", {"expression": "25*4"}
+    )
+    assert ToolRouter().choose("دوازده به علاوه هشت") == ("calculate", {"expression": "12+8"})
+    assert ToolRouter().choose("صد تقسیم بر چهار") == ("calculate", {"expression": "100/4"})
+    assert ToolRouter().choose("سی منهای پنج") == ("calculate", {"expression": "30-5"})
+    assert ToolRouter().choose("دو ضربدر سه") == ("calculate", {"expression": "2*3"})
+    assert ToolRouter().choose("۲۵ ضربدر ۴ چند میشه؟") == (
+        "calculate", {"expression": "25*4"}
+    )
+    assert ToolRouter().choose("12 + 8 چند میشه؟") == (
+        "calculate", {"expression": "12+8"}
+    )
+
+
+def test_builtin_calculator_is_registered_and_safe(tmp_path):
+    from tools.builtin import build_registry
+
+    class Memory:
+        def search(self, query, limit):
+            return []
+
+    registry=build_registry(tmp_path, Memory())
+    assert registry.run("calculate", expression="25*4") == 100
+    assert registry.run("calculate", expression="(12+8)/2") == 10
+
+
+def test_real_runtime_manual_conversation_quality_regressions(tmp_path):
+    import shutil
+    from pathlib import Path
+    from runtime.app import IranRuntime
+
+    shutil.copy(Path(__file__).parents[1] / "config.json", tmp_path)
+    runtime = IranRuntime(tmp_path)
+    try:
+        greeting = runtime.handle("سلام، هستی؟")
+        assert greeting
+        assert any(x in greeting for x in ("سلام", "هستم"))
+        assert not any(x in greeting for x in ("هدف، زمینه", "شواهد، گزینه", "چند مرحله تحلیل"))
+        assert "متوجه شدم:" not in greeting
+        assert "اگر هدفت ادامه همین موضوع" not in greeting
+
+        ready = runtime.handle("آره من سیاوشم. امروز می‌خوام باهات چندتا تست انجام بدم، آماده‌ای؟")
+        assert ready
+        assert "متوجه شدم:" not in ready
+        assert "اگر هدفت ادامه همین موضوع" not in ready
+
+        name = runtime.handle("اسم من چیه؟")
+        assert "سیاوش" in name
+
+        style = runtime.handle("با من مثل یک دستیار عادی حرف بزن.")
+        assert "با من مثل یک دستیار عادی حرف بزن" not in style
+        assert "اگر هدفت ادامه همین موضوع" not in style
+        assert any(x in style for x in ("طبیعی", "مستقیم", "حتماً"))
+
+        support = runtime.handle("امروز حالم خوب نیست. یکم باهام حرف بزن.")
+        assert support
+        assert "امروز حالم خوب نیست" not in support
+        assert "اگر هدفت ادامه همین موضوع" not in support
+        assert support != style
+        assert any(x in support for x in ("حالت", "اینجام", "حرف", "اذیت"))
+
+        arithmetic = runtime.handle("۲۵ ضربدر ۴ چند میشه؟ فقط جواب بده.")
+        assert str(arithmetic).strip() == "100"
+
+        word_arithmetic = runtime.handle("بیست و پنج ضربدر چهار چند میشه؟ فقط جواب بده.")
+        assert str(word_arithmetic).strip() in {"100", "۱۰۰"}
+    finally:
+        runtime.close()
+
+
+def test_orchestrator_calculator_returns_bare_result_for_conversation():
+    from types import SimpleNamespace
+    from core.orchestrator import Orchestrator
+
+    fake = SimpleNamespace(
+        router=SimpleNamespace(choose=lambda text: ("calculate", {"expression": "25*4"})),
+        run_tool=lambda name, **kwargs: 100,
+    )
+    assert Orchestrator._auto_tool(fake, "۲۵ ضربدر ۴ چند میشه؟ فقط جواب بده.") == "100"

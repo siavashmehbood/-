@@ -12,7 +12,7 @@ from datetime import datetime
 
 REF_MARKERS = (
     "این", "اون", "آن", "همین", "همون", "همونو", "قبلی", "قبلیش",
-    "این بخش", "این جواب", "این مشکل", "روش قبلی", "موضوع قبلی",
+    "این بخش", "این قسمت", "این جواب", "این مشکل", "روش قبلی", "موضوع قبلی",
 )
 FOLLOW_UPS = {
     "چرا", "چطور", "چگونه", "خب", "پس چی", "حالا چی", "ادامه بده",
@@ -972,10 +972,12 @@ class LocalDialogueEngine:
                     "نگه‌داشتن زمینه پیام‌هایی مثل «این» و «ادامه بده» مستقل "
                     "پردازش می‌شوند."
                 )
-        return (
-            f"متوجه شدم: «{bare(text)}». اگر هدفت ادامه همین موضوع است، "
-            "بگو کدام بخش را باز کنیم."
-        )
+        # A generic statement must never be reflected back as if it were an
+        # answer.  Memory/context are inputs to cognition, not a response
+        # generator.  Keep this fallback deliberately non-echoing so the
+        # canonical anti-echo contract also holds when intent classification is
+        # uncertain and no grounded answer can be synthesized.
+        return "پیامت رو گرفتم؛ ادامه بده."
 
     def handle(self, text):
         """Compatibility ingress; CognitiveSystem remains the sole brain."""
@@ -1025,116 +1027,3 @@ class LocalDialogueEngine:
 
     def trace(self):
         return list(self.turn_traces)
-
-
-
-
-
-
-
-# v0.40b: contextual recommendations inherit the nearest meaningful technical topic.
-
-
-
-
-
-# v0.40c: complete common Persian reference phrases and compound-question splitting.
-REF_MARKERS = REF_MARKERS + ("این قسمت",)
-
-
-
-
-
-# v0.40d: explicit conversation-memory questions use the persisted dialogue state.
-# v0.40e: explicit reference phrases behave like follow-ups; add grounded local memory explanation.
-# v0.40g: expose the canonical turn artifacts to the runtime telemetry layer.
-
-# Store the actual artifacts at the canonical point without changing the response path.
-
-
-# v0.40i: explicit feedback is acknowledged and persisted as outcome learning.
-# v0.40j: deterministic compatibility facts and conversational recall at the canonical boundary.
-
-
-# v0.40k: final deterministic compatibility boundary for legacy contracts and local facts.
-
-
-# v0.40m: highest-priority regression adapters.
-
-
-# v0.40n: final high-priority conversation cases.
-
-
-# v0.40o: terminal compatibility guards.
-
-
-# v0.40m: deterministic final fixes for topic continuity and explicit memory recall.
-
-
-# v0.40n: memory-topic answers must run before the generic UNKNOWN fallback.
-
-
-# v0.40p: finalize topic switching before returning memory/recall answers.
-# High-priority adapters must not bypass ConversationState persistence.
-
-
-# v0.50: human-facing repair boundary. Keep the canonical dialogue state machine,
-# verification and learning, but replace low-quality legacy prose at the final return.
-
-
-# v0.52: symbolic chain reasoning is initialized directly by LocalDialogueEngine.
-
-# v0.53: evidence-grounded realization bridge. It consumes the existing local
-# knowledge, memory and learning layers without introducing a new model/runtime.
-from core.grounded_synthesizer import GroundedSynthesizer
-
-
-# v0.52b: reasoning-aware context repair.
-# Follow-up explanations inherit the active semantic topic, while generic
-# question wrappers are not allowed to become the topic themselves.
-
-
-# v0.52b: reasoning-aware memory filtering is owned by LocalDialogueEngine._memory.
-
-# v0.52c: recover semantic topic from prior user turns when state is too weak.
-# This is retrieval from conversation memory, not a hard-coded topic list.
-
-
-# v0.54: single explicit cognitive pipeline. All older compatibility adapters
-# remain in this module for historical contracts, but ordinary turns now enter
-# exactly one implementation of the cognitive flow below.
-
-# v0.54: compatibility handle delegation is owned by LocalDialogueEngine.handle.
-
-# REFERENCE_RESOLUTION_STAGE_1
-
-
-class ReferenceResolverStage1:
-    def resolve(self, text, state, history=None):
-        t=bare(text); history=history or []
-        def fa(*n): return ''.join(map(chr,n))
-        prev=fa(1605,1608,1590,1608,1593,32,1602,1576,1604,1740)
-        if prev in t or fa(1576,1581,1579,32,1602,1576,1604,1740) in t:
-            return state.topic_stack[-1] if state.topic_stack else state.current_topic
-        if 'همون قبلی' in t:
-            return state.references.get('latest_topic', '') or (state.topic_stack[-1] if state.topic_stack else state.current_topic)
-        if any(x in t for x in ('بحث اول', 'مورد اول', 'اولی')):
-            return state.topic_by_index(1)
-        if any(x in t for x in ('بحث دوم', 'مورد دوم', 'دومی')):
-            return state.topic_by_index(2)
-        if any(x in t for x in ('موضوع فعلی', 'همین موضوع')):
-            return state.current_topic or state.active_goal
-        if any(x in t for x in (fa(1605,1608,1590,1608,1593,32,1601,1593,1604,1740),fa(1607,1605,1740,1606,32,1605,1608,1590,1608,1593))): return state.current_topic or state.active_goal
-        if is_follow_up(t) or any(self._has_marker(t,m) for m in REF_MARKERS):
-            return state.current_topic or state.references.get('latest','') or state.active_goal
-        return ''
-    @staticmethod
-    def _has_marker(text,marker): return bool(re.search(rf'(?<![آ-یA-Za-z0-9‌]){re.escape(marker)}(?![آ-یA-Za-z0-9‌])',text))
-
-
-# v0.41: deterministic reference intelligence v2 is the canonical resolver layer.
-
-
-
-# v0.41b: deterministic multi-intent answer assembly for compound Persian questions.
-# v0.41-learning: learned repair policy is owned directly by AnswerRepair.repair.

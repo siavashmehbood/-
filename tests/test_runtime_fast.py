@@ -12,7 +12,11 @@ class FastRuntimeTests(unittest.TestCase):
             (root/'config.json').write_text(json.dumps(cfg,ensure_ascii=False),encoding='utf-8')
             rt=IranRuntime(root)
             try:
-                self.assertIn('سلام 👋 من ایران هستم',rt.handle('سلام'))
+                greeting=rt.handle('سلام')
+                self.assertIn('سلام',greeting)
+                self.assertIn('ایران',greeting)
+                self.assertNotIn('چند مرحله تحلیل',greeting)
+                self.assertNotIn('شواهد، گزینه‌ها',greeting)
                 self.assertEqual(rt.decide('ساعت الان')['intent'],'time')
                 self.assertGreaterEqual(len(rt.metrics()['events']),1)
             finally:
