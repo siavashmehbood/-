@@ -423,7 +423,7 @@ class CognitivePipeline:
             # returning the social acknowledgement (e.g. «من سیاوشم ... آماده‌ای؟»).
             try:
                 self.runtime.user_model.record(text)
-                name_match = re.search(r"من\\s+(\\S+)", text)
+                name_match = re.search(r"من\s+(\S+)", text)
                 if name_match:
                     name_token = name_match.group(1).strip(" ،,؛.!?؟")
                     name_value = name_token[:-1] if len(name_token) >= 3 and name_token.endswith("م") else ""
