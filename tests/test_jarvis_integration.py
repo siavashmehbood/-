@@ -194,3 +194,5 @@ class JarvisIntegrationTests(unittest.TestCase):
         finally:r2.close()
 
 if __name__=="__main__": unittest.main()
+
+# Validation marker: trigger Windows acceptance for exact master 8d0b490a.
