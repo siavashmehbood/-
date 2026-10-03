@@ -74,17 +74,13 @@ class UserModel:
         # (e.g. «آره من سیاوشم. امروز ...»). Extract that explicit clause as
         # structured evidence instead of requiring the whole message to be an
         # identity-only sentence.
-        embedded_name = re.search(
-            r"من\\s+([آ-ی]{2,24}?)(?=م(?:[.،؛!?؟\\s]|$))",
-            t,
-            re.I,
-        )
+        embedded_name = re.search(r"من\\s+(\\S+)", t, re.I)
         if embedded_name:
-            candidate = embedded_name.group(1)
-            if candidate.endswith("ش"):
-                candidate = candidate[:-1]
-            if candidate:
-                facts.append(self._fact("name", candidate, .98))
+            token = embedded_name.group(1).strip(" ،,؛.!?؟")
+            if len(token) >= 3 and token.endswith("م"):
+                candidate = token[:-1]
+                if candidate and candidate not in {"هست", "خوب", "آماده"}:
+                    facts.append(self._fact("name", candidate, .98))
 
         man="من"
         end=r"(?:هستم|ام)"
