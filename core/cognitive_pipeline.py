@@ -487,6 +487,16 @@ class CognitivePipeline:
             e.state.references["latest"] = topic
             e.state.save(e.state_path)
 
+        # Explicit continuation references the immediately preceding user turn.
+        if low in {"همون قبلی رو ادامه بده", "همان قبلی را ادامه بده"}:
+            try:
+                recent_users = [clean(row[1]) for row in reversed(self.runtime.memory.recent(20)) if isinstance(row,(tuple,list)) and len(row)>=2 and row[0]=="user" and clean(row[1]) != text]
+                previous_user = next((x for x in recent_users if x), "")
+                if previous_user:
+                    return self._persist_answer(text, f"حتماً؛ «{previous_user}» را ادامه می‌دهم.", "REFERENCE", .99)
+            except Exception:
+                pass
+
         # Ordinal history queries are read-only reference lookups. Reuse the
         # canonical ReferenceIntelligence resolver so direct compatibility
         # callers and IranRuntime observe the same first/second/.../fifth
