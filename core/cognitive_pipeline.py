@@ -467,10 +467,24 @@ class CognitivePipeline:
                 pass
             return self._persist_answer(text, "آره، آماده‌ام. تست‌ها رو یکی‌یکی بفرست.", "SOCIAL", .99)
         if foundation_meaning.dialogue_act == "response_style":
-            if "تکرار" in low or "جور دیگه" in low:
+            styles=e.understanding.style_request(text)
+            scope=e.understanding.temporal_scope(text)
+            e.state.set_style(styles,scope)
+            e.state.save(e.state_path)
+            if "no_repeat" in styles:
                 answer = "باشه؛ جواب بعدی رو متناسب با ادامه همین مکالمه می‌دم و بی‌دلیل حرف قبلی رو تکرار نمی‌کنم."
-            elif "کوتاه" in low:
-                answer = "باشه؛ از اینجا کوتاه و مستقیم جواب می‌دم."
+            elif "short" in styles:
+                answer = "باشه؛ کوتاه و مستقیم جواب می‌دم."
+            elif "long" in styles:
+                answer = "باشه؛ از اینجا کامل‌تر توضیح می‌دم."
+            elif "simple" in styles:
+                answer = "باشه؛ ساده‌تر توضیح می‌دم."
+            elif "stepwise" in styles:
+                answer = "باشه؛ مرحله‌به‌مرحله پیش می‌رم."
+            elif "technical" in styles:
+                answer = "باشه؛ فنی‌تر توضیح می‌دم."
+            elif "persian" in styles:
+                answer = "باشه؛ فارسی جواب می‌دم."
             else:
                 answer = "حتماً؛ طبیعی و مستقیم باهات حرف می‌زنم."
             return self._persist_answer(text, answer, "STYLE", .99)
@@ -735,18 +749,6 @@ class CognitivePipeline:
                     .99,
                     evidence=goal_evidence,
                 )
-
-        if "پروژه" in low and "من" in low and any(x in low for x in ("اسم", "نام")) and any(x in low for x in ("چی", "چه")):
-            try:
-                rows=self.runtime.memory.search("اسم پروژه من", 40)
-                for kind, content, created in rows:
-                    match=re.search(r"(?:اسم|نام)\s+پروژه(?:\s+من)?\s+([آ-یA-Za-z0-9_-]+)\s+(?:هست|است|بود)", clean(content), re.I)
-                    if match:
-                        value=clean(match.group(1))
-                        if value:
-                            return self._persist_answer(text, f"اسم پروژه‌ات «{value}» است.", "MEMORY_RECALL", .99, evidence=[{"subject":"پروژه","predicate":"اسم","object":value,"source":"durable_explicit_memory","resolved":True}])
-            except Exception:
-                pass
 
         # Semantic intelligence sits under CognitiveSystem and above retrieval.
         # It analyzes structure, extracts explicit facts and resolves semantic
