@@ -7,6 +7,7 @@ on:
       - "core/voice.py"
       - "core/brain.py"
       - "core/orchestrator.py"
+      - "core/tool_router.py"
       - "core/computer_use.py"
       - "core/cognitive_pipeline.py"
       - "core/cognitive_system.py"
@@ -25,6 +26,7 @@ on:
       - "tools/builtin.py"
       - "tests/test_jarvis_integration.py"
       - "tests/test_general_conversation.py"
+      - "tests/test_canonical_pipeline_entrypoint.py"
       - "tests/test_rasa_foundation.py"
       - "tests/test_semantic_intelligence.py"
       - "tests/test_user_model_class_owned.py"
@@ -40,6 +42,7 @@ on:
     branches: [master]
     paths:
       - "core/voice.py"
+      - "core/tool_router.py"
       - "core/computer_use.py"
       - "core/cognitive_pipeline.py"
       - "core/cognitive_system.py"
@@ -55,6 +58,7 @@ on:
       - "tools/builtin.py"
       - "tests/test_jarvis_integration.py"
       - "tests/test_general_conversation.py"
+      - "tests/test_canonical_pipeline_entrypoint.py"
       - "tests/test_rasa_foundation.py"
       - "tests/test_semantic_intelligence.py"
       - "tests/test_conversation_fact_memory.py"

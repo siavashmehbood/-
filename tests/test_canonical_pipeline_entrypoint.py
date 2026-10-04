@@ -303,6 +303,8 @@ def test_tool_router_routes_persian_arithmetic_to_safe_calculator():
     assert ToolRouter().choose("12 + 8 چند میشه؟") == (
         "calculate", {"expression": "12+8"}
     )
+    assert ToolRouter().choose("تاریخ ۲۰۲۶-۱۰-۰۳ چیست؟") == ("time_now", {})
+    assert ToolRouter().choose("ساعت ۱۲ + ۸ را بگو") == ("time_now", {})
 
 
 def test_builtin_calculator_is_registered_and_safe(tmp_path):
