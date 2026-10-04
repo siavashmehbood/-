@@ -870,51 +870,7 @@ class CognitivePipeline:
         if "حافظه" in low and any(x in low for x in ("چیه","چیست","چی ")):
             answer="حافظه در IRAN برای نگه‌داشتن زمینه گفت‌وگو، واقعیت‌های صریح، تجربه‌ها و دانش قابل‌بازیابی استفاده می‌شود؛ هدفش این است که پیام‌هایی مثل «چرا؟» و «ادامه بده» به پیام‌های قبلی وصل بمانند."
             return self._persist_answer(text,answer,"MEMORY",.97)
-        # Explicit project-name recall stays evidence-backed; ordinary style
-        # imperatives have already been consumed above and cannot reach this route.
-        if "پروژه" in low and any(x in low for x in ("اسم", "نام")) and any(x in low for x in ("چی بود", "چه بود", "چیه", "چیست")):
-            try:
-                candidates = self.memory_intelligence.build_context(text, e.state, limit=8).get("selected", [])
-                project_name = ""
-                for item in candidates:
-                    content = clean(item.get("content", ""))
-                    match = re.search(r"(?:اسم|نام)\\s+پروژه(?:\\s+من)?\\s+([آ-یA-Za-z0-9_-]+)\\s+(?:هست|است|بود)", content, re.I)
-                    if match:
-                        project_name = clean(match.group(1))
-                        break
-                if project_name:
-                    return self._persist_answer(
-                        text, f"اسم پروژه‌ات «{project_name}» است.", "MEMORY_RECALL", .99,
-                        evidence=[{"subject":"پروژه","predicate":"اسم","object":project_name,
-                                   "source":"memory_intelligence","resolved":True}],
-                    )
-            except Exception:
-                pass
-        # Explicit project-name recall is a memory question. Keep this narrow
-        # and evidence-backed so style/imperative turns cannot fall into generic
-        # memory paraphrase while useful long-term recall remains available.
-        if "پروژه" in low and any(x in low for x in ("اسم", "نام")) and any(x in low for x in ("چی بود", "چه بود", "چیه", "چیست")):
-            try:
-                candidates = self.memory_intelligence.build_context(text, e.state, limit=8).get("selected", [])
-                project_name = ""
-                for item in candidates:
-                    content = clean(item.get("content", ""))
-                    match = re.search(r"(?:اسم|نام)\\s+پروژه(?:\\s+من)?\\s+([آ-یA-Za-z0-9_-]+)\\s+(?:هست|است|بود)", content, re.I)
-                    if match:
-                        project_name = clean(match.group(1))
-                        break
-                if project_name:
-                    return self._persist_answer(
-                        text,
-                        f"اسم پروژه‌ات «{project_name}» است.",
-                        "MEMORY_RECALL",
-                        .99,
-                        evidence=[{"subject":"پروژه","predicate":"اسم","object":project_name,
-                                   "source":"memory_intelligence","resolved":True}],
-                    )
-            except Exception:
-                pass
-        if "گفتم" in low or "حرف قبلی" in low:
+        # Explicit project-name recall stays evidenc        if "گفتم" in low or "حرف قبلی" in low:
             try:
                 for row in reversed(self.runtime.memory.recent(80)):
                     if isinstance(row,(tuple,list)) and len(row)>=3 and row[0]=="user" and clean(row[1])!=text:
