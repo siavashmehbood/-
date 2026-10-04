@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "purpose": "Foundation selection evidence; never used as training data.",
+  "common": {
+    "temperature": 0.2,
+    "max_tokens": 512,
+    "seed": 0,
+    "active_languages": 20
+  },
+  "experiments": [
+    {
+      "candidate_id": "qwen35-9b",
+      "model_id": "Qwen/Qwen3.5-9B",
+      "revision": "adf92718afd26af732696aea9e8d5a917148131d",
+      "round": "quality_baseline",
+      "quantization": "reference",
+      "context_length": 32768
+    },
+    {
+      "candidate_id": "qwen35-9b",
+      "model_id": "Qwen/Qwen3.5-9B",
+      "revision": "adf92718afd26af732696aea9e8d5a917148131d",
+      "round": "deployment",
+      "quantization": "q4-class",
+      "context_length": 32768
+    },
+    {
+      "candidate_id": "gemma4-12b",
+      "model_id": "google/gemma-4-12B-it",
+      "revision": "acdb1defcec5520dcf871fa8a3cff4823163c2ed",
+      "round": "quality_baseline",
+      "quantization": "reference",
+      "context_length": 32768
+    },
+    {
+      "candidate_id": "gemma4-12b",
+      "model_id": "google/gemma-4-12B-it",
+      "revision": "acdb1defcec5520dcf871fa8a3cff4823163c2ed",
+      "round": "deployment",
+      "quantization": "q4-class",
+      "context_length": 32768
+    }
+  ]
+}
