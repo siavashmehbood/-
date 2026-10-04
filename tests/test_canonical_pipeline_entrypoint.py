@@ -453,7 +453,7 @@ def test_orchestrator_records_tool_failures_and_reraises_original_exception():
         Orchestrator.run_tool(fake, "calculate", expression="1/0")
 
     assert caught.value is expected
-    assert recorded == []
+    assert recorded == ["tool_failed"]
     assert emitted == [(
         "tool_failed",
         {
@@ -474,6 +474,7 @@ def test_orchestrator_records_tool_failures_and_reraises_original_exception():
     with pytest.raises(ValueError) as caught_again:
         Orchestrator.run_tool(fake, "calculate", expression="secret")
     assert caught_again.value is expected
+    assert recorded == ["tool_failed", "tool_failed"]
 
 
 def test_orchestrator_records_lookup_and_permission_failures():
@@ -481,11 +482,8 @@ def test_orchestrator_records_lookup_and_permission_failures():
     from core.orchestrator import Orchestrator
 
     emitted = []
-    metrics = SimpleNamespace(
-        record=lambda name: (_ for _ in ()).throw(
-            AssertionError("failed tools must not increment success metrics")
-        )
-    )
+    recorded = []
+    metrics = SimpleNamespace(record=recorded.append)
     events = SimpleNamespace(
         emit=lambda event, payload: emitted.append((event, payload))
     )
@@ -507,6 +505,7 @@ def test_orchestrator_records_lookup_and_permission_failures():
             "stage": "lookup",
         },
     )
+    assert recorded == ["tool_failed"]
 
     execution_calls = []
     registry = SimpleNamespace(
@@ -533,3 +532,5 @@ def test_orchestrator_records_lookup_and_permission_failures():
     )]
     assert "query" not in emitted[0][1]
     assert "message" not in emitted[0][1]
+    assert recorded == ["tool_failed", "tool_failed"]
+    assert "tool" not in recorded
