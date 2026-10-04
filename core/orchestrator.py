@@ -80,9 +80,12 @@ class Orchestrator:
     def _auto_tool(self,text):
         name,kwargs=self.router.choose(text)
         if not name:return None
-        result=self.run_tool(name,**kwargs)
         if name == 'calculate':
-            return str(result)
+            try:
+                return str(self.run_tool(name,**kwargs))
+            except ValueError as exc:
+                return f"محاسبه انجام نشد: {exc}"
+        result=self.run_tool(name,**kwargs)
         labels={'time_now':'زمان سیستم','project_summary':'خلاصه پروژه','system_info':'مشخصات سیستم','project_files':'فایل‌های پروژه','memory_search':'حافظه مرتبط'}
         return f"{labels.get(name,name)}: {result}"
 

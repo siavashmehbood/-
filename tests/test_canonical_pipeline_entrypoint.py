@@ -391,3 +391,35 @@ def test_orchestrator_calculator_returns_bare_result_for_conversation():
         run_tool=lambda name, **kwargs: 100,
     )
     assert Orchestrator._auto_tool(fake, "۲۵ ضربدر ۴ چند میشه؟ فقط جواب بده.") == "100"
+
+
+def test_orchestrator_surfaces_only_expected_calculator_validation_errors():
+    from types import SimpleNamespace
+    from core.orchestrator import Orchestrator
+
+    def rejected(name, **kwargs):
+        raise ValueError("تقسیم بر صفر مجاز نیست")
+
+    calculator = SimpleNamespace(
+        router=SimpleNamespace(choose=lambda text: ("calculate", {"expression": "1/0"})),
+        run_tool=rejected,
+    )
+    assert Orchestrator._auto_tool(calculator, "یک تقسیم بر صفر") == (
+        "محاسبه انجام نشد: تقسیم بر صفر مجاز نیست"
+    )
+
+    def unexpected(name, **kwargs):
+        raise RuntimeError("unexpected calculator failure")
+
+    calculator.run_tool = unexpected
+    with pytest.raises(RuntimeError, match="unexpected calculator failure"):
+        Orchestrator._auto_tool(calculator, "یک تقسیم بر صفر")
+
+    other_tool = SimpleNamespace(
+        router=SimpleNamespace(choose=lambda text: ("time_now", {})),
+        run_tool=lambda name, **kwargs: (_ for _ in ()).throw(
+            ValueError("unexpected non-calculator failure")
+        ),
+    )
+    with pytest.raises(ValueError, match="unexpected non-calculator failure"):
+        Orchestrator._auto_tool(other_tool, "ساعت چنده؟")
