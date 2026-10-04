@@ -893,9 +893,7 @@ class CognitivePipeline:
                 pred, obj = fact.get("predicate"), fact.get("object")
                 if pred in labels and obj:
                     lines.append(f"• {labels[pred]}: {obj}")
-            answer = "تا این لحظه این اطلاعات صریح را از تو دارم:
-" + "
-".join(lines) if lines else "فعلاً اطلاعات صریح قابل‌بازیابی از تو ندارم."
+            answer = "تا این لحظه این اطلاعات صریح را از تو دارم:\n" + "\n".join(lines) if lines else "فعلاً اطلاعات صریح قابل‌بازیابی از تو ندارم."
             return self._persist_answer(text, answer, "MEMORY", .99)
         # Establish multi-turn conversational goals before generic retrieval.
         try:
@@ -975,8 +973,7 @@ class CognitivePipeline:
                 else:
                     value = "برای این بخش شواهد محلی کافی ندارم."
                 lines.append(f"{str(index).translate(str.maketrans('0123456789','۰۱۲۳۴۵۶۷۸۹'))}) {value}")
-            return self._persist_answer(text, "
-".join(lines), "MULTI_INTENT", .98)
+            return self._persist_answer(text, "\n".join(lines), "MULTI_INTENT", .98)
 
         # Reuse the parse/meaning already observed by the foundation at turn ingress.
         parsed = foundation_parsed
@@ -1006,9 +1003,7 @@ class CognitivePipeline:
                     return self._persist_answer(text, "سازنده پروژه IRAN.", "MEMORY", .99)
                 lines = [f"• {f.get('predicate')}: {f.get('object')}" for f in facts if f.get("predicate") in {"role", "name", "likes", "dislikes", "goal"}]
                 if lines:
-                    return self._persist_answer(text, "تا این لحظه این اطلاعات صریح را از خودت دارم:
-" + "
-".join(lines), "MEMORY", .96)
+                    return self._persist_answer(text, "تا این لحظه این اطلاعات صریح را از خودت دارم:\n" + "\n".join(lines), "MEMORY", .96)
             except Exception:
                 pass
 
