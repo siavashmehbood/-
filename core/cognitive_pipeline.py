@@ -472,7 +472,8 @@ class CognitivePipeline:
             else:
                 answer = "حتماً؛ طبیعی و مستقیم باهات حرف می‌زنم."
             return self._persist_answer(text, answer, "STYLE", .99)
-        if foundation_meaning.dialogue_act == "emotional_expression" or any(x in low for x in ("حالم خوب نیست", "حالم بده", "حالم بد است")):
+        emotional_markers = ("حالم خوب نیست", "حالم بده", "حالم بد است", "حوصله ندارم", "باهام حرف بزن", "با من حرف بزن")
+        if foundation_meaning.dialogue_act == "emotional_expression" or any(x in low for x in emotional_markers):
             previous = clean(getattr(e.state, "last_assistant_answer", ""))
             primary = "متأسفم که حالت خوب نیست. من اینجام؛ اگه دوست داری بگو چی بیشتر اذیتت کرده، یا می‌تونیم فقط یکم معمولی حرف بزنیم."
             alternate = "باشه، کنارت می‌مونم. لازم نیست الان چیزی رو حل کنیم؛ هر چی دلت می‌خواد بگو، من گوش می‌دم."
