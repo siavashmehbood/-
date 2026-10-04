@@ -451,7 +451,15 @@ class CognitivePipeline:
             primary = "متأسفم که حالت خوب نیست. من اینجام؛ اگه دوست داری بگو چی بیشتر اذیتت کرده، یا می‌تونیم فقط یکم معمولی حرف بزنیم."
             alternate = "باشه، کنارت می‌مونم. لازم نیست الان چیزی رو حل کنیم؛ هر چی دلت می‌خواد بگو، من گوش می‌دم."
             answer = alternate if previous == primary or "چی بیشتر اذیتت کرده" in previous else primary
-            return self._persist_answer(text, answer, "SOCIAL", .99)
+            # Social/emotional turns are current-turn context transforms, not
+            # factual memory claims. Persist directly through the same canonical
+            # owner so verification cannot rewrite them as memory diagnostics.
+            e.state.update(text, answer, "SOCIAL", {"intent":"social"}, .99)
+            e.state.save(e.state_path)
+            self.runtime.memory.add("user", text, .72)
+            self.runtime.memory.add("assistant", answer, .68, confidence=.99)
+            self._emit("response_generated", {"goal":text,"route":"canonical","mode":"SOCIAL","confidence":.99,"verified":True})
+            return answer
 
         def activate_topic(topic):
             e.state._push_topic(topic)
