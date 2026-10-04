@@ -45,6 +45,8 @@ class ToolRouter:
 
     def choose(self, text):
         t = str(text).lower().strip()
+        if any(self._has_token(t, x) for x in ('ساعت','زمان','تاریخ')):
+            return 'time_now', {}
         word_expression = self._word_arithmetic(t)
         if word_expression:
             return 'calculate', {'expression': word_expression}
@@ -61,8 +63,6 @@ class ToolRouter:
         candidates = re.findall(r'[-+]?\d+(?:\.\d+)?(?:\s*(?:\*\*|[+*/%\-])\s*[-+]?\d+(?:\.\d+)?)+', arithmetic)
         if candidates:
             return 'calculate', {'expression': candidates[0].replace(' ', '')}
-        if any(self._has_token(t, x) for x in ('ساعت','زمان','تاریخ')):
-            return 'time_now', {}
         if any(x in t for x in ('مشخصات سیستم','مشخصات کامپیوتر','سیستم من')):
             return 'system_info', {}
         if any(x in t for x in ('ساختار پروژه','فایل های پروژه','فایل‌های پروژه','چه فایل هایی','چه فایل‌هایی')):
