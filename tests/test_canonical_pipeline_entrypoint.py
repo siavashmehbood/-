@@ -534,3 +534,35 @@ def test_orchestrator_records_lookup_and_permission_failures():
     assert "message" not in emitted[0][1]
     assert recorded == ["tool_failed", "tool_failed"]
     assert "tool" not in recorded
+
+
+
+def test_real_metrics_snapshot_separates_tool_success_and_failure():
+    from types import SimpleNamespace
+    from core.metrics import Metrics
+    from core.orchestrator import Orchestrator
+
+    class Registry:
+        def get(self, name):
+            return SimpleNamespace(permission="read")
+
+        def run(self, name, **kwargs):
+            if name == "broken":
+                raise ValueError("sensitive failure detail")
+            return "ok"
+
+    metrics = Metrics()
+    fake = SimpleNamespace(
+        registry=Registry(),
+        policy=None,
+        events=SimpleNamespace(emit=lambda event, payload: None),
+        metrics=metrics,
+    )
+
+    assert Orchestrator.run_tool(fake, "healthy") == "ok"
+    with pytest.raises(ValueError, match="sensitive failure detail"):
+        Orchestrator.run_tool(fake, "broken")
+
+    snapshot = metrics.snapshot()
+    assert snapshot["events"] == {"tool": 1, "tool_failed": 1}
+    assert "sensitive failure detail" not in repr(snapshot)
