@@ -460,10 +460,11 @@ def test_orchestrator_records_tool_failures_and_reraises_original_exception():
             "tool": "calculate",
             "ok": False,
             "error": "ValueError",
-            "message": "calculator exploded",
+            "stage": "execution",
         },
     )]
     assert "expression" not in emitted[0][1]
+    assert "message" not in emitted[0][1]
 
     fake.events = SimpleNamespace(
         emit=lambda event, payload: (_ for _ in ()).throw(
@@ -503,7 +504,7 @@ def test_orchestrator_records_lookup_and_permission_failures():
             "tool": "missing",
             "ok": False,
             "error": "KeyError",
-            "message": "'unknown tool: missing'",
+            "stage": "lookup",
         },
     )
 
@@ -527,7 +528,8 @@ def test_orchestrator_records_lookup_and_permission_failures():
             "tool": "remote_lookup",
             "ok": False,
             "error": "PermissionError",
-            "message": "permission denied: network",
+            "stage": "permission",
         },
     )]
     assert "query" not in emitted[0][1]
+    assert "message" not in emitted[0][1]
