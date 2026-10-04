@@ -423,3 +423,53 @@ def test_orchestrator_surfaces_only_expected_calculator_validation_errors():
     )
     with pytest.raises(ValueError, match="unexpected non-calculator failure"):
         Orchestrator._auto_tool(other_tool, "ساعت چنده؟")
+
+
+def test_orchestrator_records_tool_failures_and_reraises_original_exception():
+    from types import SimpleNamespace
+    from core.orchestrator import Orchestrator
+
+    expected = ValueError("calculator exploded")
+    emitted = []
+    recorded = []
+
+    class FailingRegistry:
+        def get(self, name):
+            return SimpleNamespace(permission="read")
+
+        def run(self, name, **kwargs):
+            raise expected
+
+    fake = SimpleNamespace(
+        registry=FailingRegistry(),
+        policy=None,
+        events=SimpleNamespace(
+            emit=lambda event, payload: emitted.append((event, payload))
+        ),
+        metrics=SimpleNamespace(record=recorded.append),
+    )
+
+    with pytest.raises(ValueError) as caught:
+        Orchestrator.run_tool(fake, "calculate", expression="1/0")
+
+    assert caught.value is expected
+    assert recorded == []
+    assert emitted == [(
+        "tool_failed",
+        {
+            "tool": "calculate",
+            "ok": False,
+            "error": "ValueError",
+            "message": "calculator exploded",
+        },
+    )]
+    assert "expression" not in emitted[0][1]
+
+    fake.events = SimpleNamespace(
+        emit=lambda event, payload: (_ for _ in ()).throw(
+            RuntimeError("event sink unavailable")
+        )
+    )
+    with pytest.raises(ValueError) as caught_again:
+        Orchestrator.run_tool(fake, "calculate", expression="secret")
+    assert caught_again.value is expected
