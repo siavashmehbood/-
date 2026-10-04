@@ -402,7 +402,7 @@ def test_real_runtime_style_commands_dominate_seeded_stale_memory(tmp_path):
         runtime.memory.add("user", "اسم پروژه من دانا هست", .95, confidence=.99)
         runtime.memory.add("accepted_answer", "در حافظه مرتبط با این موضوع ثبت شده. اسم پروژه من دانا هست", .95, confidence=.99)
         runtime.memory.add("user", "پروژه دانا یک پروژه فنی برای کتاب است", .9, confidence=.95)
-        runtime.user_model.record("من روی پروژه دانا کار می‌کنم")
+        runtime.user_model.record("من روی دانا کار می‌کنم")
         greeting = runtime.handle("سلام، هستی؟")
         assert "دانا" not in greeting
         runtime.handle("من سیاوشم")
