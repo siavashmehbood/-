@@ -361,6 +361,76 @@ def test_real_runtime_manual_conversation_quality_regressions(tmp_path):
         runtime.close()
 
 
+
+def test_real_runtime_current_turn_dominates_seeded_stale_project_memory(tmp_path):
+    import shutil
+    from pathlib import Path
+    from runtime.app import IranRuntime
+
+    shutil.copy(Path(__file__).parents[1] / "config.json", tmp_path)
+    runtime = IranRuntime(tmp_path)
+    try:
+        # Deliberately contaminate durable memory with realistic unrelated facts.
+        runtime.memory.add("fact", "اسم پروژه من دانا هست", .95, confidence=.99, source="regression_seed")
+        runtime.memory.add("accepted_answer", "در حافظه مرتبط با این موضوع ثبت شده. اسم پروژه من دانا هست", .95, confidence=.99, source="regression_seed")
+        runtime.memory.add("fact", "پروژه دانا یک سامانه کتاب و کتاب صوتی است", .90, confidence=.95, source="regression_seed")
+
+        turns = [
+            ("سلام، هستی؟", "greeting"),
+            ("من سیاوشم", "intro"),
+            ("اسم من چیه؟", "name"),
+            ("با من مثل یک دستیار عادی حرف بزن.", "style"),
+            ("امروز حالم خوب نیست. یکم باهام حرف بزن.", "emotion1"),
+            ("حوصله ندارم حالم بده یکم با من حرف بزن", "emotion2"),
+            ("جواب تکراری نده", "no_repeat"),
+            ("باشه، یکم معمولی باهام حرف بزن", "recovery"),
+        ]
+        answers = {}
+        for prompt, key in turns:
+            answers[key] = runtime.handle(prompt)
+            assert answers[key]
+            if key not in {"name"}:
+                assert "اسم پروژه من دانا هست" not in answers[key]
+                assert "در حافظه مرتبط با این موضوع ثبت شده" not in answers[key]
+
+        assert "سیاوش" in answers["name"]
+        assert "دانا" not in answers["name"]
+        assert any(x in answers["style"] for x in ("طبیعی", "مستقیم", "حتماً"))
+        assert "دانا" not in answers["style"]
+        assert any(x in answers["emotion1"] for x in ("حالت", "اینجام", "حرف", "اذیت"))
+        assert any(x in answers["emotion2"] for x in ("کنارت", "گوش", "حالت", "حرف"))
+        assert answers["emotion2"] != answers["emotion1"]
+        assert "دانا" not in answers["no_repeat"]
+        assert "حافظه مرتبط" not in answers["no_repeat"]
+        assert answers["no_repeat"] != answers["emotion2"]
+        assert "دانا" not in answers["recovery"]
+
+        # Positive recall must remain available when memory is explicitly requested.
+        project = runtime.handle("اسم پروژه من چی بود؟")
+        assert "دانا" in project
+        assert "حافظه مرتبط" not in project
+
+        # Genuine explicit reference remains conversationally available.
+        runtime.handle("دارم روی پروژه IRAN کار می‌کنم")
+        reference = runtime.handle("همون قبلی رو ادامه بده")
+        assert any(x in reference for x in ("IRAN", "ایران", "پروژه"))
+
+        # Similar style imperatives generalize beyond one exact string.
+        for command in (
+            "همش یه جواب رو تکرار نکن",
+            "جوابات تکراری شده",
+            "یه جور دیگه جواب بده",
+            "کوتاه جواب بده",
+            "طبیعی‌تر حرف بزن",
+            "مثل یک دستیار عادی جواب بده",
+        ):
+            response = runtime.handle(command)
+            assert response
+            assert "دانا" not in response
+            assert "حافظه مرتبط" not in response
+    finally:
+        runtime.close()
+
 def test_memory_context_requires_current_turn_relevance(tmp_path):
     from memory.store import Memory
     from core.memory_intelligence import MemoryIntelligence
