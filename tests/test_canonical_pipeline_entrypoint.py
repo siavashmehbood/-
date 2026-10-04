@@ -590,3 +590,45 @@ def test_real_runtime_professional_meta_and_style_controls(tmp_path):
         assert "طبیعی" in meta2 or "مستقیم" in meta2
     finally:
         runtime.close()
+
+
+def test_real_runtime_long_professional_conversation_with_stale_memory(tmp_path):
+    import shutil
+    from pathlib import Path
+    from runtime.app import IranRuntime
+
+    shutil.copy(Path(__file__).parents[1] / "config.json", tmp_path)
+    runtime=IranRuntime(tmp_path)
+    try:
+        runtime.memory.add("accepted_answer","پاسخ قدیمی نامرتبط درباره پروژه سایه",.99,confidence=.99)
+        prompts=[
+            "سلام، هستی؟",
+            "من سیاوشم",
+            "اسم من چیه؟",
+            "طبیعی حرف بزن",
+            "امروز حالم خوب نیست. یکم باهام حرف بزن.",
+            "جواب تکراری نده",
+            "فعلاً کوتاه جواب بده",
+            "موضوع اصلی ما پروژه IRAN است.",
+            "همون قبلی رو ادامه بده",
+            "آره",
+            "بیشتر توضیح بده",
+            "ساده‌تر بگو",
+            "مثال بزن",
+            "تو چی جواب دادی؟",
+            "آخرین چیزی که گفتم چی بود؟",
+        ]
+        answers=[]
+        for prompt in prompts:
+            answer=runtime.handle(prompt)
+            assert answer
+            assert "پاسخ قدیمی نامرتبط" not in answer
+            assert "در حافظه مرتبط با این موضوع ثبت شده" not in answer
+            answers.append(answer)
+        assert "سیاوش" in answers[2]
+        assert answers[4] != answers[5]
+        assert any(x in answers[8] for x in ("IRAN","ایران","پروژه"))
+        assert "مثال بزن" in answers[14]
+        assert str(runtime.cognitive_system.dialogue.state.response_style)
+    finally:
+        runtime.close()
