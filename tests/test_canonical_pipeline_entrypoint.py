@@ -2,6 +2,8 @@
 import inspect
 from pathlib import Path
 
+import pytest
+
 from core.cognitive_pipeline import CognitivePipeline
 
 
@@ -323,6 +325,17 @@ def test_builtin_calculator_is_registered_and_safe(tmp_path):
     registry=build_registry(tmp_path, Memory())
     assert registry.run("calculate", expression="25*4") == 100
     assert registry.run("calculate", expression="(12+8)/2") == 10
+
+    rejected = (
+        ("1/0", "تقسیم بر صفر"),
+        ("10**1000000", "توان خارج از محدوده"),
+        ("2 +", "نامعتبر"),
+        ("1e309", "خارج از محدوده"),
+        ("9" * 129, "بیش از حد طولانی"),
+    )
+    for expression, message in rejected:
+        with pytest.raises(ValueError, match=message):
+            registry.run("calculate", expression=expression)
 
 
 def test_real_runtime_manual_conversation_quality_regressions(tmp_path):

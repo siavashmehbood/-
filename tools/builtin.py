@@ -19,38 +19,59 @@ def build_registry(root, memory, internet_access=None):
     registry.register(Tool('memory_search', 'جستجوی حافظه', lambda query, limit=8: memory.search(query, int(limit)), safe=True, permission='read'))
 
     def calculate(expression):
-        """Evaluate a tiny arithmetic expression without eval or external code."""
+        """Evaluate a bounded arithmetic expression without eval or external code."""
         import ast
+        import math
         import operator
 
         text = str(expression).strip().translate(str.maketrans('۰۱۲۳۴۵۶۷۸۹٫', '0123456789.'))
         text = text.replace('×', '*').replace('÷', '/').replace('−', '-')
-        tree = ast.parse(text, mode='eval')
+        if not text or len(text) > 128:
+            raise ValueError('عبارت محاسباتی خالی یا بیش از حد طولانی است')
+        try:
+            tree = ast.parse(text, mode='eval')
+        except (SyntaxError, TypeError, ValueError) as exc:
+            raise ValueError('عبارت محاسباتی نامعتبر است') from exc
+
         binary = {
             ast.Add: operator.add, ast.Sub: operator.sub, ast.Mult: operator.mul,
             ast.Div: operator.truediv, ast.FloorDiv: operator.floordiv,
             ast.Mod: operator.mod, ast.Pow: operator.pow,
         }
         unary = {ast.UAdd: operator.pos, ast.USub: operator.neg}
+        max_abs_value = 10**15
+        max_power = 12
+
+        def checked(value):
+            if type(value) not in (int, float):
+                raise ValueError('نتیجه محاسبه باید عدد حقیقی باشد')
+            if isinstance(value, float) and not math.isfinite(value):
+                raise ValueError('عدد خارج از محدوده محاسبه محلی است')
+            if abs(value) > max_abs_value:
+                raise ValueError('نتیجه خارج از محدوده محاسبه محلی است')
+            return value
 
         def visit(node):
             if isinstance(node, ast.Expression):
                 return visit(node.body)
             if isinstance(node, ast.Constant) and type(node.value) in (int, float):
-                return node.value
+                return checked(node.value)
             if isinstance(node, ast.BinOp) and type(node.op) in binary:
                 left, right = visit(node.left), visit(node.right)
-                if isinstance(node.op, ast.Pow) and abs(right) > 12:
+                if isinstance(node.op, ast.Pow) and abs(right) > max_power:
                     raise ValueError('توان خارج از محدوده محاسبه محلی است')
-                value = binary[type(node.op)](left, right)
-                if abs(value) > 10**15:
-                    raise ValueError('نتیجه خارج از محدوده محاسبه محلی است')
-                return value
+                if isinstance(node.op, (ast.Div, ast.FloorDiv, ast.Mod)) and right == 0:
+                    raise ValueError('تقسیم بر صفر مجاز نیست')
+                try:
+                    value = binary[type(node.op)](left, right)
+                except (OverflowError, ZeroDivisionError) as exc:
+                    raise ValueError('عملیات محاسباتی خارج از محدوده یا تعریف‌نشده است') from exc
+                return checked(value)
             if isinstance(node, ast.UnaryOp) and type(node.op) in unary:
-                return unary[type(node.op)](visit(node.operand))
+                return checked(unary[type(node.op)](visit(node.operand)))
             raise ValueError('عبارت محاسباتی پشتیبانی نمی‌شود')
 
-        value = visit(tree)
+        value = checked(visit(tree))
         return int(value) if isinstance(value, float) and value.is_integer() else value
 
     registry.register(Tool('calculate', 'محاسبات عددی پایه و امن', calculate, safe=True, permission='read'))
