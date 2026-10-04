@@ -423,3 +423,196 @@ def test_orchestrator_surfaces_only_expected_calculator_validation_errors():
     )
     with pytest.raises(ValueError, match="unexpected non-calculator failure"):
         Orchestrator._auto_tool(other_tool, "ساعت چنده؟")
+
+
+def test_orchestrator_records_tool_failures_and_reraises_original_exception():
+    from types import SimpleNamespace
+    from core.orchestrator import Orchestrator
+
+    expected = ValueError("calculator exploded")
+    emitted = []
+    recorded = []
+
+    class FailingRegistry:
+        def get(self, name):
+            return SimpleNamespace(permission="read")
+
+        def run(self, name, **kwargs):
+            raise expected
+
+    fake = SimpleNamespace(
+        registry=FailingRegistry(),
+        policy=None,
+        events=SimpleNamespace(
+            emit=lambda event, payload: emitted.append((event, payload))
+        ),
+        metrics=SimpleNamespace(record=recorded.append),
+    )
+
+    with pytest.raises(ValueError) as caught:
+        Orchestrator.run_tool(fake, "calculate", expression="1/0")
+
+    assert caught.value is expected
+    assert recorded == ["tool_failed"]
+    assert emitted == [(
+        "tool_failed",
+        {
+            "tool": "calculate",
+            "ok": False,
+            "error": "ValueError",
+            "stage": "execution",
+        },
+    )]
+    assert "expression" not in emitted[0][1]
+    assert "message" not in emitted[0][1]
+
+    fake.events = SimpleNamespace(
+        emit=lambda event, payload: (_ for _ in ()).throw(
+            RuntimeError("event sink unavailable")
+        )
+    )
+    with pytest.raises(ValueError) as caught_again:
+        Orchestrator.run_tool(fake, "calculate", expression="secret")
+    assert caught_again.value is expected
+    assert recorded == ["tool_failed", "tool_failed"]
+
+
+def test_orchestrator_records_lookup_and_permission_failures():
+    from types import SimpleNamespace
+    from core.orchestrator import Orchestrator
+
+    emitted = []
+    recorded = []
+    metrics = SimpleNamespace(record=recorded.append)
+    events = SimpleNamespace(
+        emit=lambda event, payload: emitted.append((event, payload))
+    )
+
+    unknown = SimpleNamespace(
+        registry=None,
+        policy=None,
+        events=events,
+        metrics=metrics,
+    )
+    with pytest.raises(KeyError, match="unknown tool: missing"):
+        Orchestrator.run_tool(unknown, "missing")
+    assert emitted.pop() == (
+        "tool_failed",
+        {
+            "tool": "missing",
+            "ok": False,
+            "error": "KeyError",
+            "stage": "lookup",
+        },
+    )
+    assert recorded == ["tool_failed"]
+
+    execution_calls = []
+    registry = SimpleNamespace(
+        get=lambda name: SimpleNamespace(permission="network"),
+        run=lambda name, **kwargs: execution_calls.append((name, kwargs)),
+    )
+    denied = SimpleNamespace(
+        registry=registry,
+        policy=SimpleNamespace(allows=lambda permission: False),
+        events=events,
+        metrics=metrics,
+    )
+    with pytest.raises(PermissionError, match="permission denied: network"):
+        Orchestrator.run_tool(denied, "remote_lookup", query="private")
+    assert execution_calls == []
+    assert emitted == [(
+        "tool_failed",
+        {
+            "tool": "remote_lookup",
+            "ok": False,
+            "error": "PermissionError",
+            "stage": "permission",
+        },
+    )]
+    assert "query" not in emitted[0][1]
+    assert "message" not in emitted[0][1]
+    assert recorded == ["tool_failed", "tool_failed"]
+    assert "tool" not in recorded
+
+
+
+def test_real_metrics_snapshot_separates_tool_success_and_failure():
+    from types import SimpleNamespace
+    from core.metrics import Metrics
+    from core.orchestrator import Orchestrator
+
+    class Registry:
+        def get(self, name):
+            return SimpleNamespace(permission="read")
+
+        def run(self, name, **kwargs):
+            if name == "broken":
+                raise ValueError("sensitive failure detail")
+            return "ok"
+
+    metrics = Metrics()
+    fake = SimpleNamespace(
+        registry=Registry(),
+        policy=None,
+        events=SimpleNamespace(emit=lambda event, payload: None),
+        metrics=metrics,
+    )
+
+    assert Orchestrator.run_tool(fake, "healthy") == "ok"
+    with pytest.raises(ValueError, match="sensitive failure detail"):
+        Orchestrator.run_tool(fake, "broken")
+
+    snapshot = metrics.snapshot()
+    assert snapshot["events"] == {"tool": 1, "tool_failed": 1}
+    assert "sensitive failure detail" not in repr(snapshot)
+
+
+def test_orchestrator_returns_success_when_telemetry_sinks_fail():
+    from types import SimpleNamespace
+    from core.orchestrator import Orchestrator
+
+    execution_calls = []
+    recorded = []
+
+    registry = SimpleNamespace(
+        get=lambda name: SimpleNamespace(permission="read"),
+        run=lambda name, **kwargs: execution_calls.append((name, kwargs)) or "ok",
+    )
+    event_failure = SimpleNamespace(
+        registry=registry,
+        policy=None,
+        events=SimpleNamespace(
+            emit=lambda event, payload: (_ for _ in ()).throw(
+                RuntimeError("event sink unavailable")
+            )
+        ),
+        metrics=SimpleNamespace(record=recorded.append),
+    )
+
+    assert Orchestrator.run_tool(event_failure, "healthy", value="private") == "ok"
+    assert recorded == ["tool"]
+
+    emitted = []
+    metric_failure = SimpleNamespace(
+        registry=registry,
+        policy=None,
+        events=SimpleNamespace(
+            emit=lambda event, payload: emitted.append((event, payload))
+        ),
+        metrics=SimpleNamespace(
+            record=lambda event: (_ for _ in ()).throw(
+                RuntimeError("metrics sink unavailable")
+            )
+        ),
+    )
+
+    assert Orchestrator.run_tool(metric_failure, "healthy") == "ok"
+    assert emitted == [(
+        "tool_executed",
+        {"tool": "healthy", "ok": True},
+    )]
+    assert execution_calls == [
+        ("healthy", {"value": "private"}),
+        ("healthy", {}),
+    ]
