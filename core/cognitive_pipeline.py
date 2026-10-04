@@ -450,13 +450,6 @@ class CognitivePipeline:
                         "زمینه مشخصی برای ارجاع به جواب قبلی ندارم.")
             return self._persist_answer(text,answer,"META",.99,evidence=[])
 
-        # Ambiguous ordinal/demonstrative references are clarified rather than guessed.
-        resolution=self.reference_intelligence.resolve(text,e.state,self.runtime.memory.recent(12))
-        if getattr(resolution,"ambiguous",False):
-            return self._persist_answer(
-                text,"منظورت کدام مورد است؟ یک نشانه کوتاه بگو تا اشتباه انتخاب نکنم.",
-                "REFERENCE",.92,evidence=[])
-
         # Human-facing conversational control stays inside the canonical brain.
         # These routes answer the current turn directly; retrieved memory remains
         # context/evidence and is never substituted for the user's present need.
@@ -504,9 +497,13 @@ class CognitivePipeline:
             elif "short" in styles:
                 answer = "باشه؛ کوتاه و مستقیم جواب می‌دم."
             elif "long" in styles:
-                answer = "باشه؛ از اینجا کامل‌تر توضیح می‌دم."
+                ref=self.reference_intelligence.resolve(text,e.state,self.runtime.memory.recent(12))
+                target=getattr(ref,"candidate","") or e.state.current_topic
+                answer=(f"باشه؛ «{target}» رو کامل‌تر توضیح می‌دم." if target else
+                        "باشه؛ از اینجا کامل‌تر توضیح می‌دم.")
             elif "simple" in styles:
-                answer = "باشه؛ ساده‌تر توضیح می‌دم."
+                previous=clean(getattr(e.state,"last_assistant_answer","") or "")
+                answer=("ساده‌تر بگم: "+previous if previous else "باشه؛ ساده‌تر توضیح می‌دم.")
             elif "stepwise" in styles:
                 answer = "باشه؛ مرحله‌به‌مرحله پیش می‌رم."
             elif "technical" in styles:
