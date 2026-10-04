@@ -438,7 +438,22 @@ class CognitivePipeline:
             except Exception:
                 pass
             return self._persist_answer(text, "آره، آماده‌ام. تست‌ها رو یکی‌یکی بفرست.", "SOCIAL", .99)
-        if foundation_meaning.dialogue_act == "response_style":\n            if "تکرار" in low or "جور دیگه" in low:\n                answer = "باشه؛ جواب بعدی رو متناسب با ادامه همین مکالمه می‌دم و بی‌دلیل حرف قبلی رو تکرار نمی‌کنم."\n            elif "کوتاه" in low:\n                answer = "باشه؛ از اینجا کوتاه و مستقیم جواب می‌دم."\n            else:\n                answer = "حتماً؛ طبیعی و مستقیم باهات حرف می‌زنم."\n            return self._persist_answer(text, answer, "STYLE", .99)\n        if foundation_meaning.dialogue_act == "emotional_expression" or any(x in low for x in ("حالم خوب نیست", "حالم بده", "حالم بد است")):\n            previous = clean(getattr(e.state, "last_assistant_answer", ""))\n            primary = "متأسفم که حالت خوب نیست. من اینجام؛ اگه دوست داری بگو چی بیشتر اذیتت کرده، یا می‌تونیم فقط یکم معمولی حرف بزنیم."\n            alternate = "باشه، کنارت می‌مونم. لازم نیست الان چیزی رو حل کنیم؛ هر چی دلت می‌خواد بگو، من گوش می‌دم."\n            answer = alternate if previous == primary or "چی بیشتر اذیتت کرده" in previous else primary\n            return self._persist_answer(text, answer, "SOCIAL", .99)\n\n        def activate_topic(topic):
+        if foundation_meaning.dialogue_act == "response_style":
+            if "تکرار" in low or "جور دیگه" in low:
+                answer = "باشه؛ جواب بعدی رو متناسب با ادامه همین مکالمه می‌دم و بی‌دلیل حرف قبلی رو تکرار نمی‌کنم."
+            elif "کوتاه" in low:
+                answer = "باشه؛ از اینجا کوتاه و مستقیم جواب می‌دم."
+            else:
+                answer = "حتماً؛ طبیعی و مستقیم باهات حرف می‌زنم."
+            return self._persist_answer(text, answer, "STYLE", .99)
+        if foundation_meaning.dialogue_act == "emotional_expression" or any(x in low for x in ("حالم خوب نیست", "حالم بده", "حالم بد است")):
+            previous = clean(getattr(e.state, "last_assistant_answer", ""))
+            primary = "متأسفم که حالت خوب نیست. من اینجام؛ اگه دوست داری بگو چی بیشتر اذیتت کرده، یا می‌تونیم فقط یکم معمولی حرف بزنیم."
+            alternate = "باشه، کنارت می‌مونم. لازم نیست الان چیزی رو حل کنیم؛ هر چی دلت می‌خواد بگو، من گوش می‌دم."
+            answer = alternate if previous == primary or "چی بیشتر اذیتت کرده" in previous else primary
+            return self._persist_answer(text, answer, "SOCIAL", .99)
+
+        def activate_topic(topic):
             e.state._push_topic(topic)
             e.state.references["latest"] = topic
             e.state.save(e.state_path)
@@ -878,7 +893,9 @@ class CognitivePipeline:
                 pred, obj = fact.get("predicate"), fact.get("object")
                 if pred in labels and obj:
                     lines.append(f"• {labels[pred]}: {obj}")
-            answer = "تا این لحظه این اطلاعات صریح را از تو دارم:\n" + "\n".join(lines) if lines else "فعلاً اطلاعات صریح قابل‌بازیابی از تو ندارم."
+            answer = "تا این لحظه این اطلاعات صریح را از تو دارم:
+" + "
+".join(lines) if lines else "فعلاً اطلاعات صریح قابل‌بازیابی از تو ندارم."
             return self._persist_answer(text, answer, "MEMORY", .99)
         # Establish multi-turn conversational goals before generic retrieval.
         try:
@@ -958,7 +975,8 @@ class CognitivePipeline:
                 else:
                     value = "برای این بخش شواهد محلی کافی ندارم."
                 lines.append(f"{str(index).translate(str.maketrans('0123456789','۰۱۲۳۴۵۶۷۸۹'))}) {value}")
-            return self._persist_answer(text, "\n".join(lines), "MULTI_INTENT", .98)
+            return self._persist_answer(text, "
+".join(lines), "MULTI_INTENT", .98)
 
         # Reuse the parse/meaning already observed by the foundation at turn ingress.
         parsed = foundation_parsed
@@ -988,7 +1006,9 @@ class CognitivePipeline:
                     return self._persist_answer(text, "سازنده پروژه IRAN.", "MEMORY", .99)
                 lines = [f"• {f.get('predicate')}: {f.get('object')}" for f in facts if f.get("predicate") in {"role", "name", "likes", "dislikes", "goal"}]
                 if lines:
-                    return self._persist_answer(text, "تا این لحظه این اطلاعات صریح را از خودت دارم:\n" + "\n".join(lines), "MEMORY", .96)
+                    return self._persist_answer(text, "تا این لحظه این اطلاعات صریح را از خودت دارم:
+" + "
+".join(lines), "MEMORY", .96)
             except Exception:
                 pass
 
