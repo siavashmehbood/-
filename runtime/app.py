@@ -51,6 +51,7 @@ from learning.internet_learning import InternetLearningEngine
 from learning.capability_learning import CapabilityLearningEngine
 from learning.input_fabric import InputFabric
 from providers.factory import create_provider
+from language_engine.factory import create_language_engine
 from runtime.events import EventLog
 from runtime.goals import GoalStore
 from runtime.scheduler import Scheduler
@@ -87,6 +88,9 @@ class IranRuntime:
         recover(self.root)
         self.config = json.loads((self.root / "config.json").read_text(encoding="utf-8-sig"))
         self.provider = create_provider(self.config)
+        # Optional multilingual neural generator. It is subordinate to CognitiveSystem,
+        # loopback-only, and disabled unless explicitly configured.
+        self.language_engine = create_language_engine(self.config)
         self.learning_gate = LearningGate(self.root / "data/learning_proposals.json")
         self.chatgpt_review_worker = ChatGPTReviewWorker(self.root)
         self.trusted_knowledge = TrustedKnowledgeBootstrap()
@@ -187,7 +191,8 @@ class IranRuntime:
         self._seed_local_knowledge()
         self.events.emit("runtime_ready", {"provider": self.provider.name,
             "version": self.config["version"], "cognitive": True,
-            "offline": True, "network_model": False})
+            "offline": True, "network_model": False,
+            "language_engine": self.language_engine.identity if self.language_engine else None})
 
     def _seed_local_knowledge(self):
         facts = (("ایران", "پایتخت", "تهران", .99),

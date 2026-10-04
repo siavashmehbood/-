@@ -144,5 +144,13 @@
   "external_access": {
     "credential_free_only": true,
     "zero_budget_credentials_allowed": true
+  },
+  "language_engine": {
+    "enabled": false,
+    "backend": "local_http",
+    "model": "",
+    "endpoint": "http://127.0.0.1:8000/v1/chat/completions",
+    "timeout": 120,
+    "policy": "CognitiveSystem remains ONE BRAIN; local generation only"
   }
 }
