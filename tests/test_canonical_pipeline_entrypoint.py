@@ -411,7 +411,7 @@ def test_real_runtime_current_turn_dominates_seeded_stale_project_memory(tmp_pat
         assert "حافظه مرتبط" not in project
 
         # Genuine explicit reference remains conversationally available.
-        runtime.handle("دارم روی پروژه IRAN کار می‌کنم")
+        runtime.handle("موضوع اصلی ما پروژه IRAN است.")
         reference = runtime.handle("همون قبلی رو ادامه بده")
         assert any(x in reference for x in ("IRAN", "ایران", "پروژه"))
 
