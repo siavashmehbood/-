@@ -293,6 +293,12 @@ def test_tool_router_routes_persian_arithmetic_to_safe_calculator():
     assert ToolRouter().choose("بیست و پنج ضربدر چهار چند میشه؟") == (
         "calculate", {"expression": "25*4"}
     )
+    assert ToolRouter().choose("  بیست   و   پنج   ضربدر   چهار  ") == (
+        "calculate", {"expression": "25*4"}
+    )
+    assert ToolRouter().choose("دوازده\tبه علاوه\nهشت") == (
+        "calculate", {"expression": "12+8"}
+    )
     assert ToolRouter().choose("دوازده به علاوه هشت") == ("calculate", {"expression": "12+8"})
     assert ToolRouter().choose("صد تقسیم بر چهار") == ("calculate", {"expression": "100/4"})
     assert ToolRouter().choose("سی منهای پنج") == ("calculate", {"expression": "30-5"})
