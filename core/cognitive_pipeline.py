@@ -266,7 +266,7 @@ class CognitivePipeline:
         )
         context_transform_types = {
             "FOLLOW_UP", "REFERENCE", "CORRECTION", "SOCIAL", "META",
-            "REEXPLAIN", "EXAMPLE", "STYLE", "CONTINUATION"
+            "REEXPLAIN", "EXAMPLE", "STYLE", "CONTINUATION", "MEMORY_RECALL"
         }
         if (not checked.accepted and answer_type in context_transform_types
                 and not checked.contradictions and str(answer).strip()):
