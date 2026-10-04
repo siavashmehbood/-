@@ -422,7 +422,7 @@ class CognitivePipeline:
         if "پروژه" in low and "من" in low and any(x in low for x in ("اسم", "نام")) and any(x in low for x in ("چی", "چه")):
             try:
                 for kind, content, created in self.runtime.memory.search("اسم پروژه من", 40):
-                    match = re.search(r"(?:اسم|نام)\\s+پروژه(?:\\s+من)?\\s+([آ-یA-Za-z0-9_-]+)\\s+(?:هست|است|بود)", clean(content), re.I)
+                    match = re.search(r"(?:اسم|نام)\s+پروژه(?:\s+من)?\s+([آ-یA-Za-z0-9_-]+)\s+(?:هست|است|بود)", clean(content), re.I)
                     if match:
                         value = clean(match.group(1))
                         if value:
@@ -720,7 +720,7 @@ class CognitivePipeline:
             try:
                 rows=self.runtime.memory.search("اسم پروژه من", 40)
                 for kind, content, created in rows:
-                    match=re.search(r"(?:اسم|نام)\\s+پروژه(?:\\s+من)?\\s+([آ-یA-Za-z0-9_-]+)\\s+(?:هست|است|بود)", clean(content), re.I)
+                    match=re.search(r"(?:اسم|نام)\s+پروژه(?:\s+من)?\s+([آ-یA-Za-z0-9_-]+)\s+(?:هست|است|بود)", clean(content), re.I)
                     if match:
                         value=clean(match.group(1))
                         if value:
