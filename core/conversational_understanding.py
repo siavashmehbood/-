@@ -29,7 +29,18 @@ class UtteranceMeaning:
 class ConversationalUnderstanding:
     """Small deterministic mechanics layer; classifications feed cognition, never bypass it."""
     SOCIAL={"سلام":"greeting","درود":"greeting","خداحافظ":"farewell","مرسی":"gratitude","ممنون":"gratitude",
-            "ببخشید":"apology","باشه":"acknowledgement","اوکی":"acknowledgement"}
+            "ببخشید":"apology","باشه":"acknowledgement","اوکی":"acknowledgement","آره":"acknowledgement","خب":"acknowledgement"}
+    STYLE_MARKERS={
+        "short":("کوتاه","مختصر","فقط جواب"),
+        "long":("بیشتر توضیح","کامل توضیح","بازتر توضیح"),
+        "simple":("ساده‌تر","ساده تر"),
+        "natural":("طبیعی","رسمی حرف نزن","رسمی نباش","دستیار عادی"),
+        "stepwise":("مرحله به مرحله","قدم به قدم"),
+        "example":("مثال بزن","با مثال"),
+        "technical":("فنی‌تر","فنی تر"),
+        "no_repeat":("تکراری","تکرار نکن","جور دیگه","جور دیگری"),
+        "persian":("فارسی جواب","فارسی حرف"),
+    }
     FOLLOW={"چرا":"explanation_request","چطور":"follow_up","چگونه":"follow_up","بعدش":"continuation",
             "ادامه بده":"continuation","مثال بزن":"example_request","یعنی چی":"clarification",
             "ساده تر بگو":"simplify","ساده‌تر بگو":"simplify","کوتاه بگو":"length_control",
@@ -43,6 +54,22 @@ class ConversationalUnderstanding:
                (r"\bنمیدونم\b","نمی‌دانم"),(r"\bنمی دونم\b","نمی‌دانم"),(r"\bچجوری\b","چطور"))
         for pattern,value in forms:t=re.sub(pattern,value,t)
         return t
+    @classmethod
+    def style_request(cls,text):
+        low=cls(None).normalize(text).rstrip("؟?!., ").lower()
+        found=[name for name,markers in cls.STYLE_MARKERS.items() if any(marker in low for marker in markers)]
+        if not found:return []
+        # A style marker is only a control when it asks how the assistant should answer.
+        control=any(x in low for x in ("جواب","بگو","حرف","توضیح","مثال","مرحله","قدم","رسمی","طبیعی","فنی","فارسی","تکرار"))
+        return found if control else []
+
+    @staticmethod
+    def temporal_scope(text):
+        low=str(text or "").replace("ي","ی").replace("ك","ک").lower()
+        if any(x in low for x in ("از این به بعد","از حالا به بعد")):return "persistent"
+        if any(x in low for x in ("فعلاً","فعلا","همین الان","الان")):return "temporary"
+        return "conversation"
+
     def analyze(self,text,state=None,parsed=None):
         raw=str(text or ""); norm=self.normalize(raw); bare=norm.rstrip("؟?!., ").strip(); low=bare.lower()
         parsed=parsed or {}; act="unknown"; answer_type=""
@@ -57,7 +84,7 @@ class ConversationalUnderstanding:
         if act=="unknown" and any(x in low for x in ("مطمئنی","از کجا فهمیدی","چرا این جواب","تو چی جواب دادی","من چی پرسیدم","بحثمون سر چی بود")):act="meta_conversation"
         if any(x in low for x in ("یعنی چی","یعنی چه","منظورت چیه","منظورت چیست")):act="clarification"
         if act=="unknown" and any(x in low for x in ("اون یکی","کدوم یکی","کدام یکی")):act="clarification"
-        if act=="unknown" and ((("تکرار" in low) and any(x in low for x in ("نکن","نده","شده"))) or ("یه جور دیگه" in low) or ("یک جور دیگه" in low) or (("طبیعی" in low) and any(x in low for x in ("حرف","جواب"))) or (("دستیار عادی" in low) and any(x in low for x in ("حرف","جواب"))) or (("کوتاه" in low) and any(x in low for x in ("جواب","بگو")))):act="response_style"
+        if act=="unknown" and self.style_request(norm):act="response_style"
         if act=="unknown" and any(x in low for x in ("باز کن","ببند","اجرا کن","بنویس","کلیک","اسکرین")):act="tool_request"
         if act=="unknown" and any(x in low for x in ("یاد بگیر","یادگیری","از صفر تا صد یاد","می‌خواهم یاد بگیر","میخوام یاد بگیر")):act="learning_request"
         if act=="unknown" and any(x in low for x in ("واقعیت","اطلاعات","بگو","توضیح بده")) and not any(x in low for x in ("همون","قبلی","ادامه","بیشتر")) and ("؟" not in norm and "?" not in norm):act="information_request"
@@ -69,7 +96,7 @@ class ConversationalUnderstanding:
         answer_type={"explanation_request":"explanation","example_request":"example","simplify":"simpler",
                      "comparison":"comparison","tool_request":"action","learning_request":"learning","information_request":"information",
                      "greeting":"social","meta_conversation":"meta","response_style":"style"}.get(act,"")
-        refs=[x for x in ("این","اون","همون","قبلی","اولی","دومی","بعدی","این موضوع","اون برنامه") if x in low]
+        refs=[x for x in ("این","اون","آن","همین","همون","همینو","همونو","قبلی","بعدی","اولی","دومی","اون یکی","این قسمت","اون بخش","همین موضوع","اون پروژه","بحث قبلی") if x in low]
         incomplete=bool(len(bare.split())<=3 and act in {"follow_up","continuation","explanation_request","clarification","example_request","simplify"})
         language="unknown"
         if self.language_engine:
