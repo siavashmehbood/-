@@ -1,0 +1,30 @@
+{
+  "cases": [
+    {
+      "id": "fa-conversation-0001",
+      "language": "fa",
+      "tier": "persian",
+      "category": "conversation",
+      "difficulty": "easy",
+      "messages": [{"role": "user", "content": "سلام"}],
+      "rubric": ["پاسخ طبیعی و مرتبط باشد"],
+      "expected_facts": ["سلام"],
+      "forbidden_claims": [],
+      "scoring_method": "deterministic",
+      "max_score": 100
+    },
+    {
+      "id": "en-instruction-0001",
+      "language": "en",
+      "tier": "tier1",
+      "category": "instruction",
+      "difficulty": "easy",
+      "messages": [{"role": "user", "content": "Reply with OK"}],
+      "rubric": ["Follow the explicit instruction"],
+      "expected_facts": ["OK"],
+      "forbidden_claims": [],
+      "scoring_method": "deterministic",
+      "max_score": 100
+    }
+  ]
+}
