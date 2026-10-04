@@ -390,7 +390,67 @@ def test_explicit_reference_can_still_recall_recent_context(tmp_path):
         memory.close()
 
 
-def test_real_runtime_style_commands_dominate_seeded_stale_memory(tmp_path):\n    import shutil\n    from pathlib import Path\n    from runtime.app import IranRuntime\n\n    shutil.copy(Path(__file__).parents[1] / "config.json", tmp_path)\n    runtime = IranRuntime(tmp_path)\n    try:\n        runtime.memory.add("user", "اسم پروژه من دانا هست", .95, confidence=.99)\n        runtime.memory.add("accepted_answer", "در حافظه مرتبط با این موضوع ثبت شده. اسم پروژه من دانا هست", .95, confidence=.99)\n        runtime.memory.add("user", "پروژه دانا یک پروژه فنی برای کتاب است", .9, confidence=.95)\n\n        greeting = runtime.handle("سلام، هستی؟")\n        assert "دانا" not in greeting\n        runtime.handle("من سیاوشم")\n        name = runtime.handle("اسم من چیه؟")\n        assert "سیاوش" in name and "دانا" not in name\n\n        style = runtime.handle("با من مثل یک دستیار عادی حرف بزن.")\n        assert "دانا" not in style\n        first = runtime.handle("امروز حالم خوب نیست. یکم باهام حرف بزن.")\n        second = runtime.handle("حوصله ندارم حالم بده یکم با من حرف بزن")\n        assert "دانا" not in first and "دانا" not in second\n        assert first != second\n\n        no_repeat = runtime.handle("جواب تکراری نده")\n        assert "دانا" not in no_repeat\n        assert "در حافظه مرتبط" not in no_repeat\n        assert no_repeat not in {first, second}\n        assert any(x in no_repeat for x in ("تکرار", "جواب", "مکالمه"))\n\n        follow = runtime.handle("خب، همین‌طوری طبیعی ادامه بده")\n        assert "دانا" not in follow\n        assert "در حافظه مرتبط" not in follow\n\n        for command in ("کوتاه جواب بده", "طبیعی‌تر حرف بزن", "مثل یک دستیار عادی جواب بده", "همش یه جواب رو تکرار نکن", "یه جور دیگه جواب بده"):\n            answer = runtime.handle(command)\n            assert "دانا" not in answer\n            assert "در حافظه مرتبط" not in answer\n\n        project = runtime.handle("اسم پروژه من چی بود؟")\n        assert "دانا" in project\n    finally:\n        runtime.close()\n\n\ndef test_real_runtime_explicit_reference_survives_style_fix(tmp_path):\n    import shutil\n    from pathlib import Path\n    from runtime.app import IranRuntime\n\n    shutil.copy(Path(__file__).parents[1] / "config.json", tmp_path)\n    runtime = IranRuntime(tmp_path)\n    try:\n        runtime.handle("موضوع اصلی ما پروژه IRAN است.")\n        answer = runtime.handle("همون قبلی رو ادامه بده")\n        assert any(x in answer for x in ("IRAN", "ایران", "پروژه"))\n    finally:\n        runtime.close()\n\ndef test_orchestrator_calculator_returns_bare_result_for_conversation():
+def test_real_runtime_style_commands_dominate_seeded_stale_memory(tmp_path):
+    import shutil
+    from pathlib import Path
+    from runtime.app import IranRuntime
+
+    shutil.copy(Path(__file__).parents[1] / "config.json", tmp_path)
+    runtime = IranRuntime(tmp_path)
+    try:
+        runtime.memory.add("user", "اسم پروژه من دانا هست", .95, confidence=.99)
+        runtime.memory.add("accepted_answer", "در حافظه مرتبط با این موضوع ثبت شده. اسم پروژه من دانا هست", .95, confidence=.99)
+        runtime.memory.add("user", "پروژه دانا یک پروژه فنی برای کتاب است", .9, confidence=.95)
+
+        greeting = runtime.handle("سلام، هستی؟")
+        assert "دانا" not in greeting
+        runtime.handle("من سیاوشم")
+        name = runtime.handle("اسم من چیه؟")
+        assert "سیاوش" in name and "دانا" not in name
+
+        style = runtime.handle("با من مثل یک دستیار عادی حرف بزن.")
+        assert "دانا" not in style
+        first = runtime.handle("امروز حالم خوب نیست. یکم باهام حرف بزن.")
+        second = runtime.handle("حوصله ندارم حالم بده یکم با من حرف بزن")
+        assert "دانا" not in first and "دانا" not in second
+        assert first != second
+
+        no_repeat = runtime.handle("جواب تکراری نده")
+        assert "دانا" not in no_repeat
+        assert "در حافظه مرتبط" not in no_repeat
+        assert no_repeat not in {first, second}
+        assert any(x in no_repeat for x in ("تکرار", "جواب", "مکالمه"))
+
+        follow = runtime.handle("خب، همین‌طوری طبیعی ادامه بده")
+        assert "دانا" not in follow
+        assert "در حافظه مرتبط" not in follow
+
+        for command in ("کوتاه جواب بده", "طبیعی‌تر حرف بزن", "مثل یک دستیار عادی جواب بده", "همش یه جواب رو تکرار نکن", "یه جور دیگه جواب بده"):
+            answer = runtime.handle(command)
+            assert "دانا" not in answer
+            assert "در حافظه مرتبط" not in answer
+
+        project = runtime.handle("اسم پروژه من چی بود؟")
+        assert "دانا" in project
+    finally:
+        runtime.close()
+
+
+def test_real_runtime_explicit_reference_survives_style_fix(tmp_path):
+    import shutil
+    from pathlib import Path
+    from runtime.app import IranRuntime
+
+    shutil.copy(Path(__file__).parents[1] / "config.json", tmp_path)
+    runtime = IranRuntime(tmp_path)
+    try:
+        runtime.handle("موضوع اصلی ما پروژه IRAN است.")
+        answer = runtime.handle("همون قبلی رو ادامه بده")
+        assert any(x in answer for x in ("IRAN", "ایران", "پروژه"))
+    finally:
+        runtime.close()
+
+def test_orchestrator_calculator_returns_bare_result_for_conversation():
     from types import SimpleNamespace
     from core.orchestrator import Orchestrator
 
