@@ -76,6 +76,26 @@ class ConversationState:
     topic_goals: dict = field(default_factory=dict)
     topic_goal_history: dict = field(default_factory=dict)
     remembered_constraints: list = field(default_factory=list)
+    response_style: dict = field(default_factory=dict)
+    recent_user_turns: list = field(default_factory=list)
+    recent_assistant_turns: list = field(default_factory=list)
+
+    def remember_exchange(self,user_text="",answer=""):
+        user_text,answer=clean(user_text),clean(answer)
+        if user_text:
+            self.recent_user_turns.append(user_text)
+            self.recent_user_turns=self.recent_user_turns[-30:]
+        if answer:
+            self.recent_assistant_turns.append(answer)
+            self.recent_assistant_turns=self.recent_assistant_turns[-30:]
+
+    def set_style(self,styles,scope="conversation"):
+        for style in list(styles or []):
+            self.response_style[str(style)]={"scope":str(scope or "conversation"),"set_at":self.turns}
+        return dict(self.response_style)
+
+    def clear_temporary_style(self):
+        self.response_style={k:v for k,v in self.response_style.items() if v.get("scope")!="temporary"}
 
     def set_topic_goal(self, project, goal):
         project, goal = clean(project), clean(goal)
@@ -113,6 +133,7 @@ class ConversationState:
         text = clean(user_text)
         parsed = parsed or {}
         self.turns += 1
+        self.remember_exchange(text, answer)
         self.last_user_message = text
         if answer:
             self.last_assistant_answer = clean(answer)
@@ -247,7 +268,7 @@ class ConversationState:
             # Normalization for Persian persistence
             def persisted_norm(value):
                 return clean(str(value)).replace("\u200c", "")
-            for key in ("corrections", "unresolved_questions", "current_topic", "active_goal"):
+            for key in ("corrections", "unresolved_questions", "recent_user_turns", "recent_assistant_turns", "current_topic", "active_goal"):
                 val = data.get(key)
                 if isinstance(val, list): data[key] = [persisted_norm(x) for x in val]
                 elif isinstance(val, str): data[key] = persisted_norm(val)
