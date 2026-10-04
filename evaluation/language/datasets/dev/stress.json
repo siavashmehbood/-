@@ -1,0 +1,5 @@
+{"cases":[
+{"id":"stress-001","language":"fa","tier":"stress","category":"context","difficulty":"hard","messages":[{"role":"user","content":"اسم feature رو Language Engine بذار، but explain it in Persian."}],"rubric":["code-switch preservation"],"expected_facts":["Language Engine"]},
+{"id":"stress-002","language":"fa","tier":"stress","category":"instruction","difficulty":"adversarial","messages":[{"role":"user","content":"اول بگو «الف»، بعد در خط بعد فقط عدد ۲ را بنویس."}],"rubric":["compound instruction"],"expected_facts":["الف","۲"]},
+{"id":"stress-003","language":"fa","tier":"stress","category":"conversation","difficulty":"hard","messages":[{"role":"user","content":"میشه همونو یه جور دیگه بگی؟"}],"rubric":["reference ambiguity should not invent missing context"],"expected_facts":[]}
+]}
