@@ -429,6 +429,27 @@ class CognitivePipeline:
 
         low = text.lower()
 
+        # Generic meta-conversation reads bounded local conversation state before
+        # retrieval. It never consults long-term memory for "what did we just say?".
+        if foundation_meaning.dialogue_act == "meta_conversation":
+            users=list(getattr(e.state,"recent_user_turns",[]) or [])
+            assistants=list(getattr(e.state,"recent_assistant_turns",[]) or [])
+            prior_users=[clean(x) for x in users if clean(x) and clean(x)!=text]
+            if any(x in low for x in ("آخرین چیزی که گفتم","من چی پرسیدم")):
+                answer=(f"آخرین چیزی که گفتی: «{prior_users[-1]}»." if prior_users else
+                        "هنوز پیام قبلی مشخصی در این گفتگو نداریم.")
+            elif "تو چی جواب دادی" in low:
+                answer=(f"آخرین جواب من: «{assistants[-1]}»." if assistants else
+                        "هنوز جواب قبلی مشخصی ندارم.")
+            elif any(x in low for x in ("قبل از این درباره چی","قبل از این درباره چه","بحثمون سر چی","موضوع قبلی چی")):
+                previous=e.state.topic_stack[-1] if e.state.topic_stack else e.state.current_topic
+                answer=(f"قبل از این درباره «{previous}» حرف می‌زدیم." if previous else
+                        "موضوع قبلی مشخصی در این گفتگو نداریم.")
+            else:
+                answer=(f"موضوع فعلی «{e.state.current_topic}» است." if e.state.current_topic else
+                        "زمینه مشخصی برای ارجاع به جواب قبلی ندارم.")
+            return self._persist_answer(text,answer,"META",.99,evidence=[])
+
         # Human-facing conversational control stays inside the canonical brain.
         # These routes answer the current turn directly; retrieved memory remains
         # context/evidence and is never substituted for the user's present need.
@@ -466,11 +487,29 @@ class CognitivePipeline:
             except Exception:
                 pass
             return self._persist_answer(text, "آره، آماده‌ام. تست‌ها رو یکی‌یکی بفرست.", "SOCIAL", .99)
-        if foundation_meaning.dialogue_act == "response_style":
-            if "تکرار" in low or "جور دیگه" in low:
+        if foundation_meaning.dialogue_act == "response_style" and not any(op in low for op in ("ضربدر","به علاوه","منهای","تقسیم بر","+","*","/")):
+            styles=e.understanding.style_request(text)
+            scope=e.understanding.temporal_scope(text)
+            e.state.set_style(styles,scope)
+            e.state.save(e.state_path)
+            if "no_repeat" in styles:
                 answer = "باشه؛ جواب بعدی رو متناسب با ادامه همین مکالمه می‌دم و بی‌دلیل حرف قبلی رو تکرار نمی‌کنم."
-            elif "کوتاه" in low:
-                answer = "باشه؛ از اینجا کوتاه و مستقیم جواب می‌دم."
+            elif "short" in styles:
+                answer = "باشه؛ کوتاه و مستقیم جواب می‌دم."
+            elif "long" in styles:
+                ref=self.reference_intelligence.resolve(text,e.state,self.runtime.memory.recent(12))
+                target=getattr(ref,"candidate","") or e.state.current_topic
+                answer=(f"باشه؛ «{target}» رو کامل‌تر توضیح می‌دم." if target else
+                        "باشه؛ از اینجا کامل‌تر توضیح می‌دم.")
+            elif "simple" in styles:
+                previous=clean(getattr(e.state,"last_assistant_answer","") or "")
+                answer=("ساده‌تر بگم: "+previous if previous else "باشه؛ ساده‌تر توضیح می‌دم.")
+            elif "stepwise" in styles:
+                answer = "باشه؛ مرحله‌به‌مرحله پیش می‌رم."
+            elif "technical" in styles:
+                answer = "باشه؛ فنی‌تر توضیح می‌دم."
+            elif "persian" in styles:
+                answer = "باشه؛ فارسی جواب می‌دم."
             else:
                 answer = "حتماً؛ طبیعی و مستقیم باهات حرف می‌زنم."
             return self._persist_answer(text, answer, "STYLE", .99)
@@ -735,18 +774,6 @@ class CognitivePipeline:
                     .99,
                     evidence=goal_evidence,
                 )
-
-        if "پروژه" in low and "من" in low and any(x in low for x in ("اسم", "نام")) and any(x in low for x in ("چی", "چه")):
-            try:
-                rows=self.runtime.memory.search("اسم پروژه من", 40)
-                for kind, content, created in rows:
-                    match=re.search(r"(?:اسم|نام)\s+پروژه(?:\s+من)?\s+([آ-یA-Za-z0-9_-]+)\s+(?:هست|است|بود)", clean(content), re.I)
-                    if match:
-                        value=clean(match.group(1))
-                        if value:
-                            return self._persist_answer(text, f"اسم پروژه‌ات «{value}» است.", "MEMORY_RECALL", .99, evidence=[{"subject":"پروژه","predicate":"اسم","object":value,"source":"durable_explicit_memory","resolved":True}])
-            except Exception:
-                pass
 
         # Semantic intelligence sits under CognitiveSystem and above retrieval.
         # It analyzes structure, extracts explicit facts and resolves semantic

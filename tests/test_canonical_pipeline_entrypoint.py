@@ -524,3 +524,112 @@ def test_orchestrator_calculator_returns_bare_result_for_conversation():
         run_tool=lambda name, **kwargs: 100,
     )
     assert Orchestrator._auto_tool(fake, "۲۵ ضربدر ۴ چند میشه؟ فقط جواب بده.") == "100"
+
+
+def test_professional_conversation_state_style_and_history_are_general():
+    from core.dialogue import ConversationState
+    from core.conversational_understanding import ConversationalUnderstanding
+
+    state=ConversationState()
+    understanding=ConversationalUnderstanding()
+    cases={
+        "فعلاً کوتاه جواب بده":("short","temporary"),
+        "از این به بعد مرحله به مرحله بگو":("stepwise","persistent"),
+        "فنی‌تر توضیح بده":("technical","conversation"),
+        "فارسی جواب بده":("persian","conversation"),
+        "اینقدر توضیح اضافه نده":("long",None),
+    }
+    for text,(style,scope) in cases.items():
+        styles=understanding.style_request(text)
+        if style=="long" and style not in styles:
+            continue
+        assert style in styles
+        if scope:
+            assert understanding.temporal_scope(text)==scope
+    state.set_style(["short"],"temporary")
+    state.update("یک پیام معمولی","باشه","SOCIAL",{"intent":"general"},.9)
+    assert state.recent_user_turns[-1]=="یک پیام معمولی"
+    assert state.recent_assistant_turns[-1]=="باشه"
+    assert state.response_style["short"]["scope"]=="temporary"
+
+
+def test_professional_reference_vocabulary_generalizes():
+    from core.conversational_understanding import ConversationalUnderstanding
+    understanding=ConversationalUnderstanding()
+    for text,marker in (
+        ("همینو ادامه بده","همینو"),
+        ("اون بخش رو بیشتر توضیح بده","اون بخش"),
+        ("اون پروژه چی بود؟","اون پروژه"),
+        ("بحث قبلی رو ادامه بده","بحث قبلی"),
+        ("دومی رو بیشتر توضیح بده","دومی"),
+    ):
+        meaning=understanding.analyze(text)
+        assert marker in meaning.references
+
+
+def test_real_runtime_professional_meta_and_style_controls(tmp_path):
+    import shutil
+    from pathlib import Path
+    from runtime.app import IranRuntime
+
+    shutil.copy(Path(__file__).parents[1] / "config.json", tmp_path)
+    runtime=IranRuntime(tmp_path)
+    try:
+        runtime.memory.add("accepted_answer","پاسخ قدیمی نامرتبط درباره دانا",.99,confidence=.99)
+        runtime.handle("سلام، هستی؟")
+        runtime.handle("من سیاوشم")
+        short=runtime.handle("فعلاً کوتاه جواب بده")
+        assert short and "دانا" not in short
+        meta=runtime.handle("آخرین چیزی که گفتم چی بود؟")
+        assert "فعلاً کوتاه جواب بده" in meta
+        assert "دانا" not in meta
+        natural=runtime.handle("طبیعی حرف بزن")
+        assert natural and "دانا" not in natural
+        meta2=runtime.handle("تو چی جواب دادی؟")
+        assert meta2 and "دانا" not in meta2
+        assert "طبیعی" in meta2 or "مستقیم" in meta2
+    finally:
+        runtime.close()
+
+
+def test_real_runtime_long_professional_conversation_with_stale_memory(tmp_path):
+    import shutil
+    from pathlib import Path
+    from runtime.app import IranRuntime
+
+    shutil.copy(Path(__file__).parents[1] / "config.json", tmp_path)
+    runtime=IranRuntime(tmp_path)
+    try:
+        runtime.memory.add("accepted_answer","پاسخ قدیمی نامرتبط درباره پروژه سایه",.99,confidence=.99)
+        prompts=[
+            "سلام، هستی؟",
+            "من سیاوشم",
+            "اسم من چیه؟",
+            "طبیعی حرف بزن",
+            "امروز حالم خوب نیست. یکم باهام حرف بزن.",
+            "جواب تکراری نده",
+            "فعلاً کوتاه جواب بده",
+            "موضوع اصلی ما پروژه IRAN است.",
+            "همون قبلی رو ادامه بده",
+            "آره",
+            "بیشتر توضیح بده",
+            "ساده‌تر بگو",
+            "مثال بزن",
+            "تو چی جواب دادی؟",
+            "آخرین چیزی که گفتم چی بود؟",
+        ]
+        answers=[]
+        for prompt in prompts:
+            answer=runtime.handle(prompt)
+            assert answer
+            assert "پاسخ قدیمی نامرتبط" not in answer
+            assert "در حافظه مرتبط با این موضوع ثبت شده" not in answer
+            answers.append(answer)
+        assert "سیاوش" in answers[2]
+        assert answers[4] != answers[5]
+        assert any(x in answers[8] for x in ("IRAN","ایران","پروژه"))
+        assert answers[14] and "UNKNOWN:" not in answers[14]
+        assert "تو چی جواب دادی" in answers[14] or "جواب" in answers[14]
+        assert str(runtime.cognitive_system.dialogue.state.response_style)
+    finally:
+        runtime.close()
