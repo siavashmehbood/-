@@ -705,6 +705,18 @@ class CognitivePipeline:
                     evidence=goal_evidence,
                 )
 
+        if re.search(r"(?:اسم|نام)\\s+پروژه\\s+من\\s+(?:چی|چه)", low, re.I):
+            try:
+                rows=self.runtime.memory.search("اسم پروژه من", 40)
+                for kind, content, created in rows:
+                    match=re.search(r"(?:اسم|نام)\\s+پروژه(?:\\s+من)?\\s+([آ-یA-Za-z0-9_-]+)\\s+(?:هست|است|بود)", clean(content), re.I)
+                    if match:
+                        value=clean(match.group(1))
+                        if value:
+                            return self._persist_answer(text, f"اسم پروژه‌ات «{value}» است.", "MEMORY_RECALL", .99, evidence=[{"subject":"پروژه","predicate":"اسم","object":value,"source":"durable_explicit_memory","resolved":True}])
+            except Exception:
+                pass
+
         # Semantic intelligence sits under CognitiveSystem and above retrieval.
         # It analyzes structure, extracts explicit facts and resolves semantic
         # references before raw conversation-history similarity is considered.
