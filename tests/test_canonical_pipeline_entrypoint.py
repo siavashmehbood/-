@@ -628,6 +628,8 @@ def test_real_runtime_long_professional_conversation_with_stale_memory(tmp_path)
         assert "سیاوش" in answers[2]
         assert answers[4] != answers[5]
         assert any(x in answers[8] for x in ("IRAN","ایران","پروژه"))
-        assert answers[14] and "UNKNOWN:" not in answers[14]\n        assert "مثال" in answers[14] or "جواب" in answers[14]\n        assert str(runtime.cognitive_system.dialogue.state.response_style)
+        assert answers[14] and "UNKNOWN:" not in answers[14]
+        assert "مثال" in answers[14] or "جواب" in answers[14]
+        assert str(runtime.cognitive_system.dialogue.state.response_style)
     finally:
         runtime.close()
