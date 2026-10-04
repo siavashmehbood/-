@@ -42,7 +42,15 @@ class Orchestrator:
             except Exception:
                 pass
             raise
-        self.events.emit('tool_executed',{'tool':name,'ok':True}); self.metrics.record('tool'); return result
+        try:
+            self.events.emit('tool_executed',{'tool':name,'ok':True})
+        except Exception:
+            pass
+        try:
+            self.metrics.record('tool')
+        except Exception:
+            pass
+        return result
 
     def _parse_tool(self,text):
         parts=shlex.split(text)
