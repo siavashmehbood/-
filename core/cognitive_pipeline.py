@@ -487,7 +487,7 @@ class CognitivePipeline:
             except Exception:
                 pass
             return self._persist_answer(text, "آره، آماده‌ام. تست‌ها رو یکی‌یکی بفرست.", "SOCIAL", .99)
-        if foundation_meaning.dialogue_act == "response_style" and not self._calculator(text):
+        if foundation_meaning.dialogue_act == "response_style":
             styles=e.understanding.style_request(text)
             scope=e.understanding.temporal_scope(text)
             e.state.set_style(styles,scope)
