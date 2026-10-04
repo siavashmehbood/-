@@ -438,17 +438,7 @@ class CognitivePipeline:
             except Exception:
                 pass
             return self._persist_answer(text, "آره، آماده‌ام. تست‌ها رو یکی‌یکی بفرست.", "SOCIAL", .99)
-        if any(x in low for x in ("مثل یک دستیار عادی حرف بزن", "مثل دستیار عادی حرف بزن")):
-            return self._persist_answer(text, "حتماً؛ طبیعی و مستقیم باهات حرف می‌زنم.", "STYLE", .99)
-        if any(x in low for x in ("حالم خوب نیست", "حالم بده", "حالم بد است")):
-            return self._persist_answer(
-                text,
-                "متأسفم که امروز حالت خوب نیست. من اینجام؛ اگه دوست داری بگو چی بیشتر اذیتت کرده، یا می‌تونیم فقط یکم معمولی حرف بزنیم.",
-                "SOCIAL",
-                .99,
-            )
-
-        def activate_topic(topic):
+        if foundation_meaning.dialogue_act == "response_style":\n            if "تکرار" in low or "جور دیگه" in low:\n                answer = "باشه؛ جواب بعدی رو متناسب با ادامه همین مکالمه می‌دم و بی‌دلیل حرف قبلی رو تکرار نمی‌کنم."\n            elif "کوتاه" in low:\n                answer = "باشه؛ از اینجا کوتاه و مستقیم جواب می‌دم."\n            else:\n                answer = "حتماً؛ طبیعی و مستقیم باهات حرف می‌زنم."\n            return self._persist_answer(text, answer, "STYLE", .99)\n        if foundation_meaning.dialogue_act == "emotional_expression" or any(x in low for x in ("حالم خوب نیست", "حالم بده", "حالم بد است")):\n            previous = clean(getattr(e.state, "last_assistant_answer", ""))\n            primary = "متأسفم که حالت خوب نیست. من اینجام؛ اگه دوست داری بگو چی بیشتر اذیتت کرده، یا می‌تونیم فقط یکم معمولی حرف بزنیم."\n            alternate = "باشه، کنارت می‌مونم. لازم نیست الان چیزی رو حل کنیم؛ هر چی دلت می‌خواد بگو، من گوش می‌دم."\n            answer = alternate if previous == primary or "چی بیشتر اذیتت کرده" in previous else primary\n            return self._persist_answer(text, answer, "SOCIAL", .99)\n\n        def activate_topic(topic):
             e.state._push_topic(topic)
             e.state.references["latest"] = topic
             e.state.save(e.state_path)
