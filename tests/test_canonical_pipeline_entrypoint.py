@@ -361,6 +361,35 @@ def test_real_runtime_manual_conversation_quality_regressions(tmp_path):
         runtime.close()
 
 
+def test_memory_context_requires_current_turn_relevance(tmp_path):
+    from memory.store import Memory
+    from core.memory_intelligence import MemoryIntelligence
+
+    memory = Memory(tmp_path / "memory.db")
+    try:
+        memory.add("accepted_answer", "پاسخ قدیمی درباره پروژه و معماری", .95, confidence=.99)
+        intelligence = MemoryIntelligence(memory)
+        context = intelligence.build_context("امروز حالم خوب نیست، یکم باهام حرف بزن")
+        assert all(item["relevance"] >= .15 for item in context["selected"])
+        assert not any("پاسخ قدیمی درباره پروژه" in item["content"] for item in context["selected"])
+    finally:
+        memory.close()
+
+
+def test_explicit_reference_can_still_recall_recent_context(tmp_path):
+    from memory.store import Memory
+    from core.memory_intelligence import MemoryIntelligence
+
+    memory = Memory(tmp_path / "memory.db")
+    try:
+        memory.add("user", "پروژه IRAN را ادامه بده", .8, confidence=.9)
+        intelligence = MemoryIntelligence(memory)
+        context = intelligence.build_context("همون قبلی رو ادامه بده")
+        assert any("پروژه IRAN" in item["content"] for item in context["selected"])
+    finally:
+        memory.close()
+
+
 def test_orchestrator_calculator_returns_bare_result_for_conversation():
     from types import SimpleNamespace
     from core.orchestrator import Orchestrator
