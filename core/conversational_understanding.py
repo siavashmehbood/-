@@ -81,7 +81,7 @@ class ConversationalUnderstanding:
         if act=="unknown" and re.match(r"^(نه|منظورم|اشتباه فهمیدی|نه منظورم)",low):act="correction"
         if act=="unknown" and any(x in low for x in ("برگردیم","برگرد بحث","بحث قبلی","موضوع قبلی")):act="return_to_topic"
         if act=="unknown" and any(x in low for x in ("فرق ","تفاوت ","مقایسه")):act="comparison"
-        if act=="unknown" and any(x in low for x in ("مطمئنی","از کجا فهمیدی","چرا این جواب","تو چی جواب دادی","من چی پرسیدم","بحثمون سر چی بود")):act="meta_conversation"
+        if act=="unknown" and any(x in low for x in ("مطمئنی","از کجا فهمیدی","چرا این جواب","تو چی جواب دادی","من چی پرسیدم","بحثمون سر چی بود","آخرین چیزی که گفتم","قبل از این درباره چی","قبل از این درباره چه")):act="meta_conversation"
         if any(x in low for x in ("یعنی چی","یعنی چه","منظورت چیه","منظورت چیست")):act="clarification"
         if act=="unknown" and any(x in low for x in ("اون یکی","کدوم یکی","کدام یکی")):act="clarification"
         if act=="unknown" and self.style_request(norm):act="response_style"
