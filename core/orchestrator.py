@@ -29,6 +29,10 @@ class Orchestrator:
             result=self.registry.run(name,**kwargs)
         except Exception as exc:
             try:
+                self.metrics.record('tool_failed')
+            except Exception:
+                pass
+            try:
                 self.events.emit('tool_failed',{
                     'tool':name,
                     'ok':False,
