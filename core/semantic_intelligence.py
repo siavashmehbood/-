@@ -589,6 +589,11 @@ class SemanticIntelligence:
         if q.entity_type=="project" and any(x in low for x in ("روش کار", "روی آن کار", "روی اون کار", "روی همون کار")):
             q.entity_id=self.retriever.related_entity("works_on")
             q.reference="works_on"
+        if q.entity_type=="project" and q.relation=="name" and re.search(r"(?:اسم|نام)\\s+پروژه\\s+من", n, re.I):
+            owned=self.retriever.related_entity("works_on")
+            if owned:
+                q.entity_id=owned
+                q.reference="works_on"
         ordinal={"اول":1,"دوم":2,"سوم":3}
         if q.entity_type:
             for marker,index in ordinal.items():
