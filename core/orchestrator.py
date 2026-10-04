@@ -19,10 +19,13 @@ class Orchestrator:
         self._user_model = getattr(agent, "_user_model", None)
 
     def run_tool(self,name,**kwargs):
+        stage='lookup'
         try:
             tool=self.registry.get(name) if self.registry else None
             if not tool: raise KeyError(f'unknown tool: {name}')
+            stage='permission'
             if self.policy and not self.policy.allows(tool.permission): raise PermissionError(f'permission denied: {tool.permission}')
+            stage='execution'
             result=self.registry.run(name,**kwargs)
         except Exception as exc:
             try:
@@ -30,7 +33,7 @@ class Orchestrator:
                     'tool':name,
                     'ok':False,
                     'error':type(exc).__name__,
-                    'message':str(exc),
+                    'stage':stage,
                 })
             except Exception:
                 pass
