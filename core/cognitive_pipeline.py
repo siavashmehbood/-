@@ -705,7 +705,7 @@ class CognitivePipeline:
                     evidence=goal_evidence,
                 )
 
-        if re.search(r"(?:اسم|نام)\\s+پروژه\\s+من\\s+(?:چی|چه)", low, re.I):
+        if "پروژه من" in low and any(x in low for x in ("اسم", "نام")) and any(x in low for x in ("چی", "چه")):
             try:
                 rows=self.runtime.memory.search("اسم پروژه من", 40)
                 for kind, content, created in rows:
