@@ -8,7 +8,7 @@ class ToolRouter:
 
     @staticmethod
     def _persian_number(token):
-        token = re.sub(r'\\s+', ' ', str(token).strip())
+        token = re.sub(r'\s+', ' ', str(token).strip())
         units = {'صفر':0,'یک':1,'دو':2,'سه':3,'چهار':4,'پنج':5,'شش':6,'هفت':7,'هشت':8,'نه':9}
         teens = {'ده':10,'یازده':11,'دوازده':12,'سیزده':13,'چهارده':14,'پانزده':15,'شانزده':16,'هفده':17,'هجده':18,'نوزده':19}
         tens = {'بیست':20,'سی':30,'چهل':40,'پنجاه':50,'شصت':60,'هفتاد':70,'هشتاد':80,'نود':90}
@@ -33,7 +33,7 @@ class ToolRouter:
         clean = re.sub(r'[؟?!.،,]+', ' ', str(text).lower())
         for phrase in ('چند میشه', 'چند می‌شود', 'چند میشود', 'فقط جواب بده'):
             clean = clean.replace(phrase, ' ')
-        clean = re.sub(r'\\s+', ' ', clean).strip()
+        clean = re.sub(r'\s+', ' ', clean).strip()
         for marker, op in op_patterns:
             if marker not in clean:
                 continue
