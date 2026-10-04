@@ -473,3 +473,61 @@ def test_orchestrator_records_tool_failures_and_reraises_original_exception():
     with pytest.raises(ValueError) as caught_again:
         Orchestrator.run_tool(fake, "calculate", expression="secret")
     assert caught_again.value is expected
+
+
+def test_orchestrator_records_lookup_and_permission_failures():
+    from types import SimpleNamespace
+    from core.orchestrator import Orchestrator
+
+    emitted = []
+    metrics = SimpleNamespace(
+        record=lambda name: (_ for _ in ()).throw(
+            AssertionError("failed tools must not increment success metrics")
+        )
+    )
+    events = SimpleNamespace(
+        emit=lambda event, payload: emitted.append((event, payload))
+    )
+
+    unknown = SimpleNamespace(
+        registry=None,
+        policy=None,
+        events=events,
+        metrics=metrics,
+    )
+    with pytest.raises(KeyError, match="unknown tool: missing"):
+        Orchestrator.run_tool(unknown, "missing")
+    assert emitted.pop() == (
+        "tool_failed",
+        {
+            "tool": "missing",
+            "ok": False,
+            "error": "KeyError",
+            "message": "'unknown tool: missing'",
+        },
+    )
+
+    execution_calls = []
+    registry = SimpleNamespace(
+        get=lambda name: SimpleNamespace(permission="network"),
+        run=lambda name, **kwargs: execution_calls.append((name, kwargs)),
+    )
+    denied = SimpleNamespace(
+        registry=registry,
+        policy=SimpleNamespace(allows=lambda permission: False),
+        events=events,
+        metrics=metrics,
+    )
+    with pytest.raises(PermissionError, match="permission denied: network"):
+        Orchestrator.run_tool(denied, "remote_lookup", query="private")
+    assert execution_calls == []
+    assert emitted == [(
+        "tool_failed",
+        {
+            "tool": "remote_lookup",
+            "ok": False,
+            "error": "PermissionError",
+            "message": "permission denied: network",
+        },
+    )]
+    assert "query" not in emitted[0][1]
