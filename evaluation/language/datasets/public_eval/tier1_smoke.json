@@ -1,0 +1,22 @@
+{"cases":[
+{"id":"fa-t1-001","language":"fa","tier":"persian","category":"conversation","difficulty":"easy","messages":[{"role":"user","content":"سلام"}],"rubric":["پاسخ مرتبط"],"expected_facts":["سلام"]},
+{"id":"en-t1-001","language":"en","tier":"tier1","category":"instruction","difficulty":"easy","messages":[{"role":"user","content":"Reply OK"}],"rubric":["Follow instruction"],"expected_facts":["OK"]},
+{"id":"ar-t1-001","language":"ar","tier":"tier1","category":"conversation","difficulty":"easy","messages":[{"role":"user","content":"مرحبا"}],"rubric":["رد مناسب"],"expected_facts":["مرحبا"]},
+{"id":"tr-t1-001","language":"tr","tier":"tier1","category":"conversation","difficulty":"easy","messages":[{"role":"user","content":"Merhaba"}],"rubric":["Uygun yanıt"],"expected_facts":["Merhaba"]},
+{"id":"fr-t1-001","language":"fr","tier":"tier1","category":"conversation","difficulty":"easy","messages":[{"role":"user","content":"Bonjour"}],"rubric":["Réponse pertinente"],"expected_facts":["Bonjour"]},
+{"id":"de-t1-001","language":"de","tier":"tier1","category":"conversation","difficulty":"easy","messages":[{"role":"user","content":"Hallo"}],"rubric":["Passende Antwort"],"expected_facts":["Hallo"]},
+{"id":"es-t1-001","language":"es","tier":"tier1","category":"conversation","difficulty":"easy","messages":[{"role":"user","content":"Hola"}],"rubric":["Respuesta pertinente"],"expected_facts":["Hola"]},
+{"id":"pt-t1-001","language":"pt","tier":"tier1","category":"conversation","difficulty":"easy","messages":[{"role":"user","content":"Olá"}],"rubric":["Resposta pertinente"],"expected_facts":["Olá"]},
+{"id":"ru-t1-001","language":"ru","tier":"tier1","category":"conversation","difficulty":"easy","messages":[{"role":"user","content":"Привет"}],"rubric":["Уместный ответ"],"expected_facts":["Привет"]},
+{"id":"zh-t1-001","language":"zh","tier":"tier1","category":"conversation","difficulty":"easy","messages":[{"role":"user","content":"你好"}],"rubric":["相关回答"],"expected_facts":["你好"]},
+{"id":"ja-t1-001","language":"ja","tier":"tier1","category":"conversation","difficulty":"easy","messages":[{"role":"user","content":"こんにちは"}],"rubric":["適切な返答"],"expected_facts":["こんにちは"]},
+{"id":"ko-t1-001","language":"ko","tier":"tier1","category":"conversation","difficulty":"easy","messages":[{"role":"user","content":"안녕하세요"}],"rubric":["관련 답변"],"expected_facts":["안녕하세요"]},
+{"id":"hi-t1-001","language":"hi","tier":"tier1","category":"conversation","difficulty":"easy","messages":[{"role":"user","content":"नमस्ते"}],"rubric":["उचित उत्तर"],"expected_facts":["नमस्ते"]},
+{"id":"ur-t1-001","language":"ur","tier":"tier1","category":"conversation","difficulty":"easy","messages":[{"role":"user","content":"سلام"}],"rubric":["مناسب جواب"],"expected_facts":["سلام"]},
+{"id":"it-t1-001","language":"it","tier":"tier1","category":"conversation","difficulty":"easy","messages":[{"role":"user","content":"Ciao"}],"rubric":["Risposta pertinente"],"expected_facts":["Ciao"]},
+{"id":"id-t1-001","language":"id","tier":"tier1","category":"conversation","difficulty":"easy","messages":[{"role":"user","content":"Halo"}],"rubric":["Jawaban relevan"],"expected_facts":["Halo"]},
+{"id":"nl-t1-001","language":"nl","tier":"tier1","category":"conversation","difficulty":"easy","messages":[{"role":"user","content":"Hallo"}],"rubric":["Passend antwoord"],"expected_facts":["Hallo"]},
+{"id":"pl-t1-001","language":"pl","tier":"tier1","category":"conversation","difficulty":"easy","messages":[{"role":"user","content":"Cześć"}],"rubric":["Trafna odpowiedź"],"expected_facts":["Cześć"]},
+{"id":"uk-t1-001","language":"uk","tier":"tier1","category":"conversation","difficulty":"easy","messages":[{"role":"user","content":"Привіт"}],"rubric":["Доречна відповідь"],"expected_facts":["Привіт"]},
+{"id":"he-t1-001","language":"he","tier":"tier1","category":"conversation","difficulty":"easy","messages":[{"role":"user","content":"שלום"}],"rubric":["תשובה מתאימה"],"expected_facts":["שלום"]}
+]}

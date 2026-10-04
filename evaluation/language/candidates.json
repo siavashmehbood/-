@@ -1,0 +1,56 @@
+{
+  "schema_version": 1,
+  "policy": "Only locally runnable, license-verified candidates may become foundation. Teacher/reference entries are not automatically eligible for transfer.",
+  "candidates": [
+    {
+      "candidate_id": "qwen35-9b",
+      "role": "foundation_candidate",
+      "family": "qwen3.5",
+      "model_id": "Qwen/Qwen3.5-9B",
+      "revision": "adf92718afd26af732696aea9e8d5a917148131d",
+      "license_id": "apache-2.0",
+      "local_capable": true,
+      "languages_claimed": 201,
+      "source": "https://qwen.ai/blog?id=qwen3.5"
+    },
+    {
+      "candidate_id": "gemma4-12b",
+      "role": "foundation_candidate",
+      "family": "gemma4",
+      "model_id": "google/gemma-4-12B-it",
+      "revision": "acdb1defcec5520dcf871fa8a3cff4823163c2ed",
+      "license_id": "apache-2.0",
+      "local_capable": true,
+      "languages_claimed": 140,
+      "context_length": 262144,
+      "source": "https://ai.google.dev/gemma/docs/core/model_card_4"
+    },
+    {
+      "candidate_id": "tiny-aya-global",
+      "role": "multilingual_reference",
+      "family": "tiny-aya",
+      "model_id": "CohereLabs/tiny-aya-global",
+      "revision": "UNPINNED",
+      "license_id": "cc-by-nc-4.0",
+      "local_capable": true,
+      "languages_claimed": 70,
+      "context_length": 8192,
+      "transfer_eligible": false,
+      "notes": "Research/reference only by default: non-commercial license and gated weights require explicit review.",
+      "source": "https://cohere.com/research/aya"
+    },
+    {
+      "candidate_id": "mistral-small-4",
+      "role": "heavy_teacher_reference",
+      "family": "mistral-small-4",
+      "model_id": "mistralai/Mistral-Small-4",
+      "revision": "UNPINNED",
+      "license_id": "apache-2.0",
+      "local_capable": true,
+      "context_length": 262144,
+      "transfer_eligible": true,
+      "notes": "119B total / about 6.5B active; reference/teacher tier due deployment footprint.",
+      "source": "https://mistral.ai/news/mistral-small-4/"
+    }
+  ]
+}
