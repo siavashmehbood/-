@@ -15,7 +15,7 @@ def main(argv=None):
              "candidates":list(result.candidates),
              "eligible":[{"candidate_id":x.candidate_id,"model_id":x.model_id,
                           "revision":x.revision,"license":x.license_id}
-                         for x in eligible_foundations(Path(args.root)/"evaluation/language/candidates.json")]}
+                         for x in eligible_foundations(__import__("json").loads((Path(args.root)/"evaluation/language/candidates.json").read_text(encoding="utf-8")))]}
     print(json.dumps(payload,ensure_ascii=False,indent=2))
     return 0 if result.ready else 2
 
