@@ -589,6 +589,35 @@ class SemanticIntelligence:
         if q.entity_type=="project" and any(x in low for x in ("روش کار", "روی آن کار", "روی اون کار", "روی همون کار")):
             q.entity_id=self.retriever.related_entity("works_on")
             q.reference="works_on"
+        # "اسم پروژه من ..." can also be stored as a durable raw user
+        # memory from older versions. Promote that explicit binding into the
+        # semantic evidence store only when the user explicitly asks for it.
+        if q.entity_type=="project" and q.relation=="name" and re.search(r"(?:اسم|نام)\\s+پروژه\\s+من", n, re.I):
+            try:
+                for kind, content, created in self.memory.search(n, 20):
+                    m=re.search(r"(?:اسم|نام)\\s+پروژه(?:\\s+من)?\\s+([آ-یA-Za-z0-9_-]+)\\s+(?:هست|است|بود)", normalize_fa(content), re.I)
+                    if m:
+                        value=self._strip_copula(m.group(1))
+                        if value:
+                            eid=f"project:{self._slug(value)}"
+                            q.entity_id=eid
+                            q.reference="explicit_durable_project_name"
+                            now=datetime.now().isoformat(timespec="microseconds")
+                            self.memory.conn.execute(
+                                "INSERT OR IGNORE INTO semantic_facts(subject,predicate,value,confidence,source,created_at,updated_at) VALUES(?,?,?,?,?,?,?)",
+                                (eid,"name",value,.97,"durable_explicit_memory",now,now))
+                            self.memory.conn.execute(
+                                "INSERT OR IGNORE INTO semantic_facts(subject,predicate,value,confidence,source,created_at,updated_at) VALUES(?,?,?,?,?,?,?)",
+                                ("user","works_on",eid,.90,"durable_explicit_memory",now,now))
+                            self.memory.conn.commit()
+                            break
+            except Exception:
+                pass
+        if q.entity_type=="project" and q.relation=="name" and re.search(r"(?:اسم|نام)\\s+پروژه\\s+من", n, re.I):
+            owned=self.retriever.related_entity("works_on")
+            if owned:
+                q.entity_id=owned
+                q.reference="works_on"
         ordinal={"اول":1,"دوم":2,"سوم":3}
         if q.entity_type:
             for marker,index in ordinal.items():

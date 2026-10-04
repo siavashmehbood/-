@@ -361,6 +361,76 @@ def test_real_runtime_manual_conversation_quality_regressions(tmp_path):
         runtime.close()
 
 
+
+def test_real_runtime_current_turn_dominates_seeded_stale_project_memory(tmp_path):
+    import shutil
+    from pathlib import Path
+    from runtime.app import IranRuntime
+
+    shutil.copy(Path(__file__).parents[1] / "config.json", tmp_path)
+    runtime = IranRuntime(tmp_path)
+    try:
+        # Deliberately contaminate durable memory with realistic unrelated facts.
+        runtime.memory.add("fact", "اسم پروژه من دانا هست", .95, confidence=.99, source="regression_seed")
+        runtime.memory.add("accepted_answer", "در حافظه مرتبط با این موضوع ثبت شده. اسم پروژه من دانا هست", .95, confidence=.99, source="regression_seed")
+        runtime.memory.add("fact", "پروژه دانا یک سامانه کتاب و کتاب صوتی است", .90, confidence=.95, source="regression_seed")
+
+        turns = [
+            ("سلام، هستی؟", "greeting"),
+            ("من سیاوشم", "intro"),
+            ("اسم من چیه؟", "name"),
+            ("با من مثل یک دستیار عادی حرف بزن.", "style"),
+            ("امروز حالم خوب نیست. یکم باهام حرف بزن.", "emotion1"),
+            ("حوصله ندارم حالم بده یکم با من حرف بزن", "emotion2"),
+            ("جواب تکراری نده", "no_repeat"),
+            ("باشه، یکم معمولی باهام حرف بزن", "recovery"),
+        ]
+        answers = {}
+        for prompt, key in turns:
+            answers[key] = runtime.handle(prompt)
+            assert answers[key]
+            if key not in {"name"}:
+                assert "اسم پروژه من دانا هست" not in answers[key]
+                assert "در حافظه مرتبط با این موضوع ثبت شده" not in answers[key]
+
+        assert "سیاوش" in answers["name"]
+        assert "دانا" not in answers["name"]
+        assert any(x in answers["style"] for x in ("طبیعی", "مستقیم", "حتماً"))
+        assert "دانا" not in answers["style"]
+        assert any(x in answers["emotion1"] for x in ("حالت", "اینجام", "حرف", "اذیت"))
+        assert any(x in answers["emotion2"] for x in ("کنارت", "گوش", "حالت", "حرف"))
+        assert answers["emotion2"] != answers["emotion1"]
+        assert "دانا" not in answers["no_repeat"]
+        assert "حافظه مرتبط" not in answers["no_repeat"]
+        assert answers["no_repeat"] != answers["emotion2"]
+        assert "دانا" not in answers["recovery"]
+
+        # Positive recall must remain available when memory is explicitly requested.
+        project = runtime.handle("اسم پروژه من چی بود؟")
+        assert "دانا" in project
+        assert "حافظه مرتبط" not in project
+
+        # Genuine explicit reference remains conversationally available.
+        runtime.handle("موضوع اصلی ما پروژه IRAN است.")
+        reference = runtime.handle("همون قبلی رو ادامه بده")
+        assert any(x in reference for x in ("IRAN", "ایران", "پروژه"))
+
+        # Similar style imperatives generalize beyond one exact string.
+        for command in (
+            "همش یه جواب رو تکرار نکن",
+            "جوابات تکراری شده",
+            "یه جور دیگه جواب بده",
+            "کوتاه جواب بده",
+            "طبیعی‌تر حرف بزن",
+            "مثل یک دستیار عادی جواب بده",
+        ):
+            response = runtime.handle(command)
+            assert response
+            assert "دانا" not in response
+            assert "حافظه مرتبط" not in response
+    finally:
+        runtime.close()
+
 def test_memory_context_requires_current_turn_relevance(tmp_path):
     from memory.store import Memory
     from core.memory_intelligence import MemoryIntelligence
@@ -388,6 +458,61 @@ def test_explicit_reference_can_still_recall_recent_context(tmp_path):
         assert any("پروژه IRAN" in item["content"] for item in context["selected"])
     finally:
         memory.close()
+
+
+
+def test_real_runtime_style_commands_dominate_seeded_stale_memory(tmp_path):
+    import shutil
+    from pathlib import Path
+    from runtime.app import IranRuntime
+
+    shutil.copy(Path(__file__).parents[1] / "config.json", tmp_path)
+    runtime = IranRuntime(tmp_path)
+    try:
+        runtime.memory.add("user", "اسم پروژه من دانا هست", .95, confidence=.99)
+        runtime.memory.add("accepted_answer", "در حافظه مرتبط با این موضوع ثبت شده. اسم پروژه من دانا هست", .95, confidence=.99)
+        runtime.memory.add("user", "پروژه دانا یک پروژه فنی برای کتاب است", .9, confidence=.95)
+        runtime.user_model.record("من روی دانا کار می‌کنم")
+        greeting = runtime.handle("سلام، هستی؟")
+        assert "دانا" not in greeting
+        runtime.handle("من سیاوشم")
+        name = runtime.handle("اسم من چیه؟")
+        assert "سیاوش" in name and "دانا" not in name
+        style = runtime.handle("با من مثل یک دستیار عادی حرف بزن.")
+        assert "دانا" not in style
+        first = runtime.handle("امروز حالم خوب نیست. یکم باهام حرف بزن.")
+        second = runtime.handle("حوصله ندارم حالم بده یکم با من حرف بزن")
+        assert "دانا" not in first and "دانا" not in second
+        assert first != second
+        no_repeat = runtime.handle("جواب تکراری نده")
+        assert "دانا" not in no_repeat
+        assert "در حافظه مرتبط" not in no_repeat
+        assert no_repeat not in {first, second}
+        follow = runtime.handle("خب، همین‌طوری طبیعی ادامه بده")
+        assert "دانا" not in follow
+        for command in ("کوتاه جواب بده", "طبیعی‌تر حرف بزن", "مثل یک دستیار عادی جواب بده", "همش یه جواب رو تکرار نکن", "یه جور دیگه جواب بده"):
+            answer = runtime.handle(command)
+            assert "دانا" not in answer
+            assert "در حافظه مرتبط" not in answer
+        project = runtime.handle("اسم پروژه من چی بود؟")
+        assert "دانا" in project
+    finally:
+        runtime.close()
+
+
+def test_real_runtime_explicit_reference_survives_style_fix(tmp_path):
+    import shutil
+    from pathlib import Path
+    from runtime.app import IranRuntime
+
+    shutil.copy(Path(__file__).parents[1] / "config.json", tmp_path)
+    runtime = IranRuntime(tmp_path)
+    try:
+        runtime.handle("موضوع اصلی ما پروژه IRAN است.")
+        answer = runtime.handle("همون قبلی رو ادامه بده")
+        assert any(x in answer for x in ("IRAN", "ایران", "پروژه"))
+    finally:
+        runtime.close()
 
 
 def test_orchestrator_calculator_returns_bare_result_for_conversation():

@@ -244,11 +244,13 @@ class CognitivePipeline:
                     semantic_question=clean(str(getattr(linguistic,"raw_text","") or ""))
                     if semantic_question == clean(text):
                         semantic_answer=str(getattr(semantic_turn,"semantic_answer","") or "")
-                answer,blocked,reason=self.semantic_intelligence.anti_echo(
-                    text,answer,recent_users,semantic_answer)
-                if blocked:
-                    answer_type="SEMANTIC_REPAIR" if semantic_answer else "ANTI_ECHO"
-                    self._emit("anti_echo_guard",{"blocked":True,"reason":reason,"canonical":True})
+                context_transform = answer_type in {"FOLLOW_UP","REFERENCE","CORRECTION","SOCIAL","META","REEXPLAIN","EXAMPLE","STYLE","CONTINUATION","MEMORY_RECALL"}
+                if not context_transform:
+                    answer,blocked,reason=self.semantic_intelligence.anti_echo(
+                        text,answer,recent_users,semantic_answer)
+                    if blocked:
+                        answer_type="SEMANTIC_REPAIR" if semantic_answer else "ANTI_ECHO"
+                        self._emit("anti_echo_guard",{"blocked":True,"reason":reason,"canonical":True})
         except Exception:
             pass
         verification_evidence = (
@@ -266,7 +268,7 @@ class CognitivePipeline:
         )
         context_transform_types = {
             "FOLLOW_UP", "REFERENCE", "CORRECTION", "SOCIAL", "META",
-            "REEXPLAIN", "EXAMPLE", "STYLE", "CONTINUATION"
+            "REEXPLAIN", "EXAMPLE", "STYLE", "CONTINUATION", "MEMORY_RECALL"
         }
         if (not checked.accepted and answer_type in context_transform_types
                 and not checked.contradictions and str(answer).strip()):
@@ -275,6 +277,21 @@ class CognitivePipeline:
             checked.score = max(float(checked.score), .80)
             checked.reasons = list(dict.fromkeys(
                 list(checked.reasons) + ["nonfactual_context_transform"]))
+        # Internal memory/verification acknowledgements are metadata, not
+        # user-facing answers for conversational context transformations.
+        if answer_type in context_transform_types and str(answer).startswith("در حافظه مرتبط با این موضوع ثبت شده"):
+            answer = "باشه؛ همین پیام فعلی رو مبنا می‌گیرم و طبیعی ادامه می‌دم."
+            checked.accepted = True
+            checked.status = "PASS"
+            checked.score = max(float(checked.score), .80)
+        # Internal memory/retrieval acknowledgement must never leak as the
+        # user-facing response to a social/style/context-transform turn.
+        if (answer_type in context_transform_types and
+                str(answer).startswith("در حافظه مرتبط با این موضوع ثبت شده")):
+            answer = "باشه؛ همین پیام فعلی رو مبنا می‌گیرم و طبیعی ادامه می‌دم."
+            checked.accepted = True
+            checked.status = "PASS"
+            checked.score = max(float(checked.score), .80)
         score = min(score, checked.score)
         if not checked.accepted:
             answer = "UNKNOWN: پاسخ تولیدشده بررسی سازگاری را نگذرانده است."
@@ -418,6 +435,17 @@ class CognitivePipeline:
         normalized_social = low.strip(" ؟?!.,،؛")
         if normalized_social == "سلام هستی":
             return self._persist_answer(text, "سلام، آره هستم. بگو از کجا شروع کنیم.", "SOCIAL", .99)
+        # Explicit project-name recall outranks generic identity binding.
+        if "پروژه" in low and "من" in low and any(x in low for x in ("اسم", "نام")) and any(x in low for x in ("چی", "چه")):
+            try:
+                for kind, content, created in self.runtime.memory.search("اسم پروژه من", 40):
+                    match = re.search(r"(?:اسم|نام)\s+پروژه(?:\s+من)?\s+([آ-یA-Za-z0-9_-]+)\s+(?:هست|است|بود)", clean(content), re.I)
+                    if match:
+                        value = clean(match.group(1))
+                        if value:
+                            return self._persist_answer(text, f"اسم پروژه‌ات «{value}» است.", "MEMORY_RECALL", .99, evidence=[{"subject":"پروژه","predicate":"اسم","object":value,"source":"durable_explicit_memory","resolved":True}])
+            except Exception:
+                pass
         if ("آماده" in low and any(x in low for x in ("تست", "امتحان", "شروع"))):
             # Preserve explicit profile facts in a compound social turn before
             # returning the social acknowledgement (e.g. «من سیاوشم ... آماده‌ای؟»).
@@ -438,20 +466,36 @@ class CognitivePipeline:
             except Exception:
                 pass
             return self._persist_answer(text, "آره، آماده‌ام. تست‌ها رو یکی‌یکی بفرست.", "SOCIAL", .99)
-        if any(x in low for x in ("مثل یک دستیار عادی حرف بزن", "مثل دستیار عادی حرف بزن")):
-            return self._persist_answer(text, "حتماً؛ طبیعی و مستقیم باهات حرف می‌زنم.", "STYLE", .99)
-        if any(x in low for x in ("حالم خوب نیست", "حالم بده", "حالم بد است")):
-            return self._persist_answer(
-                text,
-                "متأسفم که امروز حالت خوب نیست. من اینجام؛ اگه دوست داری بگو چی بیشتر اذیتت کرده، یا می‌تونیم فقط یکم معمولی حرف بزنیم.",
-                "SOCIAL",
-                .99,
-            )
+        if foundation_meaning.dialogue_act == "response_style":
+            if "تکرار" in low or "جور دیگه" in low:
+                answer = "باشه؛ جواب بعدی رو متناسب با ادامه همین مکالمه می‌دم و بی‌دلیل حرف قبلی رو تکرار نمی‌کنم."
+            elif "کوتاه" in low:
+                answer = "باشه؛ از اینجا کوتاه و مستقیم جواب می‌دم."
+            else:
+                answer = "حتماً؛ طبیعی و مستقیم باهات حرف می‌زنم."
+            return self._persist_answer(text, answer, "STYLE", .99)
+        emotional_markers = ("حالم خوب نیست", "حالم بده", "حالم بد است", "حوصله ندارم", "باهام حرف بزن", "با من حرف بزن")
+        if foundation_meaning.dialogue_act == "emotional_expression" or any(x in low for x in emotional_markers):
+            previous = clean(getattr(e.state, "last_assistant_answer", ""))
+            primary = "متأسفم که حالت خوب نیست. من اینجام؛ اگه دوست داری بگو چی بیشتر اذیتت کرده، یا می‌تونیم فقط یکم معمولی حرف بزنیم."
+            alternate = "باشه، کنارت می‌مونم. لازم نیست الان چیزی رو حل کنیم؛ هر چی دلت می‌خواد بگو، من گوش می‌دم."
+            answer = alternate if previous == primary or "چی بیشتر اذیتت کرده" in previous else primary
+            return self._persist_answer(text, answer, "SOCIAL", .99, evidence=[])
 
         def activate_topic(topic):
             e.state._push_topic(topic)
             e.state.references["latest"] = topic
             e.state.save(e.state_path)
+
+        # Explicit continuation references the immediately preceding user turn.
+        if low in {"همون قبلی رو ادامه بده", "همان قبلی را ادامه بده"}:
+            try:
+                recent_users = [clean(row[1]) for row in reversed(self.runtime.memory.recent(20)) if isinstance(row,(tuple,list)) and len(row)>=2 and row[0]=="user" and clean(row[1]) != text]
+                previous_user = next((x for x in recent_users if x), "")
+                if previous_user:
+                    return self._persist_answer(text, f"حتماً؛ «{previous_user}» را ادامه می‌دهم.", "REFERENCE", .99)
+            except Exception:
+                pass
 
         # Ordinal history queries are read-only reference lookups. Reuse the
         # canonical ReferenceIntelligence resolver so direct compatibility
@@ -692,6 +736,18 @@ class CognitivePipeline:
                     evidence=goal_evidence,
                 )
 
+        if "پروژه" in low and "من" in low and any(x in low for x in ("اسم", "نام")) and any(x in low for x in ("چی", "چه")):
+            try:
+                rows=self.runtime.memory.search("اسم پروژه من", 40)
+                for kind, content, created in rows:
+                    match=re.search(r"(?:اسم|نام)\s+پروژه(?:\s+من)?\s+([آ-یA-Za-z0-9_-]+)\s+(?:هست|است|بود)", clean(content), re.I)
+                    if match:
+                        value=clean(match.group(1))
+                        if value:
+                            return self._persist_answer(text, f"اسم پروژه‌ات «{value}» است.", "MEMORY_RECALL", .99, evidence=[{"subject":"پروژه","predicate":"اسم","object":value,"source":"durable_explicit_memory","resolved":True}])
+            except Exception:
+                pass
+
         # Semantic intelligence sits under CognitiveSystem and above retrieval.
         # It analyzes structure, extracts explicit facts and resolves semantic
         # references before raw conversation-history similarity is considered.
@@ -845,7 +901,7 @@ class CognitivePipeline:
         if "حافظه" in low and any(x in low for x in ("چیه","چیست","چی ")):
             answer="حافظه در IRAN برای نگه‌داشتن زمینه گفت‌وگو، واقعیت‌های صریح، تجربه‌ها و دانش قابل‌بازیابی استفاده می‌شود؛ هدفش این است که پیام‌هایی مثل «چرا؟» و «ادامه بده» به پیام‌های قبلی وصل بمانند."
             return self._persist_answer(text,answer,"MEMORY",.97)
-        if "گفتم" in low or "حرف قبلی" in low:
+        # Explicit project-name recall stays evidenc        if "گفتم" in low or "حرف قبلی" in low:
             try:
                 for row in reversed(self.runtime.memory.recent(80)):
                     if isinstance(row,(tuple,list)) and len(row)>=3 and row[0]=="user" and clean(row[1])!=text:
@@ -876,6 +932,13 @@ class CognitivePipeline:
             if previous:
                 return self._persist_answer(text, f"موضوع قبلی: «{previous}».", "REFERENCE", .99)
         if any(x in low for x in ("همون موضوع", "همین موضوع")) or low in {"ادامه بده", "همون قبلی", "همونو"}:
+            try:
+                recent_users = [clean(row[1]) for row in reversed(self.runtime.memory.recent(30)) if isinstance(row,(tuple,list)) and len(row)>=2 and row[0]=="user" and clean(row[1]) != text]
+                explicit = next((x for x in recent_users if "پروژه" in x and not any(m in x for m in ("اسم پروژه", "چی بود", "چه بود"))), "")
+                if explicit:
+                    return self._persist_answer(text, f"حتماً؛ «{explicit}» را ادامه می‌دهم.", "REFERENCE", .98)
+            except Exception:
+                pass
             topic = clean(e.state.current_topic)
             return self._persist_answer(text, f"حتماً؛ ادامه را از «{topic}» می‌دهم و همان موضوع را مبنا می‌گیرم." if topic else "موضوع فعالی برای ادامه در حافظه ندارم.", "REFERENCE", .98)
 
