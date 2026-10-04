@@ -566,3 +566,53 @@ def test_real_metrics_snapshot_separates_tool_success_and_failure():
     snapshot = metrics.snapshot()
     assert snapshot["events"] == {"tool": 1, "tool_failed": 1}
     assert "sensitive failure detail" not in repr(snapshot)
+
+
+def test_orchestrator_returns_success_when_telemetry_sinks_fail():
+    from types import SimpleNamespace
+    from core.orchestrator import Orchestrator
+
+    execution_calls = []
+    recorded = []
+
+    registry = SimpleNamespace(
+        get=lambda name: SimpleNamespace(permission="read"),
+        run=lambda name, **kwargs: execution_calls.append((name, kwargs)) or "ok",
+    )
+    event_failure = SimpleNamespace(
+        registry=registry,
+        policy=None,
+        events=SimpleNamespace(
+            emit=lambda event, payload: (_ for _ in ()).throw(
+                RuntimeError("event sink unavailable")
+            )
+        ),
+        metrics=SimpleNamespace(record=recorded.append),
+    )
+
+    assert Orchestrator.run_tool(event_failure, "healthy", value="private") == "ok"
+    assert recorded == ["tool"]
+
+    emitted = []
+    metric_failure = SimpleNamespace(
+        registry=registry,
+        policy=None,
+        events=SimpleNamespace(
+            emit=lambda event, payload: emitted.append((event, payload))
+        ),
+        metrics=SimpleNamespace(
+            record=lambda event: (_ for _ in ()).throw(
+                RuntimeError("metrics sink unavailable")
+            )
+        ),
+    )
+
+    assert Orchestrator.run_tool(metric_failure, "healthy") == "ok"
+    assert emitted == [(
+        "tool_executed",
+        {"tool": "healthy", "ok": True},
+    )]
+    assert execution_calls == [
+        ("healthy", {"value": "private"}),
+        ("healthy", {}),
+    ]
