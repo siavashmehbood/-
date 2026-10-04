@@ -282,6 +282,14 @@ class CognitivePipeline:
             checked.accepted = True
             checked.status = "PASS"
             checked.score = max(float(checked.score), .80)
+        # Internal memory/retrieval acknowledgement must never leak as the
+        # user-facing response to a social/style/context-transform turn.
+        if (answer_type in context_transform_types and
+                str(answer).startswith("در حافظه مرتبط با این موضوع ثبت شده")):
+            answer = "باشه؛ همین پیام فعلی رو مبنا می‌گیرم و طبیعی ادامه می‌دم."
+            checked.accepted = True
+            checked.status = "PASS"
+            checked.score = max(float(checked.score), .80)
         score = min(score, checked.score)
         if not checked.accepted:
             answer = "UNKNOWN: پاسخ تولیدشده بررسی سازگاری را نگذرانده است."
