@@ -57,7 +57,7 @@ class ConversationalUnderstanding:
         if act=="unknown" and any(x in low for x in ("مطمئنی","از کجا فهمیدی","چرا این جواب","تو چی جواب دادی","من چی پرسیدم","بحثمون سر چی بود")):act="meta_conversation"
         if any(x in low for x in ("یعنی چی","یعنی چه","منظورت چیه","منظورت چیست")):act="clarification"
         if act=="unknown" and any(x in low for x in ("اون یکی","کدوم یکی","کدام یکی")):act="clarification"
-        if act=="unknown" and (("تکرار" in low and any(x in low for x in ("نکن","نده","شده"))) or "یه جور دیگه" in low or "یک جور دیگه" in low or ("طبیعی" in low and any(x in low for x in ("حرف","جواب"))) or ("دستیار عادی" in low and any(x in low for x in ("حرف","جواب"))) or ("کوتاه" in low and any(x in low for x in ("جواب","بگو"))):act="response_style"
+        if act=="unknown" and ((("تکرار" in low) and any(x in low for x in ("نکن","نده","شده"))) or ("یه جور دیگه" in low) or ("یک جور دیگه" in low) or (("طبیعی" in low) and any(x in low for x in ("حرف","جواب"))) or (("دستیار عادی" in low) and any(x in low for x in ("حرف","جواب"))) or (("کوتاه" in low) and any(x in low for x in ("جواب","بگو")))):act="response_style"
         if act=="unknown" and any(x in low for x in ("باز کن","ببند","اجرا کن","بنویس","کلیک","اسکرین")):act="tool_request"
         if act=="unknown" and any(x in low for x in ("یاد بگیر","یادگیری","از صفر تا صد یاد","می‌خواهم یاد بگیر","میخوام یاد بگیر")):act="learning_request"
         if act=="unknown" and any(x in low for x in ("واقعیت","اطلاعات","بگو","توضیح بده")) and not any(x in low for x in ("همون","قبلی","ادامه","بیشتر")) and ("؟" not in norm and "?" not in norm):act="information_request"
