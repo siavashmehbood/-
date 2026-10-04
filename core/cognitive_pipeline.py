@@ -418,6 +418,17 @@ class CognitivePipeline:
         normalized_social = low.strip(" ؟?!.,،؛")
         if normalized_social == "سلام هستی":
             return self._persist_answer(text, "سلام، آره هستم. بگو از کجا شروع کنیم.", "SOCIAL", .99)
+        # Explicit project-name recall outranks generic identity binding.
+        if "پروژه" in low and "من" in low and any(x in low for x in ("اسم", "نام")) and any(x in low for x in ("چی", "چه")):
+            try:
+                for kind, content, created in self.runtime.memory.search("اسم پروژه من", 40):
+                    match = re.search(r"(?:اسم|نام)\\s+پروژه(?:\\s+من)?\\s+([آ-یA-Za-z0-9_-]+)\\s+(?:هست|است|بود)", clean(content), re.I)
+                    if match:
+                        value = clean(match.group(1))
+                        if value:
+                            return self._persist_answer(text, f"اسم پروژه‌ات «{value}» است.", "MEMORY_RECALL", .99, evidence=[{"subject":"پروژه","predicate":"اسم","object":value,"source":"durable_explicit_memory","resolved":True}])
+            except Exception:
+                pass
         if ("آماده" in low and any(x in low for x in ("تست", "امتحان", "شروع"))):
             # Preserve explicit profile facts in a compound social turn before
             # returning the social acknowledgement (e.g. «من سیاوشم ... آماده‌ای؟»).
