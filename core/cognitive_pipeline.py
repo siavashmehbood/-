@@ -244,11 +244,13 @@ class CognitivePipeline:
                     semantic_question=clean(str(getattr(linguistic,"raw_text","") or ""))
                     if semantic_question == clean(text):
                         semantic_answer=str(getattr(semantic_turn,"semantic_answer","") or "")
-                answer,blocked,reason=self.semantic_intelligence.anti_echo(
-                    text,answer,recent_users,semantic_answer)
-                if blocked:
-                    answer_type="SEMANTIC_REPAIR" if semantic_answer else "ANTI_ECHO"
-                    self._emit("anti_echo_guard",{"blocked":True,"reason":reason,"canonical":True})
+                context_transform = answer_type in {"FOLLOW_UP","REFERENCE","CORRECTION","SOCIAL","META","REEXPLAIN","EXAMPLE","STYLE","CONTINUATION","MEMORY_RECALL"}
+                if not context_transform:
+                    answer,blocked,reason=self.semantic_intelligence.anti_echo(
+                        text,answer,recent_users,semantic_answer)
+                    if blocked:
+                        answer_type="SEMANTIC_REPAIR" if semantic_answer else "ANTI_ECHO"
+                        self._emit("anti_echo_guard",{"blocked":True,"reason":reason,"canonical":True})
         except Exception:
             pass
         verification_evidence = (
