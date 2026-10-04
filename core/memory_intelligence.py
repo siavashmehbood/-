@@ -147,7 +147,7 @@ class MemoryIntelligence:
             "query": self._norm(query),
             "count": len(candidates),
             "candidates": [x.to_dict() for x in candidates],
-            "selected": [x.to_dict() for x in candidates if x.score >= .42][:int(limit)],
+            "selected": [x.to_dict() for x in candidates if x.score >= .42 and x.relevance >= .15][:int(limit)],
         }
 
     def record_outcome(self, answer, accepted, state=None):
