@@ -429,6 +429,34 @@ class CognitivePipeline:
 
         low = text.lower()
 
+        # Generic meta-conversation reads bounded local conversation state before
+        # retrieval. It never consults long-term memory for "what did we just say?".
+        if foundation_meaning.dialogue_act == "meta_conversation":
+            users=list(getattr(e.state,"recent_user_turns",[]) or [])
+            assistants=list(getattr(e.state,"recent_assistant_turns",[]) or [])
+            prior_users=[clean(x) for x in users if clean(x) and clean(x)!=text]
+            if any(x in low for x in ("آخرین چیزی که گفتم","من چی پرسیدم")):
+                answer=(f"آخرین چیزی که گفتی: «{prior_users[-1]}»." if prior_users else
+                        "هنوز پیام قبلی مشخصی در این گفتگو نداریم.")
+            elif "تو چی جواب دادی" in low:
+                answer=(f"آخرین جواب من: «{assistants[-1]}»." if assistants else
+                        "هنوز جواب قبلی مشخصی ندارم.")
+            elif any(x in low for x in ("قبل از این درباره چی","قبل از این درباره چه","بحثمون سر چی","موضوع قبلی چی")):
+                previous=e.state.topic_stack[-1] if e.state.topic_stack else e.state.current_topic
+                answer=(f"قبل از این درباره «{previous}» حرف می‌زدیم." if previous else
+                        "موضوع قبلی مشخصی در این گفتگو نداریم.")
+            else:
+                answer=(f"موضوع فعلی «{e.state.current_topic}» است." if e.state.current_topic else
+                        "زمینه مشخصی برای ارجاع به جواب قبلی ندارم.")
+            return self._persist_answer(text,answer,"META",.99,evidence=[])
+
+        # Ambiguous ordinal/demonstrative references are clarified rather than guessed.
+        resolution=self.reference_intelligence.resolve(text,e.state,self.runtime.memory.recent(12))
+        if getattr(resolution,"ambiguous",False):
+            return self._persist_answer(
+                text,"منظورت کدام مورد است؟ یک نشانه کوتاه بگو تا اشتباه انتخاب نکنم.",
+                "REFERENCE",.92,evidence=[])
+
         # Human-facing conversational control stays inside the canonical brain.
         # These routes answer the current turn directly; retrieved memory remains
         # context/evidence and is never substituted for the user's present need.
