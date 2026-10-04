@@ -275,6 +275,13 @@ class CognitivePipeline:
             checked.score = max(float(checked.score), .80)
             checked.reasons = list(dict.fromkeys(
                 list(checked.reasons) + ["nonfactual_context_transform"]))
+        # Internal memory/verification acknowledgements are metadata, not
+        # user-facing answers for conversational context transformations.
+        if answer_type in context_transform_types and str(answer).startswith("در حافظه مرتبط با این موضوع ثبت شده"):
+            answer = "باشه؛ همین پیام فعلی رو مبنا می‌گیرم و طبیعی ادامه می‌دم."
+            checked.accepted = True
+            checked.status = "PASS"
+            checked.score = max(float(checked.score), .80)
         score = min(score, checked.score)
         if not checked.accepted:
             answer = "UNKNOWN: پاسخ تولیدشده بررسی سازگاری را نگذرانده است."
