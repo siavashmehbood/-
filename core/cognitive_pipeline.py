@@ -50,6 +50,36 @@ class CognitivePipeline:
         self.last_semantic_turn = None
         self.last_cognitive_cycle = None
 
+    def _local_language_reply(self, text):
+        """Use the subordinate local model only to realize conversational text.
+
+        CognitiveSystem still owns state, memory, evidence, tools and learning.
+        This path is intentionally limited to non-factual follow-ups.
+        """
+        language_engine=getattr(self.runtime,"language_engine",None)
+        if language_engine is None:
+            return ""
+        try:
+            from language_engine import GenerationRequest
+            messages=[{"role":"system","content":
+                "تو فقط لایه بیان فارسی IRAN هستی. کوتاه، طبیعی و مستقیم جواب بده. "
+                "هیچ واقعیت تازه، نام، عدد یا ادعای بیرونی نساز. از زمینه داده‌شده استفاده کن."}]
+            recent=[]
+            users=list(getattr(self.engine.state,"recent_user_turns",[]) or [])[-3:]
+            assistants=list(getattr(self.engine.state,"recent_assistant_turns",[]) or [])[-3:]
+            for i in range(max(len(users),len(assistants))):
+                if i < len(users): recent.append({"role":"user","content":clean(users[i])})
+                if i < len(assistants): recent.append({"role":"assistant","content":clean(assistants[i])})
+            messages.extend(recent)
+            messages.append({"role":"user","content":clean(text)})
+            result=language_engine.generate(GenerationRequest(
+                messages=messages,language="fa",max_tokens=48,temperature=.2,
+                metadata={"purpose":"conversation_realization","authority":"none"}))
+            return clean(result.text)
+        except Exception as exc:
+            self._emit("local_language_fallback",{"error_type":type(exc).__name__,"canonical":True})
+            return ""
+
     def _emit(self, event, data):
         try:
             self.runtime.events.emit(event, data)
@@ -175,13 +205,18 @@ class CognitivePipeline:
         Returns (name, evidence) without guessing or falling back to IRAN identity.
         """
         try:
-            row=self.runtime.memory.conn.execute(
+            rows=self.runtime.memory.conn.execute(
                 "SELECT predicate,value,confidence,source FROM semantic_facts "
                 "WHERE subject='user' AND predicate IN ('works_on','work_on') "
-                "ORDER BY updated_at DESC,id DESC LIMIT 1"
-            ).fetchone()
-            if row:
-                predicate,value,confidence,source=row
+                "ORDER BY updated_at DESC,id DESC LIMIT 50"
+            ).fetchall()
+            # Prefer explicit project entities/names over generic work topics. Older
+            # profile extraction could store phrases such as «بدون API» as work_on;
+            # those must never outrank an actual «پروژه X» fact.
+            rows=sorted(rows, key=lambda row: (
+                0 if clean(row[1]).startswith("project:") else
+                1 if clean(row[1]).startswith("پروژه ") else 2))
+            for predicate,value,confidence,source in rows:
                 target=clean(value)
                 if target.startswith("project:"):
                     named=self.runtime.memory.conn.execute(
@@ -198,11 +233,13 @@ class CognitivePipeline:
                             "subject":"user","predicate":predicate,"object":target,
                             "confidence":confidence,"source":source,"resolved":True,
                         }]
-                if target:
-                    return target,[{
-                        "subject":"user","predicate":predicate,"object":target,
-                        "confidence":confidence,"source":source,"resolved":True,
-                    }]
+                if target.startswith("پروژه "):
+                    name=clean(target[len("پروژه "):])
+                    if name:
+                        return name,[{
+                            "subject":"user","predicate":predicate,"object":target,
+                            "confidence":confidence,"source":source,"resolved":True,
+                        }]
         except Exception:
             pass
         try:
@@ -458,6 +495,11 @@ class CognitivePipeline:
             return self._persist_answer(text, "سلام، آره هستم. بگو از کجا شروع کنیم.", "SOCIAL", .99)
         # Explicit project-name recall outranks generic identity binding.
         if "پروژه" in low and "من" in low and any(x in low for x in ("اسم", "نام")) and any(x in low for x in ("چی", "چه")):
+            value, project_evidence = self._current_user_project_name()
+            if value:
+                return self._persist_answer(
+                    text, f"اسم پروژه‌ات «{value}» است.", "MEMORY_RECALL", .99,
+                    evidence=project_evidence)
             try:
                 for kind, content, created in self.runtime.memory.search("اسم پروژه من", 40):
                     match = re.search(r"(?:اسم|نام)\s+پروژه(?:\s+من)?\s+([آ-یA-Za-z0-9_-]+)\s+(?:هست|است|بود)", clean(content), re.I)
@@ -774,6 +816,20 @@ class CognitivePipeline:
                     .99,
                     evidence=goal_evidence,
                 )
+
+        # Keep practical follow-ups anchored to the active conversational need
+        # instead of letting unrelated durable memory replace the current turn.
+        if is_follow_up(text):
+            recent_context=" ".join(list(getattr(e.state,"recent_user_turns",[]) or [])[-6:])
+            if any(x in recent_context for x in ("خسته","خستگی")):
+                if "پیشنهاد" in low:
+                    return self._persist_answer(
+                        text,"اگه می‌تونی چند دقیقه استراحت کن، کمی آب بخور و بعد ببین انرژی‌ات بهتر می‌شه یا نه.",
+                        "FOLLOW_UP",.95,evidence=[])
+                if any(x in low for x in ("پس الان","حالا چی","چی کار کنم","چه کار کنم")):
+                    return self._persist_answer(
+                        text,"فعلاً یک استراحت کوتاه بکن و کار سنگین رو چند دقیقه کنار بذار؛ بعد دوباره حالت رو بسنج.",
+                        "FOLLOW_UP",.95,evidence=[])
 
         # Semantic intelligence sits under CognitiveSystem and above retrieval.
         # It analyzes structure, extracts explicit facts and resolves semantic

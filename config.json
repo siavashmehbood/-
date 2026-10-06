@@ -146,11 +146,11 @@
     "zero_budget_credentials_allowed": true
   },
   "language_engine": {
-    "enabled": false,
+    "enabled": true,
     "backend": "local_http",
-    "model": "",
-    "endpoint": "http://127.0.0.1:8000/v1/chat/completions",
-    "timeout": 120,
+    "model": "qwen2.5-1.5b-instruct-q4_k_m.gguf",
+    "endpoint": "http://127.0.0.1:18080/v1/chat/completions",
+    "timeout": 20,
     "policy": "CognitiveSystem remains ONE BRAIN; local generation only"
   }
 }

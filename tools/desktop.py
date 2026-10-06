@@ -140,7 +140,27 @@ class WindowsDesktop:
     def maximize(self,hwnd): return self._show(hwnd,3)
     def restore(self,hwnd): return self._show(hwnd,9)
     def focus(self,hwnd):
-        user32=self._require(); return {"hwnd":int(hwnd),"focused":bool(user32.SetForegroundWindow(int(hwnd)))}
+        user32=self._require(); hwnd=int(hwnd)
+        user32.ShowWindow(hwnd,9)
+        # Windows foreground-lock can reject a direct SetForegroundWindow from
+        # an automation worker; fall back to attached input threads below.
+        user32.BringWindowToTop(hwnd); user32.SetForegroundWindow(hwnd)
+        if int(user32.GetForegroundWindow())!=hwnd:
+            try:
+                import ctypes
+                kernel32=ctypes.windll.kernel32
+                current_tid=kernel32.GetCurrentThreadId()
+                foreground=user32.GetForegroundWindow()
+                foreground_tid=user32.GetWindowThreadProcessId(foreground,None) if foreground else 0
+                target_tid=user32.GetWindowThreadProcessId(hwnd,None)
+                if foreground_tid and foreground_tid!=current_tid:user32.AttachThreadInput(current_tid,foreground_tid,True)
+                if target_tid and target_tid!=current_tid:user32.AttachThreadInput(current_tid,target_tid,True)
+                user32.BringWindowToTop(hwnd); user32.SetForegroundWindow(hwnd); user32.SetFocus(hwnd)
+                if target_tid and target_tid!=current_tid:user32.AttachThreadInput(current_tid,target_tid,False)
+                if foreground_tid and foreground_tid!=current_tid:user32.AttachThreadInput(current_tid,foreground_tid,False)
+            except Exception:
+                pass
+        return {"hwnd":hwnd,"focused":int(user32.GetForegroundWindow())==hwnd}
     def uia_set_and_read_text(self,hwnd,text):
         self._require()
         try: from pywinauto import Desktop

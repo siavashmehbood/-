@@ -16,6 +16,9 @@ from pathlib import Path
 from datetime import datetime
 import hashlib
 import json
+import os
+import shutil
+import tempfile
 import time
 
 
@@ -146,12 +149,24 @@ class SoarCognitiveEngine:
             self.kernel = kernel
             self.agent = agent
             loaded = False
-            if self.rules_path.exists():
-                if hasattr(agent, "LoadProductions"):
-                    loaded = bool(agent.LoadProductions(str(self.rules_path)))
-                if not loaded:
-                    result = str(agent.ExecuteCommandLine(f"source {self._cli_symbol(self.rules_path)}"))
-                    loaded = not self._agent_error() and "error" not in result.lower()
+            original_cwd = os.getcwd()
+            try:
+                rules_path = self._native_rules_path()
+                if rules_path.exists():
+                    # SML also tries to restore the process CWD after sourcing.
+                    # If that CWD itself contains Unicode, 9.6.5 reports failure
+                    # even after successfully parsing every production.
+                    os.chdir(rules_path.parent)
+                    if hasattr(agent, "LoadProductions"):
+                        loaded = bool(agent.LoadProductions(str(rules_path)))
+                    if not loaded:
+                        result = str(agent.ExecuteCommandLine(f"source {self._cli_symbol(rules_path)}"))
+                        loaded = not self._agent_error() and "error" not in result.lower()
+            finally:
+                # Native Soar source/load may change the process CWD to the
+                # production directory. Runtime roots are often temporary in
+                # tests, so leaking that CWD can break unrelated later turns.
+                os.chdir(original_cwd)
             if not loaded:
                 raise RuntimeError("soar_productions_not_loaded")
 
@@ -205,6 +220,24 @@ class SoarCognitiveEngine:
                 "error": self.init_error, "decision_owner": "CognitiveSystem",
                 "observable": True,
             })
+
+    def _native_rules_path(self):
+        """Return an ASCII-safe rules path for native Soar on Windows.
+
+        soar-sml 9.6.5 cannot source productions from some Unicode paths.
+        Stage the cognitive directory only when needed so relative Soar sources
+        would keep working without changing the canonical project location.
+        """
+        try:
+            str(self.rules_path).encode("ascii")
+            return self.rules_path
+        except UnicodeEncodeError:
+            stage_root = Path(tempfile.gettempdir()) / "iran_soar_runtime" / "cognitive"
+            stage_root.parent.mkdir(parents=True, exist_ok=True)
+            if stage_root.exists():
+                shutil.rmtree(stage_root)
+            shutil.copytree(self.rules_path.parent, stage_root)
+            return stage_root / self.rules_path.name
 
     def _agent_error(self):
         return bool(self.agent is not None and hasattr(self.agent, "HadError") and self.agent.HadError())

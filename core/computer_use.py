@@ -105,7 +105,7 @@ class ComputerUse:
         if isinstance(result,dict):
             for key in ("exists","running","spoken","focused","written","opened"):
                 if key in result:return {"verified":bool(result[key]),"reason":key}
-        if tool in {"system_info","find_file","list_running_apps","list_windows","active_window","clipboard_read"}:
+        if tool in {"system_info","find_file","list_running_apps","list_windows","active_window","clipboard_read","uia_document_text","uia_text"}:
             return {"verified":result is not None,"reason":"observable_result"}
         return {"verified":False,"reason":"no_verifier"}
     def _failure(self,goal,tool,args,reason,permission="unknown"):
