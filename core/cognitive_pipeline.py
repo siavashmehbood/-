@@ -1140,6 +1140,13 @@ class CognitivePipeline:
             tool = self.runtime.orchestrator._auto_tool(text)
             if tool is not None:
                 self.runtime.memory.add("tool_result", tool, .78)
+                tool_name, tool_args = self.runtime.orchestrator.router.choose(text)
+                if tool_name == "calculate":
+                    return self._persist_answer(text, tool, "DIRECT_FACT", .99, evidence=[{
+                        "subject": tool_args.get("expression", text),
+                        "predicate": "calculation_result", "object": str(tool),
+                        "source": "local_calculate_tool", "resolved": True,
+                    }])
                 self._emit("response_generated", {"goal": text, "route": "tool", "mode": "TOOL", "verified": True})
                 return tool
         except Exception:
