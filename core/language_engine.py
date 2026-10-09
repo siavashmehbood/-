@@ -41,7 +41,10 @@ class PersianLanguageEngine:
     def _goal(self,t): return self.advanced.goal(t)
     def _entities(self,t): return [x.text for x in self.advanced.entities(t) if x.kind not in ('number',)]
     def _temporal(self,t):
-        return [x for x in ('امروز','دیروز','فردا','پس‌فردا','هفته بعد','ماه بعد','الان','همین الان','بعداً','قبلاً','صبح','شب','عصر') if x in t]
+        # Longest expressions consume their span; «پس‌فردا» is not also «فردا».
+        pattern = r'(?<!\w)(?:پس[‌ ]فردا|همین\s+الان|هفته\s+بعد|ماه\s+بعد|امروز|دیروز|فردا|الان|بعداً|قبلاً|صبح|شب|عصر)(?!\w)'
+        found = [m.group(0) for m in re.finditer(pattern, t)]
+        return list(dict.fromkeys('پس‌فردا' if x == 'پس فردا' else x for x in found))
     def _numbers(self,t): return re.findall(r'(?<!\w)\d+(?:[.,]\d+)?(?:\s*(?:درصد|ثانیه|دقیقه|ساعت|روز|ماه|سال|متر|گیگ|مگ))?',t)
     def _question_type(self,t):
         low=t.lower()
@@ -91,7 +94,7 @@ class PersianLanguageEngine:
     def temporal_context(self,text,now=None):
         now=now or datetime.now(); out={'raw':self._temporal(text),'resolved':[]}
         for key,value in {'امروز':now,'دیروز':now-timedelta(days=1),'فردا':now+timedelta(days=1),'پس‌فردا':now+timedelta(days=2)}.items():
-            if key in self.normalize(text): out['resolved'].append({'expression':key,'iso':value.isoformat(timespec='minutes')})
+            if key in out['raw']: out['resolved'].append({'expression':key,'iso':value.isoformat(timespec='minutes')})
         return out
     def contradiction(self,a,b):
         na=bool(self.detect_negation(a)); nb=bool(self.detect_negation(b)); sim=self.semantic_score(a,b)

@@ -36,7 +36,13 @@ def recover(root):
             # Restore SQLite through its backup API, including WAL databases.
             # contextlib.closing is required here: sqlite3.Connection.__exit__
             # commits/rolls back but does not close the OS file handle on Windows.
-            with closing(sqlite3.connect(root / 'data/approval_memory.sqlite')) as source:
+            backup_path = root / 'data/approval_memory.sqlite'
+            if not backup_path.is_file():
+                raise RuntimeError('Approval recovery backup is missing; refusing to overwrite memory')
+            # Read-only opening must never create an empty source database.
+            with closing(sqlite3.connect(backup_path.resolve().as_uri() + '?mode=ro', uri=True)) as source:
+                if source.execute('PRAGMA integrity_check').fetchone() != ('ok',):
+                    raise RuntimeError('Approval recovery backup is corrupt')
                 with closing(sqlite3.connect(root / state['memory'])) as target:
                     source.backup(target)
             for name, value in state['files'].items():
@@ -99,4 +105,5 @@ def approval_checkpoint(runtime, proposal_ids):
         raise
     else:
         journal.unlink()
+        journal.with_suffix('.json.bak').unlink(missing_ok=True)
         (root / 'data/approval_memory.sqlite').unlink(missing_ok=True)
