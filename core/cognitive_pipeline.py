@@ -386,6 +386,19 @@ class CognitivePipeline:
             pass
         return answer
 
+    def _active_goal_project(self, text=""):
+        """Bind goal pronouns/history to a named entity already in conversation."""
+        state = self.engine.state
+        projects = sorted(state.topic_goals, key=len, reverse=True)
+        candidates = [clean(text), clean(state.current_topic)]
+        candidates.extend(reversed(list(getattr(state, "recent_user_turns", []) or [])))
+        for candidate in candidates:
+            matches = [project for project in projects
+                       if re.search(r"(?<!\\w)" + re.escape(project) + r"(?!\\w)", clean(candidate))]
+            if len(matches) == 1:
+                return matches[0]
+        return ""
+
     def _preflight_conversation_route(self, text):
         """Canonical state transitions that must happen before reasoning/verification."""
         import re
@@ -426,8 +439,10 @@ class CognitivePipeline:
         if goal_correction:
             goal = clean(goal_correction.group(1)).strip(" ،,:؛")
             if goal:
-                state.set_topic_goal("دانا", goal)
-                changed = True
+                project = self._active_goal_project()
+                if project:
+                    state.set_topic_goal(project, goal)
+                    changed = True
         m = re.match(r"^موضوع\s+اصلی\s+ما\s+(.+?)\s+است[.!؟?]*$", clean(text))
         if m:
             topic = clean(m.group(1)).strip(" ،,:؛")
@@ -656,11 +671,12 @@ class CognitivePipeline:
             answer = "پروژه IRAN یک معماری شناختی مستقل و آفلاین برای حافظه، استدلال، برنامه‌ریزی، یادگیری و راستی‌آزمایی است."
             return self._persist_answer(text, answer, "PROJECT_FACT", .99)
         if "هدف اصلاح شد" in low:
-            goal = e.state.topic_goals.get("دانا", "")
+            project = self._active_goal_project()
+            goal = e.state.topic_goals.get(project, "")
             answer = (
-                f"بله؛ هدف اصلاح‌شده «دانا» اکنون «{goal}» است."
+                f"بله؛ هدف اصلاح‌شده «{project}» اکنون «{goal}» است."
                 if goal
-                else "هدف ثبت‌شده‌ای برای «دانا» پیدا نکردم."
+                else "هدف کدام پروژه را می‌گویی؟"
             )
             return self._persist_answer(text, answer, "MEMORY_RECALL", .99)
         if "این پروژه آفلاینه" in low or "این پروژه آفلاین است" in low:
@@ -709,21 +725,22 @@ class CognitivePipeline:
 
         # Goal versions are read-only history queries; the latest accepted goal
         # remains effective while older versions stay available across restart.
-        goal_versions = e.state.goal_versions("دانا")
+        goal_project = self._active_goal_project(text)
+        goal_versions = e.state.goal_versions(goal_project)
         asks_first_goal = bool(
             re.search(r"نسخه(?:ٔ|‌)?\s*اول\s+هدف|هدف.*نسخه(?:ٔ|‌)?\s*اول", low)
         )
         asks_latest_goal = "نسخه جدید" in low and ("هدف" in low or "برگرد" in low)
         if asks_first_goal:
             answer = (
-                f"نسخه اول هدف «دانا»: «{goal_versions[0]}»."
+                f"نسخه اول هدف «{goal_project}»: «{goal_versions[0]}»."
                 if goal_versions
-                else "نسخه‌ای برای هدف «دانا» در حافظه ثبت نشده است."
+                else "برای کدام پروژه نسخه هدف را می‌خواهی؟"
             )
             return self._persist_answer(text, answer, "MEMORY_RECALL", .99)
         if asks_latest_goal:
             answer = (
-                f"نسخه جدید هدف «دانا»: «{goal_versions[-1]}»."
+                f"نسخه جدید هدف «{goal_project}»: «{goal_versions[-1]}»."
                 if goal_versions
                 else "نسخه‌ای برای هدف «دانا» در حافظه ثبت نشده است."
             )
@@ -795,27 +812,6 @@ class CognitivePipeline:
             return self._persist_answer(
                 text, answer, "MEMORY_RECALL", .99, evidence=project_evidence
             )
-
-        if "هدف دانا چی بود" in low or "هدفش چی بود" in low:
-            goal = e.state.topic_goals.get("دانا", "")
-            if not goal:
-                goal = next((f.get("object", "") for f in self.runtime.user_model.current_profile(limit=30)
-                             if f.get("predicate") == "goal"), "")
-            if goal:
-                goal_evidence = [{
-                    "subject": "دانا",
-                    "predicate": "هدف",
-                    "object": goal,
-                    "source": "conversation_state",
-                    "resolved": True,
-                }]
-                return self._persist_answer(
-                    text,
-                    f"هدف ثبت‌شده برای «دانا»: «{goal}».",
-                    "MEMORY_RECALL",
-                    .99,
-                    evidence=goal_evidence,
-                )
 
         # Keep practical follow-ups anchored to the active conversational need
         # instead of letting unrelated durable memory replace the current turn.
