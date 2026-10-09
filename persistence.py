@@ -48,8 +48,32 @@ def load_json_with_backup(path, default):
 # Short cross-thread/process transactions; never hold a queue lock over network I/O.
 from contextlib import contextmanager
 import threading
+import time
 _LOCKS = {}
 _LOCKS_GUARD = threading.Lock()
+_HELD_LOCKS = threading.local()
+
+
+def _initialize_lock_file(path):
+    """Publish the marker once; contenders never write before acquiring it."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    for _ in range(200):
+        try:
+            with path.open('xb', buffering=0) as marker:
+                marker.write(b'0')
+                os.fsync(marker.fileno())
+            return
+        except FileExistsError:
+            try:
+                if path.stat().st_size >= 1:
+                    return
+            except FileNotFoundError:
+                pass
+            # A creator may still be publishing the byte. Do not append to its
+            # file: Windows denies writes when another process locks byte zero.
+            time.sleep(.005)
+    raise TimeoutError('Lock marker was not initialized: ' + str(path))
+
 
 @contextmanager
 def file_lock(path):
@@ -57,11 +81,17 @@ def file_lock(path):
     with _LOCKS_GUARD:
         lock = _LOCKS.setdefault(str(path), threading.RLock())
     with lock:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with path.open('a+b') as handle:
-            handle.seek(0, 2)
-            if handle.tell() == 0:
-                handle.write(b'0'); handle.flush()
+        held = getattr(_HELD_LOCKS, 'paths', None)
+        if held is None:
+            held = _HELD_LOCKS.paths = set()
+        key = str(path)
+        if key in held:
+            # RLock promises same-thread reentry; a second OS handle would
+            # deadlock on flock or conflict with our own Windows byte lock.
+            yield
+            return
+        _initialize_lock_file(path)
+        with path.open('r+b', buffering=0) as handle:
             handle.seek(0)
             if os.name == 'nt':
                 import msvcrt
@@ -69,12 +99,15 @@ def file_lock(path):
             else:
                 import fcntl
                 fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            held.add(key)
             try:
                 yield
             finally:
+                held.remove(key)
                 handle.seek(0)
                 if os.name == 'nt': msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
                 else: fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
 
 @contextmanager
 def json_transaction(path, default):
@@ -124,13 +157,9 @@ def acquire_runtime_ownership(path):
     PID files cannot strand a queue. This is separate from short queue locks.
     """
     path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    handle = path.open('a+b')
+    _initialize_lock_file(path)
+    handle = path.open('r+b', buffering=0)
     try:
-        handle.seek(0, 2)
-        if handle.tell() == 0:
-            handle.write(b'0')
-            handle.flush()
         handle.seek(0)
         if os.name == 'nt':
             import msvcrt
