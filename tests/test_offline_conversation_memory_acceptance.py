@@ -130,3 +130,30 @@ def test_explicit_project_correction_selects_named_project_and_keeps_history(tmp
         assert "فروش کتاب" in restored.handle("هدف دانا چی بود؟")
     finally:
         restored.close()
+
+
+def test_name_correction_history_and_unfinished_question_survive_restart(tmp_path):
+    config = json.loads((Path(__file__).parents[1]/"config.json").read_text(encoding="utf-8-sig"))
+    config["language_engine"]["enabled"] = False
+    (tmp_path/"config.json").write_text(json.dumps(config), encoding="utf-8")
+    runtime = IranRuntime(tmp_path)
+    try:
+        runtime.handle("اسم من سامان است")
+        runtime.handle("نه، اسم من سیاوش است")
+        assert "سیاوش" in runtime.handle("اسم من چیه؟")
+        runtime.handle("من خسته‌ام")
+        assert "سیاوش" in runtime.handle("اسم من چیه؟")
+        assert "سامان" in runtime.handle("قبلاً اسم من چی ثبت شده بود؟")
+        question = "مقدار دقیق فروش ماه آینده اطلس چقدر است؟"
+        answer = runtime.handle(question)
+        assert answer.startswith("UNKNOWN"), answer
+        assert question in runtime.dialogue.state.unresolved_questions
+    finally:
+        runtime.close()
+    restored = IranRuntime(tmp_path)
+    try:
+        assert "سیاوش" in restored.handle("اسم من چیه؟")
+        assert "سامان" in restored.handle("قبلاً اسم من چی ثبت شده بود؟")
+        assert question in restored.dialogue.state.unresolved_questions
+    finally:
+        restored.close()
