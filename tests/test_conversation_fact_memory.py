@@ -18,11 +18,12 @@ class ConversationFactMemoryRegression(unittest.TestCase):
     def runtime(self):
         root = Path(tempfile.mkdtemp(prefix="iran_fact_memory_"))
         shutil.copy(SRC / "config.json", root / "config.json")
-        shutil.copytree(SRC / "data", root / "data")
+        (root / "data").mkdir()
         (root / "logs").mkdir(exist_ok=True)
         for name in ("conversation_state.json", "conversation_events.json"):
             (root / "data" / name).unlink(missing_ok=True)
         cfg = json.loads((root / "config.json").read_text(encoding="utf-8-sig"))
+        cfg["language_engine"]["enabled"] = False
         cfg["memory"]["db"] = "data/test.db"
         cfg["runtime"]["event_log"] = "logs/events.jsonl"
         cfg["runtime"]["goals"] = "data/goals.json"
