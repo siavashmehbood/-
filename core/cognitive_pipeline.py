@@ -261,7 +261,7 @@ class CognitivePipeline:
         if "short" not in styles or answer_type not in {"SOCIAL", "FOLLOW_UP", "REEXPLAIN", "EXAMPLE", "CONTINUATION"}:
             return answer
         # Keep complete sentences and do not truncate facts or multi-part answers.
-        sentences = re.split(r"(?<=[.!؟])\\s+|[؛\\n]+", str(answer))
+        sentences = re.split(r"(?<=[.!؟])\s+|[؛\n]+", str(answer))
         return sentences[0].strip() if sentences else answer
 
     def _persist_answer(self, text, answer, answer_type="DIRECT_FACT", score=.95, evidence=None):
@@ -414,16 +414,16 @@ class CognitivePipeline:
             rendered = previous
             for term, (plain, _) in vocabulary.items():
                 rendered = rendered.replace(term, plain)
-            sentences = re.split(r"(?<=[.!؟])\\s+|[؛\\n]+", rendered)
+            sentences = re.split(r"(?<=[.!؟])\s+|[؛\n]+", rendered)
             if len(sentences) > 1:
                 rendered = sentences[0]
             if rendered == previous:
                 return "کدام واژه یا بخش این جواب را ساده‌تر بگویم؟"
             return rendered
         details = [f"{term}: {meaning}." for term, (_, meaning) in vocabulary.items()
-                   if re.search(r"(?<!\\w)" + re.escape(term) + r"(?!\\w)", previous)]
+                   if re.search(r"(?<!\w)" + re.escape(term) + r"(?!\w)", previous)]
         if details:
-            return previous + "\\n" + "\\n".join(details)
+            return previous + "\n" + "\n".join(details)
         return "برای توضیح دقیق‌تر، کدام بخش جواب قبلی را می‌خواهی باز کنم؟"
 
     def _active_goal_project(self, text=""):
@@ -435,7 +435,7 @@ class CognitivePipeline:
         candidates.append(clean(state.current_topic))
         for candidate in candidates:
             matches = [project for project in projects
-                       if re.search(r"(?<!\\w)" + re.escape(project) + r"(?!\\w)", clean(candidate))]
+                       if re.search(r"(?<!\w)" + re.escape(project) + r"(?!\w)", clean(candidate))]
             if len(matches) == 1:
                 return matches[0]
         return ""
