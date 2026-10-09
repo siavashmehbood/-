@@ -386,6 +386,37 @@ class CognitivePipeline:
             pass
         return answer
 
+    def _reexpress_previous(self, mode):
+        """Transform only the preceding answer; never retrieve unrelated user facts."""
+        previous = clean(self.engine.state.last_assistant_answer)
+        if not previous or previous.startswith("UNKNOWN"):
+            return "کدام بخش را توضیح بدهم؟ یک موضوع یا جمله مشخص بگو."
+        # A local vocabulary supplies meanings, not new claims about the user.
+        vocabulary = {
+            "معماری شناختی": ("سیستم فکر و تصمیم‌گیری", "بخش‌های فهم، حافظه و تصمیم‌گیری در یک مسیر هماهنگ کار می‌کنند"),
+            "استدلال": ("نتیجه‌گیری از اطلاعات", "از اطلاعات موجود نتیجه گرفته می‌شود؛ نتیجه بدون شاهد قطعی نیست"),
+            "برنامه‌ریزی": ("مرتب‌کردن کارها", "هدف به گام‌های کوچک‌تر تقسیم می‌شود و ترتیب آن‌ها مشخص می‌شود"),
+            "راستی‌آزمایی": ("بررسی درستی پاسخ", "پاسخ با شواهد سنجیده می‌شود و کمبود اطلاعات باید روشن بماند"),
+            "حافظه": ("نگهداری اطلاعات", "اطلاعات قبلی نگه داشته می‌شود و بخش مرتبط با سؤال دوباره استفاده می‌شود"),
+            "یادگیری": ("بهترشدن با تجربه", "تجربه و بازخورد می‌تواند رفتار بعدی را بهتر کند؛ پیشنهاد هنوز به معنی اعمال دانش نیست"),
+            "آفلاین": ("بدون نیاز به اینترنت", "برای این بخش ارتباط اینترنتی لازم نیست"),
+        }
+        if mode == "simple":
+            rendered = previous
+            for term, (plain, _) in vocabulary.items():
+                rendered = rendered.replace(term, plain)
+            sentences = re.split(r"(?<=[.!؟])\\s+|[؛\\n]+", rendered)
+            if len(sentences) > 1:
+                rendered = sentences[0]
+            if rendered == previous:
+                return "کدام واژه یا بخش این جواب نامفهوم بود؟"
+            return rendered
+        details = [f"{term}: {meaning}." for term, (_, meaning) in vocabulary.items()
+                   if re.search(r"(?<!\\w)" + re.escape(term) + r"(?!\\w)", previous)]
+        if details:
+            return "\\n".join(details)
+        return "برای توضیح دقیق‌تر، کدام بخش جواب قبلی را می‌خواهی باز کنم؟"
+
     def _active_goal_project(self, text=""):
         """Bind goal pronouns/history to a named entity already in conversation."""
         state = self.engine.state
@@ -481,6 +512,17 @@ class CognitivePipeline:
         self.conversation_foundation.ingest(foundation_meaning, foundation_parsed)
 
         low = text.lower()
+
+        styles = e.understanding.style_request(text)
+        immediate_transform = (
+            foundation_meaning.dialogue_act in {"simplify", "length_control", "response_style"}
+            and any(marker in low for marker in ("بگو", "توضیح"))
+            and not any(marker in low for marker in ("از این به بعد", "از حالا به بعد"))
+        )
+        if immediate_transform and any(style in styles for style in ("simple", "long")):
+            e.state.set_style(styles, e.understanding.temporal_scope(text))
+            mode = "simple" if "simple" in styles else "long"
+            return self._persist_answer(text, self._reexpress_previous(mode), "REEXPLAIN", .95, evidence=[])
 
         # Generic meta-conversation reads bounded local conversation state before
         # retrieval. It never consults long-term memory for "what did we just say?".
