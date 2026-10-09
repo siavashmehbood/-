@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+from contextlib import contextmanager
 from pathlib import Path
 from threading import RLock
 from persistence import atomic_write_json
@@ -14,6 +15,7 @@ class InternetAccessManager:
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = RLock()
+        self.generation = 0
         self.enabled = False
         self.mode = "off"
         self.failure_reason = None
@@ -45,10 +47,11 @@ class InternetAccessManager:
         with self._lock:
             return {"enabled": self.enabled, "mode": self.mode,
                     "scope": "project", "learning_approval_separate": True,
-                    "failure_reason": self.failure_reason}
+                    "failure_reason": self.failure_reason, "generation": self.generation}
 
     def _set_enabled(self, enabled):
         with self._lock:
+            self.generation += 1
             self.enabled, self.mode = enabled, 'on' if enabled else 'off'
             try:
                 self._save()
@@ -64,6 +67,16 @@ class InternetAccessManager:
 
     def disable(self):
         return self._set_enabled(False)
+
+    @contextmanager
+    def commit_permission(self, generation):
+        """Serialize a short result commit against permission revocation."""
+        with self._lock:
+            if not self.enabled:
+                raise PermissionError("internet_off")
+            if generation != self.generation:
+                raise PermissionError("internet_permission_changed")
+            yield
 
     def require(self):
         with self._lock:

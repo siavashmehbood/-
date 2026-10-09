@@ -94,3 +94,27 @@ def test_colloquial_ordinal_history_queries_use_canonical_topic_order(tmp_path):
         assert runtime.dialogue.state.current_topic == "معماری"
     finally:
         runtime.close()
+
+
+def test_goal_correction_and_versions_bind_to_other_project(tmp_path):
+    config = json.loads((Path(__file__).parents[1] / "config.json").read_text(encoding="utf-8-sig"))
+    config["language_engine"]["enabled"] = False
+    (tmp_path / "config.json").write_text(json.dumps(config), encoding="utf-8")
+    runtime = IranRuntime(tmp_path)
+    try:
+        runtime.handle("هدف دانا فروش کتاب است")
+        runtime.handle("هدف اطلس آموزش است")
+        assert "آموزش" in runtime.handle("هدف اطلس چی بود؟")
+        runtime.handle("نه، هدفش آموزش نبود، پژوهش بود")
+        assert runtime.dialogue.state.topic_goals["اطلس"] == "پژوهش"
+        assert runtime.dialogue.state.topic_goals["دانا"] == "فروش کتاب"
+        assert "آموزش" in runtime.handle("نسخه اول هدف چی بود؟")
+        assert "پژوهش" in runtime.handle("به نسخه جدید برگرد")
+    finally:
+        runtime.close()
+    restored = IranRuntime(tmp_path)
+    try:
+        assert "پژوهش" in restored.handle("هدف اطلس چی بود؟")
+        assert "فروش کتاب" in restored.handle("هدف دانا چی بود؟")
+    finally:
+        restored.close()

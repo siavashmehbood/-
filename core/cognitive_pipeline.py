@@ -256,7 +256,16 @@ class CognitivePipeline:
             pass
         return "",[]
 
+    def _apply_conversation_style(self, answer, answer_type):
+        styles = self.engine.state.response_style
+        if "short" not in styles or answer_type not in {"SOCIAL", "FOLLOW_UP", "REEXPLAIN", "EXAMPLE", "CONTINUATION"}:
+            return answer
+        # Keep complete sentences and do not truncate facts or multi-part answers.
+        sentences = re.split(r"(?<=[.!؟])\s+|[؛\n]+", str(answer))
+        return sentences[0].strip() if sentences else answer
+
     def _persist_answer(self, text, answer, answer_type="DIRECT_FACT", score=.95, evidence=None):
+        answer = self._apply_conversation_style(answer, answer_type)
         # A raw user turn or a near-copy of the question is never accepted as a
         # final answer merely because retrieval found similar text.
         try:
@@ -386,6 +395,51 @@ class CognitivePipeline:
             pass
         return answer
 
+    def _reexpress_previous(self, mode):
+        """Transform only the preceding answer; never retrieve unrelated user facts."""
+        previous = clean(self.engine.state.last_assistant_answer)
+        if not previous or previous.startswith("UNKNOWN"):
+            return "کدام بخش را ساده‌تر بگویم؟ یک موضوع یا جمله مشخص بگو." if mode == "simple" else "کدام بخش را توضیح بدهم؟ یک موضوع یا جمله مشخص بگو."
+        # A local vocabulary supplies meanings, not new claims about the user.
+        vocabulary = {
+            "معماری شناختی": ("سیستم فکر و تصمیم‌گیری", "بخش‌های فهم، حافظه و تصمیم‌گیری در یک مسیر هماهنگ کار می‌کنند"),
+            "استدلال": ("نتیجه‌گیری از اطلاعات", "از اطلاعات موجود نتیجه گرفته می‌شود؛ نتیجه بدون شاهد قطعی نیست"),
+            "برنامه‌ریزی": ("مرتب‌کردن کارها", "هدف به گام‌های کوچک‌تر تقسیم می‌شود و ترتیب آن‌ها مشخص می‌شود"),
+            "راستی‌آزمایی": ("بررسی درستی پاسخ", "پاسخ با شواهد سنجیده می‌شود و کمبود اطلاعات باید روشن بماند"),
+            "حافظه": ("نگهداری اطلاعات", "اطلاعات قبلی نگه داشته می‌شود و بخش مرتبط با سؤال دوباره استفاده می‌شود"),
+            "یادگیری": ("بهترشدن با تجربه", "تجربه و بازخورد می‌تواند رفتار بعدی را بهتر کند؛ پیشنهاد هنوز به معنی اعمال دانش نیست"),
+            "آفلاین": ("بدون نیاز به اینترنت", "برای این بخش ارتباط اینترنتی لازم نیست"),
+        }
+        if mode == "simple":
+            rendered = previous
+            for term, (plain, _) in vocabulary.items():
+                rendered = rendered.replace(term, plain)
+            sentences = re.split(r"(?<=[.!؟])\s+|[؛\n]+", rendered)
+            if len(sentences) > 1:
+                rendered = sentences[0]
+            if rendered == previous:
+                return "کدام واژه یا بخش این جواب را ساده‌تر بگویم؟"
+            return rendered
+        details = [f"{term}: {meaning}." for term, (_, meaning) in vocabulary.items()
+                   if re.search(r"(?<!\w)" + re.escape(term) + r"(?!\w)", previous)]
+        if details:
+            return previous + "\n" + "\n".join(details)
+        return "برای توضیح دقیق‌تر، کدام بخش جواب قبلی را می‌خواهی باز کنم؟"
+
+    def _active_goal_project(self, text=""):
+        """Bind goal pronouns/history to a named entity already in conversation."""
+        state = self.engine.state
+        projects = sorted(state.topic_goals, key=len, reverse=True)
+        candidates = [clean(text), clean(state.last_user_message)]
+        candidates.extend(reversed(list(getattr(state, "recent_user_turns", []) or [])))
+        candidates.append(clean(state.current_topic))
+        for candidate in candidates:
+            matches = [project for project in projects
+                       if re.search(r"(?<!\w)" + re.escape(project) + r"(?!\w)", clean(candidate))]
+            if len(matches) == 1:
+                return matches[0]
+        return ""
+
     def _preflight_conversation_route(self, text):
         """Canonical state transitions that must happen before reasoning/verification."""
         import re
@@ -426,8 +480,10 @@ class CognitivePipeline:
         if goal_correction:
             goal = clean(goal_correction.group(1)).strip(" ،,:؛")
             if goal:
-                state.set_topic_goal("دانا", goal)
-                changed = True
+                project = self._active_goal_project()
+                if project:
+                    state.set_topic_goal(project, goal)
+                    changed = True
         m = re.match(r"^موضوع\s+اصلی\s+ما\s+(.+?)\s+است[.!؟?]*$", clean(text))
         if m:
             topic = clean(m.group(1)).strip(" ،,:؛")
@@ -465,6 +521,17 @@ class CognitivePipeline:
         self.conversation_foundation.ingest(foundation_meaning, foundation_parsed)
 
         low = text.lower()
+
+        styles = e.understanding.style_request(text)
+        immediate_transform = (
+            foundation_meaning.dialogue_act in {"simplify", "length_control", "response_style"}
+            and any(marker in low for marker in ("بگو", "توضیح"))
+            and not any(marker in low for marker in ("از این به بعد", "از حالا به بعد"))
+        )
+        if immediate_transform and any(style in styles for style in ("simple", "long")):
+            e.state.set_style(styles, e.understanding.temporal_scope(text))
+            mode = "simple" if "simple" in styles else "long"
+            return self._persist_answer(text, self._reexpress_previous(mode), "REEXPLAIN", .95, evidence=[])
 
         # Generic meta-conversation reads bounded local conversation state before
         # retrieval. It never consults long-term memory for "what did we just say?".
@@ -656,11 +723,12 @@ class CognitivePipeline:
             answer = "پروژه IRAN یک معماری شناختی مستقل و آفلاین برای حافظه، استدلال، برنامه‌ریزی، یادگیری و راستی‌آزمایی است."
             return self._persist_answer(text, answer, "PROJECT_FACT", .99)
         if "هدف اصلاح شد" in low:
-            goal = e.state.topic_goals.get("دانا", "")
+            project = self._active_goal_project()
+            goal = e.state.topic_goals.get(project, "")
             answer = (
-                f"بله؛ هدف اصلاح‌شده «دانا» اکنون «{goal}» است."
+                f"بله؛ هدف اصلاح‌شده «{project}» اکنون «{goal}» است."
                 if goal
-                else "هدف ثبت‌شده‌ای برای «دانا» پیدا نکردم."
+                else "هدف کدام پروژه را می‌گویی؟"
             )
             return self._persist_answer(text, answer, "MEMORY_RECALL", .99)
         if "این پروژه آفلاینه" in low or "این پروژه آفلاین است" in low:
@@ -709,21 +777,22 @@ class CognitivePipeline:
 
         # Goal versions are read-only history queries; the latest accepted goal
         # remains effective while older versions stay available across restart.
-        goal_versions = e.state.goal_versions("دانا")
+        goal_project = self._active_goal_project(text)
+        goal_versions = e.state.goal_versions(goal_project)
         asks_first_goal = bool(
             re.search(r"نسخه(?:ٔ|‌)?\s*اول\s+هدف|هدف.*نسخه(?:ٔ|‌)?\s*اول", low)
         )
         asks_latest_goal = "نسخه جدید" in low and ("هدف" in low or "برگرد" in low)
         if asks_first_goal:
             answer = (
-                f"نسخه اول هدف «دانا»: «{goal_versions[0]}»."
+                f"نسخه اول هدف «{goal_project}»: «{goal_versions[0]}»."
                 if goal_versions
-                else "نسخه‌ای برای هدف «دانا» در حافظه ثبت نشده است."
+                else "برای کدام پروژه نسخه هدف را می‌خواهی؟"
             )
             return self._persist_answer(text, answer, "MEMORY_RECALL", .99)
         if asks_latest_goal:
             answer = (
-                f"نسخه جدید هدف «دانا»: «{goal_versions[-1]}»."
+                f"نسخه جدید هدف «{goal_project}»: «{goal_versions[-1]}»."
                 if goal_versions
                 else "نسخه‌ای برای هدف «دانا» در حافظه ثبت نشده است."
             )
@@ -795,27 +864,6 @@ class CognitivePipeline:
             return self._persist_answer(
                 text, answer, "MEMORY_RECALL", .99, evidence=project_evidence
             )
-
-        if "هدف دانا چی بود" in low or "هدفش چی بود" in low:
-            goal = e.state.topic_goals.get("دانا", "")
-            if not goal:
-                goal = next((f.get("object", "") for f in self.runtime.user_model.current_profile(limit=30)
-                             if f.get("predicate") == "goal"), "")
-            if goal:
-                goal_evidence = [{
-                    "subject": "دانا",
-                    "predicate": "هدف",
-                    "object": goal,
-                    "source": "conversation_state",
-                    "resolved": True,
-                }]
-                return self._persist_answer(
-                    text,
-                    f"هدف ثبت‌شده برای «دانا»: «{goal}».",
-                    "MEMORY_RECALL",
-                    .99,
-                    evidence=goal_evidence,
-                )
 
         # Keep practical follow-ups anchored to the active conversational need
         # instead of letting unrelated durable memory replace the current turn.
@@ -1092,6 +1140,13 @@ class CognitivePipeline:
             tool = self.runtime.orchestrator._auto_tool(text)
             if tool is not None:
                 self.runtime.memory.add("tool_result", tool, .78)
+                tool_name, tool_args = self.runtime.orchestrator.router.choose(text)
+                if tool_name == "calculate":
+                    return self._persist_answer(text, tool, "DIRECT_FACT", .99, evidence=[{
+                        "subject": tool_args.get("expression", text),
+                        "predicate": "calculation_result", "object": str(tool),
+                        "source": "local_calculate_tool", "resolved": True,
+                    }])
                 self._emit("response_generated", {"goal": text, "route": "tool", "mode": "TOOL", "verified": True})
                 return tool
         except Exception:
@@ -1318,6 +1373,9 @@ class CognitivePipeline:
                 synthesis = None
         if not answer:
             answer = e._direct_answer(context)
+
+        # The final realization obeys the same stored style as early routes.
+        answer = self._apply_conversation_style(answer, plan.answer_type)
 
         # Verify and repair. Context transformations (clarification/meta/social) are
         # verified for coherence, not as unsupported factual claims.

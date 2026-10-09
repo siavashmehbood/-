@@ -8,13 +8,13 @@ SRC=Path(__file__).resolve().parents[1]
 class GeneralConversationTests(unittest.TestCase):
     def runtime(self):
         root=Path(tempfile.mkdtemp(prefix="iran_conv_")); shutil.copy(SRC/"config.json",root/"config.json")
-        shutil.copytree(SRC/"data",root/"data"); (root/"logs").mkdir(exist_ok=True)
+        (root/"data").mkdir(); (root/"logs").mkdir(exist_ok=True)
         (root/"data"/"conversation_state.json").unlink(missing_ok=True)
         # Acceptance tests need isolated mission state; copied live data may already
         # contain the same stable-id mission and correctly exercise idempotency.
         (root/"data"/"learning_missions.json").unlink(missing_ok=True)
         (root/"data"/"learning_missions.json.bak").unlink(missing_ok=True)
-        cfg=json.loads((root/"config.json").read_text(encoding="utf-8-sig")); cfg["memory"]["db"]="data/test.db"; cfg["runtime"]["event_log"]="logs/events.jsonl"; cfg["runtime"]["goals"]="data/goals.json"
+        cfg=json.loads((root/"config.json").read_text(encoding="utf-8-sig")); cfg["language_engine"]["enabled"]=False; cfg["memory"]["db"]="data/test.db"; cfg["runtime"]["event_log"]="logs/events.jsonl"; cfg["runtime"]["goals"]="data/goals.json"
         (root/"config.json").write_text(json.dumps(cfg,ensure_ascii=False),encoding="utf-8"); return IranRuntime(root)
     def test_unseen_social_paraphrases_are_dialogue_acts(self):
         u=ConversationalUnderstanding()

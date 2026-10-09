@@ -129,3 +129,186 @@ def test_failed_internet_toggle_stays_off_and_visible(tmp_path,monkeypatch):
     assert 'خطا' in window.status.text()
     assert not window._jobs
     window.close();app.processEvents()
+
+
+def test_selected_lesson_review_targets_id_without_reordering_queue(tmp_path, monkeypatch):
+    import json
+    shutil.copy(Path(__file__).parents[1] / 'config.json', tmp_path)
+    monkeypatch.setattr(gui, 'ROOT', tmp_path)
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    window = gui.ChatWindow()
+    window.autonomy_timer.stop(); window.chatgpt_review_timer.stop()
+    try:
+        target = window.runtime.learning_gate.request('memory.add_lesson',
+            {'goal': 'selected lesson', 'lesson': 'target', 'source': 'fixture'})
+        priority = window.runtime.learning_gate.request('knowledge.add_fact',
+            {'subject': 'priority', 'predicate': 'is', 'object': 'other', 'source': 'fixture'})
+        window.runtime.sync_chatgpt_learning_reviews()
+        queue = window.runtime._chatgpt_review_path()
+        before = queue.read_text(encoding='utf-8')
+        calls = []
+        monkeypatch.setattr(window, '_selected_lesson_row',
+            lambda: {'proposal_id': target['proposal_id'], 'status': 'pending'})
+        monkeypatch.setattr(window.runtime, 'process_one_chatgpt_learning_review',
+            lambda **kwargs: calls.append(kwargs) or {'ok': True})
+        monkeypatch.setattr(window, '_start_job',
+            lambda name, operation, callback: operation())
+        window.review_selected_lesson()
+        assert calls == [{'proposal_id': target['proposal_id']}]
+        assert queue.read_text(encoding='utf-8') == before
+    finally:
+        window.close(); app.processEvents()
+
+
+def test_stopped_chat_discards_result_and_waits_for_thread(tmp_path, monkeypatch):
+    import threading
+    shutil.copy(Path(__file__).parents[1]/'config.json', tmp_path)
+    monkeypatch.setattr(gui, 'ROOT', tmp_path)
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    window = gui.ChatWindow(); window.show()
+    window.autonomy_timer.stop(); window.chatgpt_review_timer.stop()
+    entered = threading.Event(); release = threading.Event()
+    def slow(text):
+        entered.set(); release.wait(2); return 'stale result'
+    monkeypatch.setattr(window.runtime, 'handle', slow)
+    window.input.setPlainText('first'); window.send_message()
+    try:
+        assert entered.wait(1)
+        window.stop_operation()
+        assert window.busy and not window.send.isEnabled()
+        release.set()
+        until = time.monotonic()+3
+        while window.busy and time.monotonic()<until:
+            app.processEvents(); time.sleep(.002)
+        assert not window.busy and window.send.isEnabled()
+        assert 'stale result' not in window.chat.toPlainText()
+        assert window.thread is None and window.worker is None
+    finally:
+        release.set()
+        until = time.monotonic()+3
+        while window.busy and time.monotonic()<until:
+            app.processEvents(); time.sleep(.002)
+        window.close(); app.processEvents()
+
+
+def test_close_during_chat_waits_and_suppresses_result(tmp_path, monkeypatch):
+    import threading
+    shutil.copy(Path(__file__).parents[1]/'config.json', tmp_path)
+    monkeypatch.setattr(gui, 'ROOT', tmp_path)
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    window = gui.ChatWindow(); window.show()
+    window.autonomy_timer.stop(); window.chatgpt_review_timer.stop()
+    entered = threading.Event(); release = threading.Event()
+    def slow(text):
+        entered.set(); release.wait(2); return 'stale result'
+    monkeypatch.setattr(window.runtime, 'handle', slow)
+    window.input.setPlainText('first'); window.send_message()
+    try:
+        assert entered.wait(1)
+        window.close()
+        assert window._closing and window.isVisible()
+        assert window.busy and not window.send.isEnabled()
+        release.set()
+        until = time.monotonic()+3
+        while window.busy and time.monotonic()<until:
+            app.processEvents(); time.sleep(.002)
+        assert not window.busy
+        app.processEvents()
+        assert not window.isVisible()
+        assert 'stale result' not in window.chat.toPlainText()
+        assert window.thread is None and window.worker is None
+    finally:
+        release.set()
+        until = time.monotonic()+3
+        while window.busy and time.monotonic()<until:
+            app.processEvents(); time.sleep(.002)
+        window.close(); app.processEvents()
+
+
+def test_worker_failure_releases_thread_before_next_send(tmp_path, monkeypatch):
+    import threading
+    shutil.copy(Path(__file__).parents[1]/'config.json', tmp_path)
+    monkeypatch.setattr(gui, 'ROOT', tmp_path)
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    window = gui.ChatWindow(); window.show()
+    window.autonomy_timer.stop(); window.chatgpt_review_timer.stop()
+    entered = threading.Event(); release = threading.Event()
+    def slow(text):
+        entered.set(); release.wait(2); raise RuntimeError('fixture worker error')
+    monkeypatch.setattr(window.runtime, 'handle', slow)
+    window.input.setPlainText('first'); window.send_message()
+    try:
+        assert entered.wait(1)
+        assert window.busy and not window.send.isEnabled()
+        release.set()
+        until = time.monotonic()+3
+        while window.busy and time.monotonic()<until:
+            app.processEvents(); time.sleep(.002)
+        assert not window.busy and window.send.isEnabled()
+        assert 'fixture worker error' in window.chat.toPlainText()
+        assert window.thread is None and window.worker is None
+    finally:
+        release.set()
+        until = time.monotonic()+3
+        while window.busy and time.monotonic()<until:
+            app.processEvents(); time.sleep(.002)
+        window.close(); app.processEvents()
+
+
+def test_close_during_background_job_suppresses_callback(tmp_path, monkeypatch):
+    import threading
+    shutil.copy(Path(__file__).parents[1]/'config.json', tmp_path)
+    monkeypatch.setattr(gui, 'ROOT', tmp_path)
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    window = gui.ChatWindow(); window.show()
+    window.autonomy_timer.stop(); window.chatgpt_review_timer.stop()
+    entered = threading.Event(); release = threading.Event(); results = []
+    def operation():
+        entered.set(); release.wait(2); return {'ok': True}
+    window._start_job('fixture', operation, results.append)
+    try:
+        assert entered.wait(1)
+        window.close()
+        assert window.isVisible() and window._jobs
+        release.set()
+        until = time.monotonic()+3
+        while window._jobs and time.monotonic()<until:
+            app.processEvents(); time.sleep(.002)
+        app.processEvents()
+        assert not window._jobs and not window.isVisible()
+        assert results == []
+        assert not window._job_callbacks
+    finally:
+        release.set()
+        until = time.monotonic()+3
+        while window._jobs and time.monotonic()<until:
+            app.processEvents(); time.sleep(.002)
+        window.close(); app.processEvents()
+
+
+def test_clear_display_preserves_continuous_history_and_identity(tmp_path, monkeypatch):
+    shutil.copy(Path(__file__).parents[1]/'config.json', tmp_path)
+    monkeypatch.setattr(gui, 'ROOT', tmp_path)
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    window = gui.ChatWindow()
+    window.autonomy_timer.stop(); window.chatgpt_review_timer.stop()
+    try:
+        window.runtime.handle('من سیاوشم')
+        window.add('شما', 'من سیاوشم'); window.add('ایران', 'سلام سیاوش')
+        window.persist_session()
+        history = list(window.messages)
+        window.new_chat()
+        assert window.sessions.count() == 1
+        assert 'جدید' not in window.newbtn.text()
+        assert window.messages == history
+        assert window.chat.toPlainText() == ''
+        assert 'سیاوش' in window.runtime.handle('اسم من چیه؟')
+    finally:
+        window.close(); app.processEvents()
+    restored = gui.ChatWindow()
+    restored.autonomy_timer.stop(); restored.chatgpt_review_timer.stop()
+    try:
+        assert restored.messages == history
+        assert 'سیاوش' in restored.runtime.handle('اسم من چیه؟')
+    finally:
+        restored.close(); app.processEvents()

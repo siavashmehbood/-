@@ -82,6 +82,9 @@ class ChatWindow(QMainWindow):
         self._jobs = {}
         self._job_callbacks = {}
         self._closing = False
+        self.thread = None; self.worker = None
+        self._chat_cancelled = False
+        self._cancelled_jobs = set()
         self.autonomy_busy = False
         self.chatgpt_review_busy = False
         self.build(); self.load_session()
@@ -156,6 +159,8 @@ class ChatWindow(QMainWindow):
         self.input.setFixedHeight(92); self.input.installEventFilter(self); bottom.addWidget(self.input, 1)
         actions = QVBoxLayout(); actions.setSpacing(6)
         self.send = QPushButton("ارسال"); self.send.setObjectName("sendButton"); self.send.clicked.connect(self.send_message); actions.addWidget(self.send)
+        self.stopbtn = QPushButton("توقف"); self.stopbtn.setEnabled(False)
+        self.stopbtn.clicked.connect(self.stop_operation); actions.addWidget(self.stopbtn)
         small = QHBoxLayout(); small.setSpacing(5)
         self.copysel = QPushButton("کپی انتخاب"); self.copysel.clicked.connect(self.copy_selection); small.addWidget(self.copysel)
         self.attach = QPushButton("کلیپ‌بورد"); self.attach.clicked.connect(self.paste_clipboard); small.addWidget(self.attach)
@@ -258,28 +263,61 @@ class ChatWindow(QMainWindow):
         text = self.input.toPlainText().strip()
         if not text: return
         self.input.clear(); self.add("شما", text); self.busy = True; self.send.setEnabled(False); self.status.setText("در حال پردازش...")
+        self._chat_cancelled = False; self.stopbtn.setEnabled(True)
         self.thread = QThread(self)
         self.worker = Worker(self.runtime, text)
         self.worker.moveToThread(self.thread)
         self.thread.started.connect(self.worker.run)
+        self.thread.finished.connect(self._chat_finished)
+        self.thread.finished.connect(self.thread.deleteLater)
         self.worker.done.connect(self.on_done)
         self.worker.fail.connect(self.on_fail)
         self.worker.done.connect(self._finish_worker)
         self.worker.fail.connect(self._finish_worker)
         self.thread.start()
     def on_done(self, text, elapsed):
+        if self._chat_cancelled or self._closing: return
         self.add("ایران", text); self.elapsed.setText(f"زمان: {elapsed:.3f} ثانیه")
         trace = self.runtime.cognitive_system.last_trace
         self.conf.setText(f"اطمینان: {trace.confidence:.0%}" if trace is not None else "اطمینان: —")
         self.quality.setText(f"بررسی پاسخ: {trace.verification_status}" if trace is not None else "بررسی پاسخ: —")
-        self.status.setText("آماده"); self.busy = False; self.send.setEnabled(True); self.refresh_events(); self.refresh_learning_stats(); self.persist_session()
+        self.status.setText("آماده")
+        if self.thread is None:
+            self.busy = False; self.send.setEnabled(True)
+        self.refresh_events(); self.refresh_learning_stats(); self.persist_session()
         if self.autocopy.isChecked(): self.copy_response()
         self.queue_chatgpt_review(text); self.refresh_chatgpt_count()
     def on_fail(self, text):
-        self.add("خطا", text); self.status.setText("خطا"); self.busy = False; self.send.setEnabled(True); self.persist_session()
-
+        if self._chat_cancelled or self._closing: return
+        self.add("خطا", text); self.status.setText("خطا"); self.persist_session()
+        if self.thread is None:
+            self.busy = False; self.send.setEnabled(True)
+    def _finish_worker(self, *args):
+        # Keep ownership and busy state until this thread actually finishes.
+        if self.worker is not None: self.worker.deleteLater()
+        if self.thread is not None: self.thread.quit()
+    def _chat_finished(self):
+        self.thread = None; self.worker = None
+        self.busy = False
+        self.send.setEnabled(not self._closing)
+        self.stopbtn.setEnabled(bool(self._jobs) and not self._closing)
+        if self._chat_cancelled and not self._closing:
+            self.status.setText("عملیات متوقف شد؛ نتیجه نمایش داده نشد")
+        if self._closing and not self._jobs: QTimer.singleShot(0, self.close)
+    def stop_operation(self):
+        # Never terminate a thread inside a durable transaction. Let its current
+        # atomic operation finish, suppress presentation and further review.
+        self._chat_cancelled = True
+        self._cancelled_jobs.update(self._jobs)
+        try: self.runtime.internet_access.disable()
+        except OSError: pass  # Permission manager already fails closed.
+        self.refresh_internet()
+        self.stopbtn.setEnabled(False)
+        self.status.setText("توقف درخواست شد؛ در انتظار پایان امن عملیات جاری…")
     def _start_job(self, name, operation, on_result=None):
         if self._closing or name in self._jobs: return False
+        self._cancelled_jobs.discard(name)
+        self.stopbtn.setEnabled(True)
         if on_result is not None: self._job_callbacks[name] = on_result
         thread = QThread(self); thread.setObjectName(name)
         worker = BackgroundJob(name, operation); worker.moveToThread(thread)
@@ -295,6 +333,7 @@ class ChatWindow(QMainWindow):
 
     def _job_result(self, name, result):
         callback = self._job_callbacks.pop(name, None)
+        if self._closing or name in self._cancelled_jobs: return
         if callback is not None: callback(result)
         if name == "review":
             reason = result.get("reason", "")
@@ -311,6 +350,8 @@ class ChatWindow(QMainWindow):
     def _job_finished(self):
         name = self.sender().objectName()
         self._jobs.pop(name, None)
+        self._cancelled_jobs.discard(name)
+        self.stopbtn.setEnabled((self.busy or bool(self._jobs)) and not self._closing)
         if self._closing and not self._jobs and not self.busy:
             QTimer.singleShot(0, self.close)
 
@@ -349,17 +390,6 @@ class ChatWindow(QMainWindow):
         view.setPlainText(text); layout.addWidget(view)
         button=QPushButton("بستن");button.clicked.connect(d.accept);layout.addWidget(button)
         d.exec()
-
-    def _finish_worker(self, *args):
-        thread = self.thread
-        worker = self.worker
-        worker.deleteLater()
-        thread.quit()
-        thread.finished.connect(thread.deleteLater)
-        thread.finished.connect(self._chat_finished)
-
-    def _chat_finished(self):
-        if self._closing and not self._jobs: QTimer.singleShot(0, self.close)
 
     def approve_all_learning_ui(self):
         try:
@@ -632,8 +662,13 @@ class ChatWindow(QMainWindow):
         if text: QApplication.clipboard().setText(text); self.status.setText("متن انتخاب‌شده کپی شد")
         else: self.status.setText("متنی انتخاب نشده است")
     def update_title_stats(self): self.setWindowTitle(f"ایران — معماری شناختی | {len(self.messages)} پیام")
+
     def closeEvent(self, event):
         self._closing = True
+        self._chat_cancelled = True
+        self._cancelled_jobs.update(self._jobs)
+        try: self.runtime.internet_access.disable()
+        except OSError: pass
         self.autonomy_timer.stop(); self.chatgpt_review_timer.stop()
         if self._jobs or self.busy:
             self.status.setText("در انتظار پایان عملیات برای بستن امن…")
@@ -656,6 +691,7 @@ class ChatWindow(QMainWindow):
         except Exception: pass
         self.update_title_stats(); self.refresh_learning_stats(); self.refresh_chatgpt_count()
     def clear_display(self):
+        if self.busy: self.stop_operation()
         self.chat.clear(); self.last_answer = ""; self.messages = []; self.update_title_stats(); self.persist_session(); self.status.setText("گفت‌وگو پاک شد")
     def new_chat(self):
         self.clear_display(); self.sessions.addItem(datetime.now().strftime("گفت‌وگو %Y-%m-%d %H:%M:%S")); self.sessions.setCurrentRow(self.sessions.count() - 1)
@@ -916,18 +952,10 @@ class ChatWindow(QMainWindow):
         if not row or row.get("status") not in {"pending", "WAITING_FOR_REVIEWER"}:
             return
         proposal_id = row.get("proposal_id")
-        # The worker chooses the highest-priority eligible candidate. Temporarily
-        # move the selected lesson to the front by stable queue order without
-        # changing its content or decision state.
-        def run_selected():
-            from persistence import json_transaction
-            with json_transaction(self.runtime._chatgpt_review_path(), []) as rows:
-                index = next((i for i, item in enumerate(rows) if item.get("proposal_id") == proposal_id), None)
-                if index is not None:
-                    selected = rows.pop(index)
-                    rows.insert(0, selected)
-            return self.runtime.process_one_chatgpt_learning_review()
-        self._start_job("lesson_review:" + str(proposal_id), run_selected, lambda result: self.refresh_learning_stats())
+        # Target the selected durable ID without changing global queue order.
+        self._start_job("lesson_review:" + str(proposal_id),
+                        lambda: self.runtime.process_one_chatgpt_learning_review(proposal_id=proposal_id),
+                        lambda result: self.refresh_learning_stats())
         self.update_lesson_action_buttons()
 
     def approve_selected_lesson(self):
