@@ -256,7 +256,16 @@ class CognitivePipeline:
             pass
         return "",[]
 
+    def _apply_conversation_style(self, answer, answer_type):
+        styles = self.engine.state.response_style
+        if "short" not in styles or answer_type not in {"SOCIAL", "FOLLOW_UP", "REEXPLAIN", "EXAMPLE", "CONTINUATION"}:
+            return answer
+        # Keep complete sentences and do not truncate facts or multi-part answers.
+        sentences = re.split(r"(?<=[.!؟])\\s+|[؛\\n]+", str(answer))
+        return sentences[0].strip() if sentences else answer
+
     def _persist_answer(self, text, answer, answer_type="DIRECT_FACT", score=.95, evidence=None):
+        answer = self._apply_conversation_style(answer, answer_type)
         # A raw user turn or a near-copy of the question is never accepted as a
         # final answer merely because retrieval found similar text.
         try:
@@ -409,7 +418,7 @@ class CognitivePipeline:
             if len(sentences) > 1:
                 rendered = sentences[0]
             if rendered == previous:
-                return "کدام واژه یا بخش این جواب نامفهوم بود؟"
+                return "کدام واژه یا بخش این جواب را ساده‌تر بگویم؟"
             return rendered
         details = [f"{term}: {meaning}." for term, (_, meaning) in vocabulary.items()
                    if re.search(r"(?<!\\w)" + re.escape(term) + r"(?!\\w)", previous)]
