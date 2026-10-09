@@ -253,3 +253,34 @@ def test_worker_failure_releases_thread_before_next_send(tmp_path, monkeypatch):
         while window.busy and time.monotonic()<until:
             app.processEvents(); time.sleep(.002)
         window.close(); app.processEvents()
+
+
+def test_close_during_background_job_suppresses_callback(tmp_path, monkeypatch):
+    import threading
+    shutil.copy(Path(__file__).parents[1]/'config.json', tmp_path)
+    monkeypatch.setattr(gui, 'ROOT', tmp_path)
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    window = gui.ChatWindow(); window.show()
+    window.autonomy_timer.stop(); window.chatgpt_review_timer.stop()
+    entered = threading.Event(); release = threading.Event(); results = []
+    def operation():
+        entered.set(); release.wait(2); return {'ok': True}
+    window._start_job('fixture', operation, results.append)
+    try:
+        assert entered.wait(1)
+        window.close()
+        assert window.isVisible() and window._jobs
+        release.set()
+        until = time.monotonic()+3
+        while window._jobs and time.monotonic()<until:
+            app.processEvents(); time.sleep(.002)
+        app.processEvents()
+        assert not window._jobs and not window.isVisible()
+        assert results == []
+        assert not window._job_callbacks
+    finally:
+        release.set()
+        until = time.monotonic()+3
+        while window._jobs and time.monotonic()<until:
+            app.processEvents(); time.sleep(.002)
+        window.close(); app.processEvents()
