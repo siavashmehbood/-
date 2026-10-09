@@ -916,18 +916,10 @@ class ChatWindow(QMainWindow):
         if not row or row.get("status") not in {"pending", "WAITING_FOR_REVIEWER"}:
             return
         proposal_id = row.get("proposal_id")
-        # The worker chooses the highest-priority eligible candidate. Temporarily
-        # move the selected lesson to the front by stable queue order without
-        # changing its content or decision state.
-        def run_selected():
-            from persistence import json_transaction
-            with json_transaction(self.runtime._chatgpt_review_path(), []) as rows:
-                index = next((i for i, item in enumerate(rows) if item.get("proposal_id") == proposal_id), None)
-                if index is not None:
-                    selected = rows.pop(index)
-                    rows.insert(0, selected)
-            return self.runtime.process_one_chatgpt_learning_review()
-        self._start_job("lesson_review:" + str(proposal_id), run_selected, lambda result: self.refresh_learning_stats())
+        # Target the selected durable ID without changing global queue order.
+        self._start_job("lesson_review:" + str(proposal_id),
+                        lambda: self.runtime.process_one_chatgpt_learning_review(proposal_id=proposal_id),
+                        lambda result: self.refresh_learning_stats())
         self.update_lesson_action_buttons()
 
     def approve_selected_lesson(self):
