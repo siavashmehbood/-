@@ -390,8 +390,9 @@ class CognitivePipeline:
         """Bind goal pronouns/history to a named entity already in conversation."""
         state = self.engine.state
         projects = sorted(state.topic_goals, key=len, reverse=True)
-        candidates = [clean(text), clean(state.current_topic)]
+        candidates = [clean(text), clean(state.last_user_message)]
         candidates.extend(reversed(list(getattr(state, "recent_user_turns", []) or [])))
+        candidates.append(clean(state.current_topic))
         for candidate in candidates:
             matches = [project for project in projects
                        if re.search(r"(?<!\\w)" + re.escape(project) + r"(?!\\w)", clean(candidate))]
