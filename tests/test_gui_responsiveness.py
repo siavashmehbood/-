@@ -189,3 +189,67 @@ def test_stopped_chat_discards_result_and_waits_for_thread(tmp_path, monkeypatch
         while window.busy and time.monotonic()<until:
             app.processEvents(); time.sleep(.002)
         window.close(); app.processEvents()
+
+
+def test_close_during_chat_waits_and_suppresses_result(tmp_path, monkeypatch):
+    import threading
+    shutil.copy(Path(__file__).parents[1]/'config.json', tmp_path)
+    monkeypatch.setattr(gui, 'ROOT', tmp_path)
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    window = gui.ChatWindow(); window.show()
+    window.autonomy_timer.stop(); window.chatgpt_review_timer.stop()
+    entered = threading.Event(); release = threading.Event()
+    def slow(text):
+        entered.set(); release.wait(2); return 'stale result'
+    monkeypatch.setattr(window.runtime, 'handle', slow)
+    window.input.setPlainText('first'); window.send_message()
+    try:
+        assert entered.wait(1)
+        window.close()
+        assert window._closing and window.isVisible()
+        assert window.busy and not window.send.isEnabled()
+        release.set()
+        until = time.monotonic()+3
+        while window.busy and time.monotonic()<until:
+            app.processEvents(); time.sleep(.002)
+        assert not window.busy
+        app.processEvents()
+        assert not window.isVisible()
+        assert 'stale result' not in window.chat.toPlainText()
+        assert window.thread is None and window.worker is None
+    finally:
+        release.set()
+        until = time.monotonic()+3
+        while window.busy and time.monotonic()<until:
+            app.processEvents(); time.sleep(.002)
+        window.close(); app.processEvents()
+
+
+def test_worker_failure_releases_thread_before_next_send(tmp_path, monkeypatch):
+    import threading
+    shutil.copy(Path(__file__).parents[1]/'config.json', tmp_path)
+    monkeypatch.setattr(gui, 'ROOT', tmp_path)
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    window = gui.ChatWindow(); window.show()
+    window.autonomy_timer.stop(); window.chatgpt_review_timer.stop()
+    entered = threading.Event(); release = threading.Event()
+    def slow(text):
+        entered.set(); release.wait(2); raise RuntimeError('fixture worker error')
+    monkeypatch.setattr(window.runtime, 'handle', slow)
+    window.input.setPlainText('first'); window.send_message()
+    try:
+        assert entered.wait(1)
+        assert window.busy and not window.send.isEnabled()
+        release.set()
+        until = time.monotonic()+3
+        while window.busy and time.monotonic()<until:
+            app.processEvents(); time.sleep(.002)
+        assert not window.busy and window.send.isEnabled()
+        assert 'fixture worker error' in window.chat.toPlainText()
+        assert window.thread is None and window.worker is None
+    finally:
+        release.set()
+        until = time.monotonic()+3
+        while window.busy and time.monotonic()<until:
+            app.processEvents(); time.sleep(.002)
+        window.close(); app.processEvents()
