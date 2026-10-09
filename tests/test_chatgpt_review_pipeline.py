@@ -236,5 +236,29 @@ class ChatGPTReviewPipelineTests(unittest.TestCase):
                 self.assertIsNone(worker.status()["last_success_at"])
 
 
+    def test_disable_reenable_invalidates_inflight_reviewer(self):
+        from types import SimpleNamespace
+        from security.internet_access import InternetAccessManager
+        root, runtime, gate = self.make_runtime()
+        candidate = self.add_candidate(gate, "revoked in-flight review")
+        runtime.sync_chatgpt_learning_reviews()
+        internet = InternetAccessManager(root / "data" / "internet.json")
+        internet.enable()
+        def late(row):
+            internet.disable()
+            internet.enable()
+            return {"learn": True, "reason": "late result"}
+        worker = ChatGPTReviewWorker(root, transport=late)
+        worker.manager = SimpleNamespace(internet=internet)
+        result = worker.process_one()
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["reason"], "internet_permission_changed")
+        review = runtime.chatgpt_learning_review_status(candidate["proposal_id"])["row"]
+        self.assertEqual(review["review_status"], "not_reviewed")
+        self.assertEqual(review["status"], "WAITING_FOR_REVIEWER")
+        self.assertEqual(gate.get(candidate["proposal_id"])["status"], "pending")
+        self.assertEqual(runtime.human_learning_pending(10), [])
+        self.assertIsNone(worker.status()["last_success_at"])
+
 if __name__ == "__main__":
     unittest.main()
