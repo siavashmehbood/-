@@ -48,6 +48,9 @@ jobs:
       - name: Restart integrity and learning deduplication
         if: ${{ !cancelled() }}
         run: python -m pytest -q tests/test_approval_recovery.py tests/test_approval_backup_integrity.py tests/test_critical_persistence.py tests/test_learning_gate_concurrency.py tests/test_shared_file_lock_concurrency.py tests/test_review_decision_journal_concurrency.py tests/test_runtime_ownership.py tests/test_effect_learning.py --junitxml=integrity.xml
+      - name: GUI responsiveness and selected proposal
+        if: ${{ !cancelled() }}
+        run: python -m pytest -q tests/test_gui_responsiveness.py tests/test_gui_contract.py --junitxml=gui.xml
       - name: Save results for each area
         if: always()
         uses: actions/upload-artifact@v4
