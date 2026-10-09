@@ -203,6 +203,10 @@ class ChatGPTReviewWorker:
                 result = (self.transport or self._default_transport)(dict(row))
                 if not isinstance(result, dict) or not isinstance(result.get("learn"), bool):
                     raise ValueError("validator returned invalid decision")
+                # Injected transports and managed providers share one payload
+                # contract; invalid confidence/corrections never become approval.
+                from providers.reviewer import decision
+                result = {**result, **decision(result)}
             except ReviewerUnavailable as exc:
                 state["next_allowed_at"] = self._iso(now + self.MIN_INTERVAL)
                 state["last_error"] = str(exc)
