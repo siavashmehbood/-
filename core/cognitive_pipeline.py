@@ -390,7 +390,7 @@ class CognitivePipeline:
         """Transform only the preceding answer; never retrieve unrelated user facts."""
         previous = clean(self.engine.state.last_assistant_answer)
         if not previous or previous.startswith("UNKNOWN"):
-            return "کدام بخش را توضیح بدهم؟ یک موضوع یا جمله مشخص بگو."
+            return "کدام بخش را ساده‌تر بگویم؟ یک موضوع یا جمله مشخص بگو." if mode == "simple" else "کدام بخش را توضیح بدهم؟ یک موضوع یا جمله مشخص بگو."
         # A local vocabulary supplies meanings, not new claims about the user.
         vocabulary = {
             "معماری شناختی": ("سیستم فکر و تصمیم‌گیری", "بخش‌های فهم، حافظه و تصمیم‌گیری در یک مسیر هماهنگ کار می‌کنند"),
