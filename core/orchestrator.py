@@ -80,7 +80,12 @@ class Orchestrator:
     def _auto_tool(self,text):
         name,kwargs=self.router.choose(text)
         if not name:return None
-        result=self.run_tool(name,**kwargs)
+        try:
+            result=self.run_tool(name,**kwargs)
+        except ZeroDivisionError:
+            if name == 'calculate':
+                return 'تقسیم بر صفر تعریف نشده است؛ نتیجه عددی ندارد.'
+            raise
         if name == 'calculate':
             return str(result)
         labels={'time_now':'زمان سیستم','project_summary':'خلاصه پروژه','system_info':'مشخصات سیستم','project_files':'فایل‌های پروژه','memory_search':'حافظه مرتبط'}
