@@ -423,7 +423,7 @@ class CognitivePipeline:
         details = [f"{term}: {meaning}." for term, (_, meaning) in vocabulary.items()
                    if re.search(r"(?<!\\w)" + re.escape(term) + r"(?!\\w)", previous)]
         if details:
-            return "\\n".join(details)
+            return previous + "\\n" + "\\n".join(details)
         return "برای توضیح دقیق‌تر، کدام بخش جواب قبلی را می‌خواهی باز کنم؟"
 
     def _active_goal_project(self, text=""):
