@@ -129,3 +129,32 @@ def test_failed_internet_toggle_stays_off_and_visible(tmp_path,monkeypatch):
     assert 'خطا' in window.status.text()
     assert not window._jobs
     window.close();app.processEvents()
+
+
+def test_selected_lesson_review_targets_id_without_reordering_queue(tmp_path, monkeypatch):
+    import json
+    shutil.copy(Path(__file__).parents[1] / 'config.json', tmp_path)
+    monkeypatch.setattr(gui, 'ROOT', tmp_path)
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    window = gui.ChatWindow()
+    window.autonomy_timer.stop(); window.chatgpt_review_timer.stop()
+    try:
+        target = window.runtime.learning_gate.request('memory.add_lesson',
+            {'goal': 'selected lesson', 'lesson': 'target', 'source': 'fixture'})
+        priority = window.runtime.learning_gate.request('knowledge.add_fact',
+            {'subject': 'priority', 'predicate': 'is', 'object': 'other', 'source': 'fixture'})
+        window.runtime.sync_chatgpt_learning_reviews()
+        queue = window.runtime._chatgpt_review_path()
+        before = queue.read_text(encoding='utf-8')
+        calls = []
+        monkeypatch.setattr(window, '_selected_lesson_row',
+            lambda: {'proposal_id': target['proposal_id'], 'status': 'pending'})
+        monkeypatch.setattr(window.runtime, 'process_one_chatgpt_learning_review',
+            lambda **kwargs: calls.append(kwargs) or {'ok': True})
+        monkeypatch.setattr(window, '_start_job',
+            lambda name, operation, callback: operation())
+        window.review_selected_lesson()
+        assert calls == [{'proposal_id': target['proposal_id']}]
+        assert queue.read_text(encoding='utf-8') == before
+    finally:
+        window.close(); app.processEvents()
