@@ -284,3 +284,31 @@ def test_close_during_background_job_suppresses_callback(tmp_path, monkeypatch):
         while window._jobs and time.monotonic()<until:
             app.processEvents(); time.sleep(.002)
         window.close(); app.processEvents()
+
+
+def test_clear_display_preserves_continuous_history_and_identity(tmp_path, monkeypatch):
+    shutil.copy(Path(__file__).parents[1]/'config.json', tmp_path)
+    monkeypatch.setattr(gui, 'ROOT', tmp_path)
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    window = gui.ChatWindow()
+    window.autonomy_timer.stop(); window.chatgpt_review_timer.stop()
+    try:
+        window.runtime.handle('من سیاوشم')
+        window.add('شما', 'من سیاوشم'); window.add('ایران', 'سلام سیاوش')
+        window.persist_session()
+        history = list(window.messages)
+        window.new_chat()
+        assert window.sessions.count() == 1
+        assert 'جدید' not in window.newbtn.text()
+        assert window.messages == history
+        assert window.chat.toPlainText() == ''
+        assert 'سیاوش' in window.runtime.handle('اسم من چیه؟')
+    finally:
+        window.close(); app.processEvents()
+    restored = gui.ChatWindow()
+    restored.autonomy_timer.stop(); restored.chatgpt_review_timer.stop()
+    try:
+        assert restored.messages == history
+        assert 'سیاوش' in restored.runtime.handle('اسم من چیه؟')
+    finally:
+        restored.close(); app.processEvents()
