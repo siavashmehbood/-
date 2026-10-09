@@ -220,5 +220,21 @@ class ChatGPTReviewPipelineTests(unittest.TestCase):
         self.assertIsNone(worker.status()["last_success_at"])
 
 
+    def test_invalid_reviewer_payload_cannot_reach_human_queue(self):
+        for payload in (None, {}, {"learn": "true"},
+                        {"learn": True, "confidence": float("nan")},
+                        {"learn": True, "corrections": "replace claim"}):
+            with self.subTest(payload=payload):
+                root, runtime, gate = self.make_runtime()
+                candidate = self.add_candidate(gate, "invalid review")
+                worker = ChatGPTReviewWorker(root, transport=lambda row: payload)
+                runtime.chatgpt_review_worker = worker
+                result = runtime.process_one_chatgpt_learning_review()
+                self.assertFalse(result["ok"])
+                self.assertEqual(gate.get(candidate["proposal_id"])["status"], "pending")
+                self.assertEqual(runtime.human_learning_pending(10), [])
+                self.assertIsNone(worker.status()["last_success_at"])
+
+
 if __name__ == "__main__":
     unittest.main()
