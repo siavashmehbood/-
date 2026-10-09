@@ -222,6 +222,13 @@ class ChatGPTReviewWorker:
                 state["last_error"] = f"{type(exc).__name__}: {exc}"[:500]
                 self._save_state(state)
                 return {"ok": False, "reason": "worker_error", "error": state["last_error"], "status": self.status()}
+            # A result belongs to the permission under which it was requested.
+            # Revocation during transport must leave the proposal retryable.
+            if self.manager is not None and not self.manager.internet.status()["enabled"]:
+                state["next_allowed_at"] = self._iso(self.clock() + self.MIN_INTERVAL)
+                state["last_error"] = "internet_off"
+                self._save_state(state)
+                return self._waiting(row.get("proposal_id"), "internet_off")
             row["provider"] = result.get("provider", "injected_transport")
             row["model"] = result.get("model", "")
             row.pop("failure_reason", None)
