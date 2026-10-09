@@ -7,6 +7,7 @@ refreshes and process restarts cannot bypass rate limiting.
 from __future__ import annotations
 
 import json
+from contextlib import nullcontext
 import os
 import threading
 import time
@@ -199,6 +200,7 @@ class ChatGPTReviewWorker:
             state["last_request_at"] = self._iso(now)
             state["last_error"] = None
             self._save_state(state)
+            permission = self.manager.internet.status() if self.manager is not None else None
             try:
                 result = (self.transport or self._default_transport)(dict(row))
                 if not isinstance(result, dict) or not isinstance(result.get("learn"), bool):
@@ -226,43 +228,49 @@ class ChatGPTReviewWorker:
                 state["last_error"] = f"{type(exc).__name__}: {exc}"[:500]
                 self._save_state(state)
                 return {"ok": False, "reason": "worker_error", "error": state["last_error"], "status": self.status()}
-            # A result belongs to the permission under which it was requested.
-            # Revocation during transport must leave the proposal retryable.
-            if self.manager is not None and not self.manager.internet.status()["enabled"]:
+            # Commit under the original permission generation; off/on cannot
+            # revive a response authorized by an earlier permission.
+            guard = (self.manager.internet.commit_permission(permission["generation"])
+                     if permission is not None else nullcontext())
+            try:
+                with guard:
+                    row["provider"] = result.get("provider", "injected_transport")
+                    row["model"] = result.get("model", "")
+                    row.pop("failure_reason", None)
+                    row["review"] = json.dumps({
+                        "learn": result["learn"],
+                        "reason": str(result.get("reason", "")),
+                        "corrections": result.get("corrections", []) if isinstance(result.get("corrections", []), list) else [],
+                        "confidence": result.get("confidence"),
+                        "answer": result.get("answer", ""),
+                    }, ensure_ascii=False)
+                    row["review_status"] = "reviewed"
+                    row["chatgpt_decision"] = "learn" if result["learn"] else "reject"
+                    # Only externally accepted candidates are eligible for human review.
+                    # Reviewer rejection ends the candidate before the human queue.
+                    row["status"] = "human_pending" if result["learn"] else "rejected"
+                    row["reviewed_at"] = datetime.fromtimestamp(now, timezone.utc).isoformat(timespec="seconds")
+                    with json_transaction(self.reviews_path, []) as current:
+                        target = next((r for r in current if r.get("proposal_id") == row.get("proposal_id")), None)
+                        # Do not resurrect a deleted/rejected candidate after an in-flight request.
+                        if target is None or target.get("status") not in {"pending", "WAITING_FOR_REVIEWER"}:
+                            return {"ok": False, "reason": "candidate_changed"}
+                        target.pop("failure_reason", None)
+                        target.update(row)
+                        target.pop("failure_reason", None)
+                    state["next_allowed_at"] = self._iso(now + self.MIN_INTERVAL)
+                    state["backoff_seconds"] = 15
+                    state["last_success_at"] = self._iso(now)
+                    state["last_error"] = None
+                    self._save_state(state)
+                    return {"ok": True, "reason": "reviewed", "proposal_id": row.get("proposal_id"), "learn": result["learn"], "status": self.status()}
+
+            except PermissionError as exc:
+                reason = str(exc)
                 state["next_allowed_at"] = self._iso(self.clock() + self.MIN_INTERVAL)
-                state["last_error"] = "internet_off"
+                state["last_error"] = reason
                 self._save_state(state)
-                return self._waiting(row.get("proposal_id"), "internet_off")
-            row["provider"] = result.get("provider", "injected_transport")
-            row["model"] = result.get("model", "")
-            row.pop("failure_reason", None)
-            row["review"] = json.dumps({
-                "learn": result["learn"],
-                "reason": str(result.get("reason", "")),
-                "corrections": result.get("corrections", []) if isinstance(result.get("corrections", []), list) else [],
-                "confidence": result.get("confidence"),
-                "answer": result.get("answer", ""),
-            }, ensure_ascii=False)
-            row["review_status"] = "reviewed"
-            row["chatgpt_decision"] = "learn" if result["learn"] else "reject"
-            # Only externally accepted candidates are eligible for human review.
-            # Reviewer rejection ends the candidate before the human queue.
-            row["status"] = "human_pending" if result["learn"] else "rejected"
-            row["reviewed_at"] = datetime.fromtimestamp(now, timezone.utc).isoformat(timespec="seconds")
-            with json_transaction(self.reviews_path, []) as current:
-                target = next((r for r in current if r.get("proposal_id") == row.get("proposal_id")), None)
-                # Do not resurrect a deleted/rejected candidate after an in-flight request.
-                if target is None or target.get("status") not in {"pending", "WAITING_FOR_REVIEWER"}:
-                    return {"ok": False, "reason": "candidate_changed"}
-                target.pop("failure_reason", None)
-                target.update(row)
-                target.pop("failure_reason", None)
-            state["next_allowed_at"] = self._iso(now + self.MIN_INTERVAL)
-            state["backoff_seconds"] = 15
-            state["last_success_at"] = self._iso(now)
-            state["last_error"] = None
-            self._save_state(state)
-            return {"ok": True, "reason": "reviewed", "proposal_id": row.get("proposal_id"), "learn": result["learn"], "status": self.status()}
+                return self._waiting(row.get("proposal_id"), reason)
 
 
 __all__ = ["ChatGPTReviewWorker", "RateLimitError"]
