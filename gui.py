@@ -82,6 +82,9 @@ class ChatWindow(QMainWindow):
         self._jobs = {}
         self._job_callbacks = {}
         self._closing = False
+        self.thread = None; self.worker = None
+        self._chat_cancelled = False
+        self._cancelled_jobs = set()
         self.autonomy_busy = False
         self.chatgpt_review_busy = False
         self.build(); self.load_session()
@@ -156,6 +159,8 @@ class ChatWindow(QMainWindow):
         self.input.setFixedHeight(92); self.input.installEventFilter(self); bottom.addWidget(self.input, 1)
         actions = QVBoxLayout(); actions.setSpacing(6)
         self.send = QPushButton("ارسال"); self.send.setObjectName("sendButton"); self.send.clicked.connect(self.send_message); actions.addWidget(self.send)
+        self.stopbtn = QPushButton("توقف"); self.stopbtn.setEnabled(False)
+        self.stopbtn.clicked.connect(self.stop_operation); actions.addWidget(self.stopbtn)
         small = QHBoxLayout(); small.setSpacing(5)
         self.copysel = QPushButton("کپی انتخاب"); self.copysel.clicked.connect(self.copy_selection); small.addWidget(self.copysel)
         self.attach = QPushButton("کلیپ‌بورد"); self.attach.clicked.connect(self.paste_clipboard); small.addWidget(self.attach)
@@ -258,382 +263,61 @@ class ChatWindow(QMainWindow):
         text = self.input.toPlainText().strip()
         if not text: return
         self.input.clear(); self.add("شما", text); self.busy = True; self.send.setEnabled(False); self.status.setText("در حال پردازش...")
+        self._chat_cancelled = False; self.stopbtn.setEnabled(True)
         self.thread = QThread(self)
         self.worker = Worker(self.runtime, text)
         self.worker.moveToThread(self.thread)
         self.thread.started.connect(self.worker.run)
+        self.thread.finished.connect(self._chat_finished)
+        self.thread.finished.connect(self.thread.deleteLater)
         self.worker.done.connect(self.on_done)
         self.worker.fail.connect(self.on_fail)
         self.worker.done.connect(self._finish_worker)
         self.worker.fail.connect(self._finish_worker)
         self.thread.start()
     def on_done(self, text, elapsed):
+        if self._chat_cancelled or self._closing: return
         self.add("ایران", text); self.elapsed.setText(f"زمان: {elapsed:.3f} ثانیه")
         trace = self.runtime.cognitive_system.last_trace
         self.conf.setText(f"اطمینان: {trace.confidence:.0%}" if trace is not None else "اطمینان: —")
         self.quality.setText(f"بررسی پاسخ: {trace.verification_status}" if trace is not None else "بررسی پاسخ: —")
-        self.status.setText("آماده"); self.busy = False; self.send.setEnabled(True); self.refresh_events(); self.refresh_learning_stats(); self.persist_session()
+        self.status.setText("آماده")
+        if self.thread is None:
+            self.busy = False; self.send.setEnabled(True)
+        self.refresh_events(); self.refresh_learning_stats(); self.persist_session()
         if self.autocopy.isChecked(): self.copy_response()
         self.queue_chatgpt_review(text); self.refresh_chatgpt_count()
     def on_fail(self, text):
-        self.add("خطا", text); self.status.setText("خطا"); self.busy = False; self.send.setEnabled(True); self.persist_session()
-
-    def _start_job(self, name, operation, on_result=None):
-        if self._closing or name in self._jobs: return False
-        if on_result is not None: self._job_callbacks[name] = on_result
-        thread = QThread(self); thread.setObjectName(name)
-        worker = BackgroundJob(name, operation); worker.moveToThread(thread)
-        self._jobs[name] = (thread, worker)
-        thread.started.connect(worker.run)
-        worker.done.connect(self._job_result, Qt.QueuedConnection)
-        worker.failed.connect(self._job_error, Qt.QueuedConnection)
-        worker.ended.connect(thread.quit)
-        worker.ended.connect(worker.deleteLater)
-        thread.finished.connect(self._job_finished)
-        thread.finished.connect(thread.deleteLater)
-        thread.start(); return True
-
-    def _job_result(self, name, result):
-        callback = self._job_callbacks.pop(name, None)
-        if callback is not None: callback(result)
-        if name == "review":
-            reason = result.get("reason", "")
-            self.status.setText("ناظر: " + reason)
-        elif name == "benchmark":
-            self._dialog("نتیجه ارزیابی", str(result))
-        self.refresh_chatgpt_count(); self.refresh_learning_stats(); self.refresh_events()
-
-    def _job_error(self, name, reason):
-        callback = self._job_callbacks.pop(name, None)
-        if callback is not None: callback({"ok": False, "reason": reason})
-        self.status.setText(f"خطا در {name}: {reason}")
-
-    def _job_finished(self):
-        name = self.sender().objectName()
-        self._jobs.pop(name, None)
-        if self._closing and not self._jobs and not self.busy:
-            QTimer.singleShot(0, self.close)
-
-    def run_chatgpt_review_once(self):
-        # Do not create a background thread when the reviewer is cooling down or
-        # there is nothing to review. The old 1-second polling loop caused
-        # needless thread churn, file reads and UI refreshes.
-        try:
-            status = self.runtime.chatgpt_review_status()
-            if int(status.get("pending", 0) or 0) <= 0:
-                return False
-            if status.get("cooldown"):
-                return False
-        except Exception:
-            return False
-        return self._start_job("review", self.runtime.process_one_chatgpt_learning_review)
-
-    def refresh_internet(self):
-        enabled = self.runtime.internet_access.status()["enabled"]
-        self.internet_button.setText("اینترنت: روشن — خاموش کن" if enabled else "اینترنت: خاموش — روشن کن")
-
-    def toggle_internet(self):
-        access = self.runtime.internet_access
-        try:
-            access.disable() if access.status()["enabled"] else access.enable()
-        except OSError as exc:
-            self.refresh_internet()
-            self.status.setText(f"خطا در ذخیره تنظیم اینترنت؛ اتصال خاموش ماند: {exc}")
-            return
-        self.refresh_internet()
-        self.run_chatgpt_review_once()
-
-    def _dialog(self, title, text):
-        d=QDialog(self); d.setWindowTitle(title); d.resize(850,550)
-        layout=QVBoxLayout(d); view=QPlainTextEdit(); view.setReadOnly(True)
-        view.setPlainText(text); layout.addWidget(view)
-        button=QPushButton("بستن");button.clicked.connect(d.accept);layout.addWidget(button)
-        d.exec()
-
+        if self._chat_cancelled or self._closing: return
+        self.add("خطا", text); self.status.setText("خطا"); self.persist_session()
+        if self.thread is None:
+            self.busy = False; self.send.setEnabled(True)
     def _finish_worker(self, *args):
-        thread = self.thread
-        worker = self.worker
-        worker.deleteLater()
-        thread.quit()
-        thread.finished.connect(thread.deleteLater)
-        thread.finished.connect(self._chat_finished)
-
+        # Keep ownership and busy state until this thread actually finishes.
+        if self.worker is not None: self.worker.deleteLater()
+        if self.thread is not None: self.thread.quit()
     def _chat_finished(self):
+        self.thread = None; self.worker = None
+        self.busy = False
+        self.send.setEnabled(not self._closing)
+        self.stopbtn.setEnabled(bool(self._jobs) and not self._closing)
+        if self._chat_cancelled and not self._closing:
+            self.status.setText("عملیات متوقف شد؛ نتیجه نمایش داده نشد")
         if self._closing and not self._jobs: QTimer.singleShot(0, self.close)
-
-    def approve_all_learning_ui(self):
-        try:
-            stats = self.runtime.learning_status()
-            pending = int(stats.get("pending", 0))
-            if pending == 0:
-                QMessageBox.information(self, "یادگیری", "درخواستی برای تایید وجود ندارد.")
-                return
-            answer = QMessageBox.question(
-                self, "تایید همه یادگیری‌ها",
-                f"تعداد {pending:,} درخواست یادگیری در صف است. همه تایید شوند؟",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                QMessageBox.StandardButton.No
-            )
-            if answer != QMessageBox.StandardButton.Yes:
-                return
-            self._start_job("approve_all", lambda: self.runtime.approve_all_learning(
-                                max(5000, pending), human_confirmed=True, source="gui_bulk"),
-                            lambda result: self.status.setText(f"یادگیری‌های تأییدشده: {result.get('approved', 0)}"))
-        except Exception as e:
-            QMessageBox.warning(self, "خطا", str(e))
-
-    def clear_all_learning_ui(self):
-        answer = QMessageBox.question(
-            self, "حذف کامل صف یادگیری",
-            "همه درخواست‌های در انتظار رد و از صف فعال خارج شوند؟\n\n"
-            "موارد ردشده حفظ می‌شوند. تاریخچه برای جلوگیری از یادگیری تکراری حفظ می‌شود.",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No
-        )
-        if answer != QMessageBox.StandardButton.Yes:
-            return
-        try:
-            self._start_job(
-                "reject_all",
-                lambda: self.runtime.reject_all_learning(100000),
-                lambda result: self.status.setText(
-                    f"درخواست‌های ردشده: {result.get('rejected', 0)} | "
-                    f"ردنشده: {len(result.get('skipped', []))}"
-                ),
-            )
-        except Exception as e:
-            QMessageBox.warning(self, "خطا در پاک‌سازی", str(e))
-
-    def _dedupe_human_pending_rows(self, rows):
-        """Hide Gate shadows for candidates already approved by the human."""
-        try:
-            from persistence import load_critical_json
-            reviews = load_critical_json(self.runtime._chatgpt_review_path(), [])
-            approved_gate_ids = {
-                row.get("gate_proposal_id")
-                for row in reviews
-                if row.get("source") == "learning_candidate"
-                and row.get("status") == "approved"
-                and row.get("gate_proposal_id")
-            }
-        except Exception:
-            approved_gate_ids = set()
-        visible = []
-        seen = set()
-        for row in rows or []:
-            proposal_id = row.get("proposal_id")
-            if proposal_id in approved_gate_ids:
-                continue
-            payload = row.get("payload", {}) or {}
-            stable_key = (
-                row.get("source"), row.get("kind"),
-                payload.get("mission_id"), payload.get("unit_id"),
-                payload.get("unit_title"), proposal_id,
-            )
-            if stable_key in seen:
-                continue
-            seen.add(stable_key)
-            visible.append(row)
-        return visible
-
-    def review_pending_learning(self, rows_override=None):
-        """نمایش درخواست‌های یادگیری در انتظار تأیید؛ می‌تواند به درس‌های آماده محدود شود."""
-        try:
-            rows = list(rows_override) if rows_override is not None else self._dedupe_human_pending_rows(self.runtime.human_learning_pending(50))
-        except Exception as e:
-            QMessageBox.warning(self, "بازبینی یادگیری", f"خطا: {e}")
-            return
-        if not rows:
-            stats = self.runtime.learning_status()
-            QMessageBox.information(self, "بازبینی یادگیری", f"درخواست در انتظار تأیید وجود ندارد.\n\nکل درخواست‌ها: {stats.get('total', 0):,}\nتأییدشده: {stats.get('approved', 0):,}\nردشده: {stats.get('rejected', 0):,}\nXP کل: {stats.get('xp', 0):,}")
-            self.refresh_learning_stats()
-            return
-        d = QDialog(self)
-        d.setWindowTitle(f"بازبینی یادگیری — {len(rows)} درخواست")
-        d.resize(980, 720)
-        d.setLayoutDirection(Qt.RightToLeft)
-        outer = QVBoxLayout(d)
-        outer.addWidget(QLabel(f"درخواست‌های در انتظار: {len(rows):,} | XP پس از ارزیابی اثر ثبت می‌شود"))
-        tabs = QTabWidget()
-        outer.addWidget(tabs, 1)
-        for index, row in enumerate(rows, 1):
-            page = QWidget()
-            l = QVBoxLayout(page)
-            payload = row.get("payload", {}) or {}
-            goal = str(payload.get("goal", row.get("summary", "هدف مشخص نشده")))
-            action = str(payload.get("action", ""))
-            result = str(payload.get("result", ""))
-            lesson = str(payload.get("lesson", ""))
-            kind = str(row.get("kind", ""))
-            proposal_id = str(row.get("proposal_id", ""))
-            review = self.runtime.chatgpt_learning_review_status(proposal_id).get("row", {})
-            try:
-                chatgpt = json.loads(str(review.get("review", "{}")))
-            except Exception:
-                chatgpt = {}
-            l.addWidget(QLabel(f"درخواست {index} از {len(rows)} | نوع: {kind} | شناسه: {proposal_id}"))
-            box = QPlainTextEdit()
-            box.setReadOnly(True)
-            if payload.get("mission_id") or payload.get("candidate_type"):
-                detail = format_mission_candidate_review(row, chatgpt)
-            else:
-                detail = (f"هدف:\n{goal}\n\nعمل انجام‌شده:\n{action}\n\nنتیجه:\n{result}\n\nدرس استخراج‌شده:\n{lesson}\n\n"
-                          f"نظر ناظر: {chatgpt.get('answer', '')}\nدلیل ناظر: {chatgpt.get('reason', '')}\n"
-                          f"اعتماد ناظر: {chatgpt.get('confidence', '?')}\nوضعیت: {review.get('status', '—')}\n")
-            detail += (f"\nزمان بررسی: {review.get('reviewed_at', '—')}"
-                       f"\nاصلاحات پیشنهادی: {chatgpt.get('corrections', [])}"
-                       f"\nمنبع: {review.get('source', 'learning_gate')}"
-                       f"\n\nمحتوای کامل و منابع:\n{json.dumps(payload, ensure_ascii=False, indent=2)}")
-            box.setPlainText(detail)
-            l.addWidget(box, 1)
-            buttons = QHBoxLayout()
-            copy = QPushButton("کپی درخواست")
-            reject = QPushButton("رد کردن")
-            approve = QPushButton("تأیید یادگیری")
-            next_item = QPushButton("مورد بعدی")
-            buttons.addWidget(copy); buttons.addWidget(reject); buttons.addWidget(approve); buttons.addWidget(next_item); l.addLayout(buttons)
-            copy.clicked.connect(lambda checked=False, text=box.toPlainText(): (QApplication.clipboard().setText(text), self.status.setText("درخواست کپی شد")))
-            pid = proposal_id
-            def finish_decision(result, page=page, approve=approve, reject=reject):
-                approve.setEnabled(True); reject.setEnabled(True)
-                if not result.get("ok"):
-                    self.status.setText("ثبت تصمیم ناموفق: " + str(result.get("reason", "unknown")))
-                    return
-                self.status.setText("تصمیم ثبت شد؛ XP فقط پس از ارزیابی اثر ثبت می‌شود")
-                tab_index = tabs.indexOf(page)
-                if tab_index >= 0: tabs.removeTab(tab_index)
-                if tabs.count() == 0: d.accept()
-            def do_approve(checked=False, proposal_id=pid, approve=approve, reject=reject, finish=finish_decision):
-                if self._start_job("decision:" + proposal_id,
-                                   lambda: self.runtime.approve_learning(
-                                       proposal_id, human_confirmed=True, source="gui"), finish):
-                    approve.setEnabled(False); reject.setEnabled(False)
-            def do_reject(checked=False, proposal_id=pid, approve=approve, reject=reject, finish=finish_decision):
-                if self._start_job("decision:" + proposal_id,
-                                   lambda: self.runtime.reject_learning(proposal_id), finish):
-                    approve.setEnabled(False); reject.setEnabled(False)
-            approve.clicked.connect(do_approve); reject.clicked.connect(do_reject)
-            next_item.clicked.connect(lambda checked=False, index=index: tabs.setCurrentIndex(min(index, tabs.count() - 1)))
-            tabs.addTab(page, f"درخواست {index}")
-        close = QPushButton("بستن")
-        close.clicked.connect(d.reject)
-        outer.addWidget(close)
-        d.exec()
-
-    def show_learned_lessons(self):
-        try:
-            rows = self.runtime.learning.learned_lesson_rows(100)
-        except Exception as e:
-            QMessageBox.warning(self, "درس‌های یادگرفته‌شده", f"خطا: {e}")
-            return
-        d=QDialog(self); d.setWindowTitle(f"درس‌های یادگرفته‌شده — {len(rows)} مورد"); d.resize(1050,760); d.setLayoutDirection(Qt.RightToLeft)
-        l=QVBoxLayout(d)
-        l.addWidget(QLabel(f"درس‌های پایدار استخراج‌شده از تجربه‌های واقعی: {len(rows):,}"))
-        box=QPlainTextEdit(); box.setReadOnly(True)
-        if rows:
-            blocks=[]
-            for i,row in enumerate(rows,1):
-                blocks.append(f"درس {i}\nموضوع: {row.get('goal','')}\nعمل: {row.get('action','')}\nامتیاز: {row.get('score','')} | تکرار/شواهد: {row.get('samples',1)}\n\n{row.get('lesson','')}")
-            box.setPlainText("\n\n────────────────────\n\n".join(blocks))
-        else:
-            box.setPlainText("هنوز درس پایدار ثبت نشده است. ابتدا یک تجربه را تأیید کنید.")
-        l.addWidget(box,1); close=QPushButton("بستن"); close.clicked.connect(d.accept); l.addWidget(close); d.exec()
-
-    def queue_chatgpt_review(self, answer):
-        try:
-            self.runtime.sync_chatgpt_learning_reviews()
-        except Exception as exc:
-            self.status.setText(f"خطا در صف ناظر: {exc}")
-
-    def refresh_chatgpt_count(self):
-        try:
-            status = self.runtime.chatgpt_review_status()
-            pending = int(status.get("pending", 0) or 0)
-            try:
-                human_pending = len(self._dedupe_human_pending_rows(self.runtime.human_learning_pending(100000)))
-            except Exception:
-                human_pending = int(status.get("human_pending", 0) or 0)
-            waiting = int(status.get("waiting", 0) or 0)
-            if status.get("state") == "ERROR":
-                self.chatgpt_pending.setText(
-                    f"ناظر: خطا در داده‌های ذخیره‌شده | {status.get('last_error', 'نامشخص')}"
-                )
-            elif status.get("state") == "UNINITIALIZED":
-                self.chatgpt_pending.setText(
-                    f"ناظر: وضعیت بازبینی هنوز ثبت نشده | صف: {pending:,} | بازبینی انسانی: {human_pending:,}"
-                )
-            else:
-                self.chatgpt_pending.setText(
-                    f"درخواست‌های بازبینی ناظر: {pending:,} | بازبینی انسانی: {human_pending:,}"
-                )
-            providers = status.get("providers", [])
-            provider_text = ", ".join(
-                f"{row.get('provider', 'ناظر')}: {row.get('state', 'نامشخص')}"
-                for row in providers
-            ) or "بدون ارائه‌دهنده"
-            self.online_review_status.setText(f"ناظر آنلاین: {provider_text}")
-            self.queue_status.setText(f"صف: {pending:,} | منتظر ناظر: {waiting:,}")
-            self.human_pending.setText(f"در انتظار انسان: {human_pending:,}")
-            cooldown = int(status.get("cooldown_seconds", 0) or 0)
-            self.cooldown_status.setText(
-                f"خنک‌سازی: {cooldown} ثانیه" if cooldown else "خنک‌سازی: آماده"
-            )
-            error = status.get("last_error")
-            failed_state = status.get("state") == "ERROR" or bool(error)
-            if failed_state:
-                self.integrity_status.setText(f"یکپارچگی: خطا — {error or 'داده ناظر نامعتبر'}")
-            elif status.get("state") == "UNINITIALIZED":
-                self.integrity_status.setText("یکپارچگی: وضعیت اولیه؛ هنوز داده‌ای ثبت نشده")
-            else:
-                self.integrity_status.setText("یکپارچگی: سالم")
-            recovered = status.get("last_success_at")
-            if recovered:
-                self.recovery_status.setText(f"بازیابی: آخرین موفقیت {recovered}")
-            elif status.get("state") == "UNINITIALIZED":
-                self.recovery_status.setText("بازیابی: وضعیت ناظر هنوز ثبت نشده")
-            else:
-                self.recovery_status.setText("بازیابی: هنوز موفقیتی ثبت نشده")
-            self.review_rows_detail.setText(
-                f"رکوردها: {int(status.get('total', 0) or 0):,} | ردشده در بازبینی: {int(status.get('rejected', 0) or 0):,}"
-            )
-            gate = self.runtime.learning_gate.stats()
-            self.review_accepted.setText(f"تأیید انسانی: {gate.get('approved', 0):,}")
-            self.review_rejected.setText(f"رد انسانی: {gate.get('rejected', 0):,}")
-            self.review_errors.setText(f"خطاهای بازبینی: {error or 'ندارد'}")
-            fabric = self.runtime.input_fabric_status()
-            self.duplicate_warning.setText(
-                f"ورودی تکراری: {int(fabric.get('duplicates', 0) or 0):,}"
-            )
-            self.input_fabric_json.setText(
-                f"ورودی‌ها: {int(fabric.get('ingested', 0) or 0):,} | واحدها: {int(fabric.get('units', 0) or 0):,}"
-            )
-        except Exception as exc:
-            self.chatgpt_pending.setText("درخواست‌های بازبینی ناظر: خطا")
-            self.integrity_status.setText(f"یکپارچگی: خطا — {type(exc).__name__}")
-            self.review_errors.setText(f"خطاهای بازبینی: {type(exc).__name__}")
-
-    def show_chatgpt_reviews(self):
-        # Pending candidate content is private until the external review accepts it.
-        try:
-            status = self.runtime.chatgpt_review_status()
-        except Exception as exc:
-            self._dialog("وضعیت ناظر آنلاین", f"خطا در خواندن وضعیت ناظر: {exc}")
-            return
-        reasons = {'credentials_disallowed': 'این ناظر به کلید یا حساب نیاز دارد؛ طبق تنظیمات مجاز نیست'}
-        health = "\n".join(f"{p['provider']}: {p['state']} — {reasons.get(p['reason'], p['reason'])}" for p in status.get("providers", []))
-        self._dialog("وضعیت ناظر آنلاین", f"صف: {status.get('pending',0)}\nدر انتظار ناظر: {status.get('waiting',0)}\nآماده بازبینی شما: {status.get('human_pending',0)}\nآخرین خطا: {status.get('last_error') or '—'}\n\n{health}")
-
-    def paste_clipboard(self):
-        self.input.insertPlainText(QApplication.clipboard().text()); self.input.setFocus()
-    def copy_response(self):
-        if self.last_answer.strip(): QApplication.clipboard().setText(self.last_answer.strip()); self.status.setText("پاسخ کپی شد")
-    def copy_selection(self):
-        text = self.chat.textCursor().selectedText().strip()
-        if text: QApplication.clipboard().setText(text); self.status.setText("متن انتخاب‌شده کپی شد")
-        else: self.status.setText("متنی انتخاب نشده است")
-    def update_title_stats(self): self.setWindowTitle(f"ایران — معماری شناختی | {len(self.messages)} پیام")
+    def stop_operation(self):
+        # Never terminate a thread inside a durable transaction. Let its current
+        # atomic operation finish, suppress presentation and further review.
+        self._chat_cancelled = True
+        self._cancelled_jobs.update(self._jobs)
+        self.runtime.internet_access.disable()
+        self.refresh_internet()
+        self.stopbtn.setEnabled(False)
+        self.status.setText("توقف درخواست شد؛ در انتظار پایان امن عملیات جاری…")
     def closeEvent(self, event):
         self._closing = True
+        self._chat_cancelled = True
+        self._cancelled_jobs.update(self._jobs)
+        self.runtime.internet_access.disable()
         self.autonomy_timer.stop(); self.chatgpt_review_timer.stop()
         if self._jobs or self.busy:
             self.status.setText("در انتظار پایان عملیات برای بستن امن…")
@@ -656,6 +340,7 @@ class ChatWindow(QMainWindow):
         except Exception: pass
         self.update_title_stats(); self.refresh_learning_stats(); self.refresh_chatgpt_count()
     def clear_display(self):
+        if self.busy: self.stop_operation()
         self.chat.clear(); self.last_answer = ""; self.messages = []; self.update_title_stats(); self.persist_session(); self.status.setText("گفت‌وگو پاک شد")
     def new_chat(self):
         self.clear_display(); self.sessions.addItem(datetime.now().strftime("گفت‌وگو %Y-%m-%d %H:%M:%S")); self.sessions.setCurrentRow(self.sessions.count() - 1)
