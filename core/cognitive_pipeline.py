@@ -1374,6 +1374,9 @@ class CognitivePipeline:
         if not answer:
             answer = e._direct_answer(context)
 
+        # The final realization obeys the same stored style as early routes.
+        answer = self._apply_conversation_style(answer, plan.answer_type)
+
         # Verify and repair. Context transformations (clarification/meta/social) are
         # verified for coherence, not as unsupported factual claims.
         verification = e.verifier.verify(context, answer, plan)
