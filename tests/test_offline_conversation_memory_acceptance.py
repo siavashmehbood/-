@@ -64,3 +64,24 @@ def test_public_runtime_reexpresses_instead_of_echoing_or_promising(tmp_path):
             assert len(expanded) > len(original), (original, expanded)
     finally:
         runtime.close()
+
+
+def test_short_style_changes_later_answers_and_survives_restart(tmp_path):
+    config = json.loads((Path(__file__).parents[1] / "config.json").read_text(encoding="utf-8-sig"))
+    config["language_engine"]["enabled"] = False
+    (tmp_path / "config.json").write_text(json.dumps(config), encoding="utf-8")
+    runtime = IranRuntime(tmp_path)
+    try:
+        baseline = runtime.handle("امروز ناراحتم")
+        runtime.handle("از این به بعد کوتاه و طبیعی جواب بده")
+        short = runtime.handle("امروز ناراحتم")
+        assert len(short) < len(baseline), (baseline, short)
+        assert "دانا" not in short
+    finally:
+        runtime.close()
+    restored = IranRuntime(tmp_path)
+    try:
+        answer = restored.handle("امروز ناراحتم")
+        assert len(answer) < len(baseline), (baseline, answer)
+    finally:
+        restored.close()
