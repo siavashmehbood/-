@@ -48,7 +48,7 @@ class ToolRouter:
         word_expression = self._word_arithmetic(t)
         if word_expression:
             return 'calculate', {'expression': word_expression}
-        digits = str.maketrans('۰۱۲۳۴۵۶۷۸۹', '0123456789')
+        digits = str.maketrans('۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩', '01234567890123456789')
         arithmetic = t.translate(digits)
         words = {
             'به توان': '**', 'ضربدر': '*', 'ضرب در': '*', '×': '*',
