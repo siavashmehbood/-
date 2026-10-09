@@ -41,10 +41,10 @@ jobs:
         run: python -m pytest -q tests/test_single_brain_routing.py tests/test_persian_architecture_contract.py --junitxml=brain.xml
       - name: Online reviewer and human approval
         if: ${{ !cancelled() }}
-        run: python -m pytest -q tests/test_chatgpt_review_pipeline.py tests/test_reviewer_human_gate_restart_acceptance.py tests/test_review_safety.py tests/test_internet_permission_recovery.py --junitxml=learning.xml
+        run: python -m pytest -q tests/test_chatgpt_review_pipeline.py tests/test_reviewer_providers.py tests/test_reviewer_human_gate_restart_acceptance.py tests/test_review_safety.py tests/test_internet_permission_recovery.py --junitxml=learning.xml
       - name: Offline Persian and reasoning
         if: ${{ !cancelled() }}
-        run: python -m pytest -q tests/test_language.py tests/test_chain_reasoning.py tests/test_reasoning_planning.py tests/test_temporal_expression_isolation.py tests/test_offline_core_restart_acceptance.py --junitxml=offline.xml
+        run: python -m pytest -q tests/test_language.py tests/test_chain_reasoning.py tests/test_reasoning_planning.py tests/test_temporal_expression_isolation.py tests/test_offline_core_restart_acceptance.py tests/test_offline_arithmetic_acceptance.py --junitxml=offline.xml
       - name: Restart integrity and learning deduplication
         if: ${{ !cancelled() }}
         run: python -m pytest -q tests/test_approval_recovery.py tests/test_approval_backup_integrity.py tests/test_critical_persistence.py tests/test_learning_gate_concurrency.py tests/test_shared_file_lock_concurrency.py tests/test_review_decision_journal_concurrency.py tests/test_runtime_ownership.py tests/test_effect_learning.py --junitxml=integrity.xml
