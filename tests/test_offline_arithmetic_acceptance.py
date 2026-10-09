@@ -24,6 +24,8 @@ def test_public_runtime_computes_offline_without_retrieval(tmp_path, question, e
         assert re.search(r"(?<![\d.])" + str(expected) + r"(?![\d.])", normalized), answer
         assert "999" not in normalized, answer
         assert not answer.startswith("UNKNOWN"), answer
+        trace = runtime.cognitive_system.last_trace
+        assert trace is not None and trace.user_text == question, trace
     finally:
         runtime.close()
 
