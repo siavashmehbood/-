@@ -90,7 +90,11 @@ class ConversationState:
             self.recent_assistant_turns=self.recent_assistant_turns[-30:]
 
     def set_style(self,styles,scope="conversation"):
-        for style in list(styles or []):
+        styles = list(styles or [])
+        for selected, opposite in (("short", "long"), ("long", "short"), ("simple", "technical"), ("technical", "simple")):
+            if selected in styles and opposite not in styles:
+                self.response_style.pop(opposite, None)
+        for style in styles:
             self.response_style[str(style)]={"scope":str(scope or "conversation"),"set_at":self.turns}
         return dict(self.response_style)
 
