@@ -85,3 +85,48 @@ def test_short_style_changes_later_answers_and_survives_restart(tmp_path):
         assert len(answer) < len(baseline), (baseline, answer)
     finally:
         restored.close()
+
+
+def test_followup_requests_deliver_memory_content_not_promises(tmp_path):
+    config = json.loads((Path(__file__).parents[1]/"config.json").read_text(encoding="utf-8-sig"))
+    config["language_engine"]["enabled"] = False
+    (tmp_path/"config.json").write_text(json.dumps(config), encoding="utf-8")
+    runtime = IranRuntime(tmp_path)
+    try:
+        runtime.memory.add("user", "اسم پروژه من دانا هست")
+        runtime.handle("حافظه در ایران چیه؟")
+        transcript = []
+        for prompt in ("ادامه بده", "همونو توضیح بده", "یه مثال بزن"):
+            answer = runtime.handle(prompt); transcript.append((prompt, answer))
+            assert not any(x in answer for x in ("ادامه می‌دهم", "مبنا می‌گیرم", "نمونه کوچک و مشخص")), transcript
+            assert "دانا" not in answer, transcript
+            if "مثال" in prompt:
+                assert any(x in answer for x in ("فرض کن", "اگر بگویی", "مثلاً بگویی")), transcript
+                assert any(x in answer for x in ("اسم", "نام", "سؤال", "پرس")), transcript
+            else:
+                assert any(x in answer for x in ("اطلاعات", "پیام", "ذخیره")), transcript
+                assert any(x in answer for x in ("مرتبط", "بازیابی", "نگه")), transcript
+    finally:
+        runtime.close()
+
+
+def test_explicit_project_correction_selects_named_project_and_keeps_history(tmp_path):
+    config = json.loads((Path(__file__).parents[1]/"config.json").read_text(encoding="utf-8-sig"))
+    config["language_engine"]["enabled"] = False
+    (tmp_path/"config.json").write_text(json.dumps(config), encoding="utf-8")
+    runtime = IranRuntime(tmp_path)
+    try:
+        runtime.handle("هدف اطلس آموزش است")
+        runtime.handle("هدف دانا فروش کتاب است")
+        runtime.handle("نه، هدف اطلس آموزش نبود، پژوهش بود")
+        assert "پژوهش" in runtime.handle("هدف اطلس چی بود؟")
+        assert "فروش کتاب" in runtime.handle("هدف دانا چی بود؟")
+        assert "آموزش" in runtime.handle("نسخه اول هدف اطلس چی بود؟")
+    finally:
+        runtime.close()
+    restored = IranRuntime(tmp_path)
+    try:
+        assert "پژوهش" in restored.handle("هدف اطلس چی بود؟")
+        assert "فروش کتاب" in restored.handle("هدف دانا چی بود؟")
+    finally:
+        restored.close()
