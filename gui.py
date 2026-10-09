@@ -309,7 +309,8 @@ class ChatWindow(QMainWindow):
         # atomic operation finish, suppress presentation and further review.
         self._chat_cancelled = True
         self._cancelled_jobs.update(self._jobs)
-        self.runtime.internet_access.disable()
+        try: self.runtime.internet_access.disable()
+        except OSError: pass  # Permission manager already fails closed.
         self.refresh_internet()
         self.stopbtn.setEnabled(False)
         self.status.setText("توقف درخواست شد؛ در انتظار پایان امن عملیات جاری…")
@@ -317,7 +318,8 @@ class ChatWindow(QMainWindow):
         self._closing = True
         self._chat_cancelled = True
         self._cancelled_jobs.update(self._jobs)
-        self.runtime.internet_access.disable()
+        try: self.runtime.internet_access.disable()
+        except OSError: pass
         self.autonomy_timer.stop(); self.chatgpt_review_timer.stop()
         if self._jobs or self.busy:
             self.status.setText("در انتظار پایان عملیات برای بستن امن…")
