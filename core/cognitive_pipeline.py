@@ -812,6 +812,21 @@ class CognitivePipeline:
             return self._persist_answer(text, self._contextual_followup(text, "explain"), "CONTINUATION", .95, evidence=[])
         # Generic meta-conversation reads bounded local conversation state before
         # retrieval. It never consults long-term memory for "what did we just say?".
+        asks_unanswered = (
+            any(marker in low for marker in ("بی‌جواب", "بی جواب", "جواب نگرفتم", "بی‌پاسخ", "بی پاسخ"))
+            or ("سؤال" in low or "سوال" in low) and any(marker in low for marker in ("قبلی", "جواب ندادی", "بی‌جواب", "بی جواب"))
+        )
+        if asks_unanswered:
+            unresolved = [
+                clean(question) for question in (getattr(e.state, "unresolved_questions", []) or [])
+                if clean(question) and clean(question) != text
+            ]
+            answer = (
+                f"سؤال بی‌جواب قبلی‌ات این بود: «{unresolved[-1]}»."
+                if unresolved else "سؤال بی‌جوابی در سابقهٔ گفتگو پیدا نکردم."
+            )
+            return self._persist_answer(text, answer, "META", .99, evidence=[])
+
         if foundation_meaning.dialogue_act == "meta_conversation":
             users=list(getattr(e.state,"recent_user_turns",[]) or [])
             assistants=list(getattr(e.state,"recent_assistant_turns",[]) or [])
@@ -862,19 +877,9 @@ class CognitivePipeline:
             # Preserve explicit profile facts in a compound social turn before
             # returning the social acknowledgement (e.g. «من سیاوشم ... آماده‌ای؟»).
             try:
+                # UserModel owns explicit identity extraction. A second loose
+                # regex here used to turn «من دارم ...» into the name «دار».
                 self.runtime.user_model.record(text)
-                name_match = re.search(r"من\s+(\S+)", text)
-                if name_match:
-                    name_token = name_match.group(1).strip(" ،,؛.!?؟")
-                    name_value = name_token[:-1] if len(name_token) >= 3 and name_token.endswith("م") else ""
-                    if name_value:
-                        self.runtime.user_model.record_from_facts([{
-                            "subject": "user",
-                            "predicate": "name",
-                            "object": name_value,
-                        "confidence": .99,
-                            "source": "explicit_user_statement",
-                        }])
             except Exception:
                 pass
             return self._persist_answer(text, "آره، آماده‌ام. تست‌ها رو یکی‌یکی بفرست.", "SOCIAL", .99)
