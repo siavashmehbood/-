@@ -215,6 +215,24 @@ def test_emotional_followup_varies_after_persistent_short_style(tmp_path):
         runtime.close()
 
 
+def test_project_continuation_gives_a_concrete_next_learning_step(tmp_path):
+    config = json.loads((Path(__file__).parents[1] / "config.json").read_text(encoding="utf-8-sig"))
+    config["language_engine"]["enabled"] = False
+    config["memory"]["db"] = "data/concrete_project_continuation.db"
+    (tmp_path / "config.json").write_text(json.dumps(config, ensure_ascii=False), encoding="utf-8")
+    runtime = IranRuntime(tmp_path)
+    try:
+        runtime.handle("هدف پروژه آلفا یادگیری برنامه‌نویسی پایتون است")
+        first = runtime.handle("برای شروع پایتون، متغیر یعنی چی؟")
+        continued = runtime.handle("ادامه بده")
+        assert first and continued, (first, continued)
+        assert any(term in continued.lower() for term in ("پایتون", "python")), continued
+        assert any(term in continued.lower() for term in ("متغیر", "ورودی", "عدد", "print", "تابع")), continued
+        assert any(action in continued for action in ("بنویس", "بساز", "وارد کن", "اجرا کن", "تمرین کن")), continued
+    finally:
+        runtime.close()
+
+
 def test_project_followup_simplifies_the_current_goal(tmp_path):
     config = json.loads((Path(__file__).parents[1] / "config.json").read_text(encoding="utf-8-sig"))
     config["language_engine"]["enabled"] = False

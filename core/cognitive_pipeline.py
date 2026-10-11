@@ -452,7 +452,33 @@ class CognitivePipeline:
                 example = f"یک کار کوچک و قابل‌سنجش مرتبط با «{project_goal}» تعریف کن و نتیجه‌اش را بررسی کن."
             return f"برای هدف پروژهٔ «{project}» یعنی «{project_goal}»، {example}"
         if project_goal and mode == "continue":
-            return f"برای ادامهٔ هدف پروژهٔ «{project}» یعنی «{project_goal}»، یک گام کوچک و قابل‌سنجش تعریف کن و نتیجه‌اش را با همین هدف بسنج."
+            goal_low = project_goal.lower().replace("‌", " ")
+            turn_low = f"{question} {answer}".lower().replace("‌", " ")
+            if any(term in goal_low for term in ("پایتون", "python", "برنامه نویسی", "کدنویسی", "نرم افزار")):
+                if any(term in turn_low for term in ("متغیر", "variable")):
+                    return (
+                        f"برای پروژهٔ «{project}» یعنی «{project_goal}»، ادامهٔ مبحث متغیر در پایتون را با این تمرین پیش ببر:\n"
+                        "`count = 2; print(count); count = count + 1; print(count)`\n"
+                        "قبل از اجرا، دو خروجی را حدس بزن؛ بعد برنامه را اجرا کن و نتیجه را بفرست تا گام بعدی را بر همان اساس ادامه بدهیم."
+                    )
+                return (
+                    f"برای پروژهٔ «{project}» یعنی «{project_goal}»، تمرین بعدی پایتون این است: برنامه‌ای بنویس که دو عدد بگیرد، جمعشان را حساب کند "
+                    "و با `print` نشان بدهد؛ اجراش کن و اگر خطا دیدی همان خطا را بفرست."
+                )
+            if any(term in goal_low for term in ("زبان", "انگلیسی")):
+                return (
+                    f"برای پروژهٔ «{project}» یعنی «{project_goal}»، ادامهٔ تمرین زبان این است: سه جمله دربارهٔ برنامهٔ امروزت بنویس؛ "
+                    "بعد یکی را با زمان گذشته بازنویسی کن و بفرست تا باهم بررسی کنیم."
+                )
+            if any(term in goal_low for term in ("پژوهش", "تحقیق")):
+                return (
+                    f"برای پروژهٔ «{project}» یعنی «{project_goal}»، گام بعدی پژوهش این است: یک پرسش دقیق از موضوع انتخاب کن، یک منبع برایش پیدا کن، "
+                    "و ادعا را از شاهدی که منبع می‌دهد جدا بنویس."
+                )
+            return (
+                f"برای پروژهٔ «{project}» یعنی «{project_goal}»، یک نتیجهٔ کوچک و قابل‌بررسی آماده کن؛ "
+                "انجامش بده و نتیجه یا مانع را همین‌جا بفرست تا ادامه را بر همان اساس پیش ببریم."
+            )
         if project_goal and mode == "explain":
             return f"یعنی پروژهٔ «{project}» روی «{project_goal}» تمرکز دارد؛ آن را به کارهای کوچک و قابل‌بررسی تقسیم کن."
         if not matched:
