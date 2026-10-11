@@ -268,6 +268,9 @@ class CognitivePipeline:
         answer = self._apply_conversation_style(answer, answer_type)
         # A raw user turn or a near-copy of the question is never accepted as a
         # final answer merely because retrieval found similar text.
+        if str(answer).startswith("UNKNOWN:") and text not in self.engine.state.unresolved_questions:
+            self.engine.state.unresolved_questions.append(text)
+            self.engine.state.unresolved_questions = self.engine.state.unresolved_questions[-30:]
         try:
             evidence_backed=False
             if evidence:
@@ -1152,6 +1155,26 @@ class CognitivePipeline:
                 e.state.save(e.state_path)
         except Exception: pass
 
+        asks_previous_name = (
+            any(marker in low for marker in ("قبلاً", "قبلا", "پیش‌تر", "پیشتر", "اسم قبلیم", "نام قبلیم"))
+            and any(marker in low for marker in ("اسم من", "نام من", "اسمم"))
+        )
+        if asks_previous_name:
+            try:
+                names = self.runtime.user_model.facts(predicate="name", limit=100)
+                unique = []
+                for fact in names:
+                    value = clean(fact.get("object", ""))
+                    if value and value not in unique:
+                        unique.append(value)
+                if len(unique) > 1:
+                    return self._persist_answer(
+                        text,
+                        f"نام ثبت‌شدهٔ قبلی‌ات «{unique[1]}» بود؛ نام فعلی «{unique[0]}» است.",
+                        "MEMORY_RECALL", .99)
+            except Exception:
+                pass
+
         # Resolve identity and terse contextual follow-ups inside the canonical route.
         try:
             identity = self.runtime.user_model.answer_identity(text)
@@ -1474,12 +1497,11 @@ class CognitivePipeline:
                 verification = e.verifier.verify(context, answer, plan)
         if "اطلاعات کافی ندارم" in answer and not answer.startswith("UNKNOWN:"):
             answer = "UNKNOWN: " + answer
+        if verification.status == "UNKNOWN":
+            answer = "UNKNOWN: برای این سؤال در دانش و شواهد محلی اطلاعات کافی ندارم؛ نمی‌خواهم حدس را به‌عنوان واقعیت بگویم."
         if answer.startswith("UNKNOWN:") and text not in e.state.unresolved_questions:
             e.state.unresolved_questions.append(text)
             e.state.unresolved_questions = e.state.unresolved_questions[-30:]
-        self._remember_substantive_turn(text, answer, plan.answer_type)
-        if verification.status == "UNKNOWN":
-            answer = "UNKNOWN: برای این سؤال در دانش و شواهد محلی اطلاعات کافی ندارم؛ نمی‌خواهم حدس را به‌عنوان واقعیت بگویم."
 
         # Critical anti-echo gate before final acceptance. Structured semantic
         # evidence may repair an echo; otherwise questions fail closed instead of
