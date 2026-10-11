@@ -692,6 +692,15 @@ class CognitivePipeline:
                 }],
             )
 
+        topic_statement = re.match(
+            r"^موضوع\s+اصلی\s+ما\s+(.+?)\s+است[.!؟?]*$", text
+        )
+        if topic_statement:
+            topic = clean(topic_statement.group(1))
+            return self._persist_answer(
+                text, f"باشه؛ موضوع اصلی گفت‌وگو «{topic}» است.", "META", .99, evidence=[]
+            )
+
         # Historical identity and project-version questions must be resolved
         # before generic meta/reference handlers can reinterpret their wording.
         low = text.lower()
@@ -869,11 +878,13 @@ class CognitivePipeline:
 
         # Explicit continuation references the immediately preceding user turn.
         if low in {"همون قبلی رو ادامه بده", "همان قبلی را ادامه بده"}:
-            recent_users = list(getattr(e.state, "recent_user_turns", []) or [])
-            previous_user = next(
-                (clean(item) for item in reversed(recent_users) if clean(item) and clean(item) != text),
-                "",
-            )
+            previous_user = clean(getattr(e.state, "last_user_message", ""))
+            if not previous_user or previous_user == text:
+                recent_users = list(getattr(e.state, "recent_user_turns", []) or [])
+                previous_user = next(
+                    (clean(item) for item in reversed(recent_users) if clean(item) and clean(item) != text),
+                    "",
+                )
             topic_statement = re.match(
                 r"^موضوع اصلی ما\s+(.+?)\s+است[.!؟?]*$", previous_user
             )
