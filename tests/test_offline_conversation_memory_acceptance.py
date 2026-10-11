@@ -354,6 +354,7 @@ def test_unanswered_question_is_recalled_after_restart(tmp_path):
             marker in answer for marker in ("اطلاعات کافی", "نمی‌خواهم حدس", "نامشخص")
         ), answer
         assert original_question in runtime.dialogue.state.unresolved_questions
+        runtime.handle("نه، منظورم این نبود؛ دربارهٔ خودِ پرسش حرف می‌زنم.")
     finally:
         runtime.close()
 
@@ -364,3 +365,17 @@ def test_unanswered_question_is_recalled_after_restart(tmp_path):
         assert "نام پروژه" not in recalled
     finally:
         restored.close()
+
+
+def test_current_question_about_unanswered_topics_is_not_history_recall(tmp_path):
+    config = json.loads((Path(__file__).parents[1] / "config.json").read_text(encoding="utf-8-sig"))
+    config["language_engine"]["enabled"] = False
+    config["memory"]["db"] = "data/current_unanswered_topic.db"
+    (tmp_path / "config.json").write_text(json.dumps(config, ensure_ascii=False), encoding="utf-8")
+    runtime = IranRuntime(tmp_path)
+    try:
+        answer = runtime.handle("چرا بعضی سؤال‌ها بی‌جواب می‌مانند؟")
+        assert "سؤال بی‌جواب قبلی‌ات این بود" not in answer, answer
+        assert "چرا بعضی سؤال‌ها بی‌جواب می‌مانند؟" not in answer, answer
+    finally:
+        runtime.close()
