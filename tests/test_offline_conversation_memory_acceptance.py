@@ -315,3 +315,52 @@ def test_name_recall_uses_the_current_explicit_name_naturally(tmp_path):
         assert "اسم مورد" not in answer, answer
     finally:
         runtime.close()
+
+
+def test_name_is_not_replaced_by_unrelated_first_person_verb_after_restart(tmp_path):
+    config = json.loads((Path(__file__).parents[1] / "config.json").read_text(encoding="utf-8-sig"))
+    config["language_engine"]["enabled"] = False
+    config["memory"]["db"] = "data/name_stability.db"
+    (tmp_path / "config.json").write_text(json.dumps(config, ensure_ascii=False), encoding="utf-8")
+    runtime = IranRuntime(tmp_path)
+    try:
+        runtime.handle("من سیاوشم")
+        runtime.handle("من دارم امروز برنامه‌ریزی می‌کنم.")
+        current = runtime.handle("اسم من چیه؟")
+        assert "سیاوش" in current, current
+        assert "دار" not in current, current
+    finally:
+        runtime.close()
+
+    restored = IranRuntime(tmp_path)
+    try:
+        current = restored.handle("اسم من چیه؟")
+        assert "سیاوش" in current, current
+        assert "دار" not in current, current
+    finally:
+        restored.close()
+
+
+def test_unanswered_question_is_recalled_after_restart(tmp_path):
+    config = json.loads((Path(__file__).parents[1] / "config.json").read_text(encoding="utf-8-sig"))
+    config["language_engine"]["enabled"] = False
+    config["memory"]["db"] = "data/unanswered_question.db"
+    (tmp_path / "config.json").write_text(json.dumps(config, ensure_ascii=False), encoding="utf-8")
+    original_question = "عدد دقیق پرتاب آزمایشی ماهوارهٔ ناشناس من در سال ۱۹۸۷ چه بود؟"
+    runtime = IranRuntime(tmp_path)
+    try:
+        answer = runtime.handle(original_question)
+        assert answer.startswith("UNKNOWN:") or any(
+            marker in answer for marker in ("اطلاعات کافی", "نمی‌خواهم حدس", "نامشخص")
+        ), answer
+        assert original_question in runtime.dialogue.state.unresolved_questions
+    finally:
+        runtime.close()
+
+    restored = IranRuntime(tmp_path)
+    try:
+        recalled = restored.handle("سؤال بی‌جواب قبلیم چی بود؟")
+        assert original_question in recalled, recalled
+        assert "نام پروژه" not in recalled
+    finally:
+        restored.close()
