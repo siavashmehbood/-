@@ -82,7 +82,20 @@ class UserModel:
                 "ناراحتم", "خوشحالم", "گرسنه‌ام", "گرسنهام", "عصبانی‌ام",
                 "عصبانیام", "مریضم", "بیمارم", "نگرانم", "تنهایم", "تنهایَم",
             }
-            if len(token) >= 3 and token.endswith("م") and token not in non_name_predicates:
+            # At sentence end, first-person verbs can look like names when
+            # their final «م» is mistaken for the informal name copula:
+            # «من دارم.» would otherwise persist «دار».
+            first_person_verb = bool(re.fullmatch(
+                r"(?:می[‌]?)?(?:دارم|خواهم|خوام|توانم|تونم|کنم|روم|رم|گویم|گم|دانم|"
+                r"بینم|بینم|خوانم|خونم|نویسم|خورم|آیم|ام|شوم|شم|مانم|گیرم)",
+                token,
+            ))
+            if (
+                len(token) >= 3
+                and token.endswith("م")
+                and token not in non_name_predicates
+                and not first_person_verb
+            ):
                 candidate = token[:-1]
                 if candidate and candidate not in {"هست", "خوب", "آماده"}:
                     facts.append(self._fact("name", candidate, .98))
