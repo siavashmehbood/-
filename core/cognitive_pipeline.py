@@ -606,7 +606,7 @@ class CognitivePipeline:
                 pass
 
         asks_first_goal = bool(
-            re.search(r"نسخه(?:ٔ|‌)?\\s*اول\\s+هدف|هدف.*نسخه(?:ٔ|‌)?\\s*اول", low)
+            re.search(r"نسخه(?:ٔ|‌)?\s*اول\s+هدف|هدف.*نسخه(?:ٔ|‌)?\s*اول", low)
         )
         if asks_first_goal:
             project = self._active_goal_project(text)
