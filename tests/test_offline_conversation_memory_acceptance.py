@@ -326,7 +326,20 @@ def test_name_is_not_replaced_by_unrelated_first_person_verb_after_restart(tmp_p
     try:
         runtime.handle("من سیاوشم")
         runtime.handle("من دارم امروز برنامه‌ریزی می‌کنم.")
-        for sentence in ("من دارم.", "من می‌خواهم.", "من می‌کنم.", "من می‌روم.", "من می‌دانم."):
+        for sentence in (
+            "من دارم.",
+            "من می‌خواهم.",
+            "من می‌کنم.",
+            "من می‌روم.",
+            "من می‌دانم.",
+            "من نیستم.",
+            "من نبودم.",
+            "من رفتم.",
+            "من کردم.",
+            "من دیدم.",
+            "من گفتم.",
+            "من نمی‌دانم.",
+        ):
             runtime.handle(sentence)
         current = runtime.handle("اسم من چیه؟")
         assert "سیاوش" in current, current
