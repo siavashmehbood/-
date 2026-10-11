@@ -813,13 +813,22 @@ class CognitivePipeline:
         # Generic meta-conversation reads bounded local conversation state before
         # retrieval. It never consults long-term memory for "what did we just say?".
         asks_unanswered = (
-            any(marker in low for marker in ("بی‌جواب", "بی جواب", "جواب نگرفتم", "بی‌پاسخ", "بی پاسخ"))
-            or ("سؤال" in low or "سوال" in low) and any(marker in low for marker in ("قبلی", "جواب ندادی", "بی‌جواب", "بی جواب"))
+            ("سؤال" in low or "سوال" in low or "پرسش" in low or "جواب" in low)
+            and any(marker in low for marker in (
+                "بی‌جواب", "بی جواب", "بی‌پاسخ", "بی پاسخ", "جواب نگرفتم",
+                "جواب ندادی", "جواب ندادم",
+            ))
+            and any(marker in low for marker in (
+                "قبلی", "قبلیم", "قبلی‌ام", "قبلی‌م", "پیش‌تر", "قبلاً",
+                "قبلا", "اون", "آن", "همون",
+            ) + ("جواب ندادی", "جواب ندادم"))
         )
         if asks_unanswered:
             unresolved = [
                 clean(question) for question in (getattr(e.state, "unresolved_questions", []) or [])
                 if clean(question) and clean(question) != text
+                and clean(question).endswith(("؟", "?"))
+                and not is_correction(question)
             ]
             answer = (
                 f"سؤال بی‌جواب قبلی‌ات این بود: «{unresolved[-1]}»."
