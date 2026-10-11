@@ -431,6 +431,21 @@ class CognitivePipeline:
             return "یک نمونهٔ مرتبط: " + matched[0][2]
         if mode == "continue":
             return f"نکتهٔ تکمیلی دربارهٔ «{question}»: {matched[0][1]}"
+        if mode == "explain":
+            explanations = {
+                "حافظه": "برای نمونه، نام شخص و نام پروژه دو موجودیت متفاوت‌اند؛ سؤال درباره نام شخص باید از واقعیت نام بازیابی شود و خاطره پروژه فقط با پرسش درباره همان پروژه به کار بیاید.",
+                "یادگیری": "تأیید ناظر فقط پیشنهاد را برای بازبینی آماده می‌کند؛ تغییر دانش فعال به تأیید انسانی و عبور از Learning Gate نیاز دارد.",
+                "پروژه": "هر نسخهٔ هدف کنار همان پروژه نگه داشته می‌شود؛ پاسخ فعلی از آخرین نسخه می‌آید و پرسش تاریخی نسخهٔ قبلی را می‌خواند.",
+                "آفلاین": "محاسبه یا بازیابی محلی با شواهد موجود انجام می‌شود؛ اگر دادهٔ لازم موجود نباشد، مسیر باید صریحاً نامعلوم بماند.",
+                "پاسخ": "پیش از پاسخ نهایی، ادعا با شواهد همان درخواست سنجیده می‌شود؛ خاطرهٔ مشابه به‌تنهایی شاهد کافی نیست.",
+            }
+            for item in matched:
+                for term in item[0]:
+                    if term in source:
+                        for key, detail in explanations.items():
+                            if term in key:
+                                return detail
+            return matched[0][1]
         return answer + "\n" + "\n".join(item[1] for item in matched[:2])
 
     def _remember_substantive_turn(self, text, answer, answer_type):
@@ -634,8 +649,12 @@ class CognitivePipeline:
         normalized_followup = re.sub(r"\\s+", " ", low).strip(" ؟?!.,،؛")
         if any(marker in normalized_followup for marker in ("مثال بزن", "یه مثال", "یک مثال", "مثالی بزن")):
             return self._persist_answer(text, self._contextual_followup(text, "example"), "EXAMPLE", .95, evidence=[])
-        if any(marker in normalized_followup for marker in ("ادامه بده", "ادامه‌ش", "ادامه اش", "همونو توضیح", "همون رو توضیح", "همان را توضیح", "بیشتر توضیح بده")):
+        if any(marker in normalized_followup for marker in ("ادامه بده", "ادامه‌ش", "ادامه اش")):
             return self._persist_answer(text, self._contextual_followup(text, "continue"), "CONTINUATION", .95, evidence=[])
+        if any(marker in normalized_followup for marker in ("همونو توضیح", "همون رو توضیح", "همان را توضیح")):
+            return self._persist_answer(text, self._contextual_followup(text, "explain"), "CONTINUATION", .95, evidence=[])
+        if "بیشتر توضیح بده" in normalized_followup:
+            return self._persist_answer(text, self._contextual_followup(text, "explain"), "CONTINUATION", .95, evidence=[])
         # Generic meta-conversation reads bounded local conversation state before
         # retrieval. It never consults long-term memory for "what did we just say?".
         if foundation_meaning.dialogue_act == "meta_conversation":
