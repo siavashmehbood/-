@@ -77,7 +77,12 @@ class UserModel:
         embedded_name = re.search(r"من\s+(\S+)", t, re.I)
         if embedded_name:
             token = embedded_name.group(1).strip(" ،,؛.!?؟")
-            if len(token) >= 3 and token.endswith("م"):
+            non_name_predicates = {
+                "هستم", "خوبم", "آماده‌ام", "آمادهام", "خسته‌ام", "خستهام",
+                "ناراحتم", "خوشحالم", "گرسنه‌ام", "گرسنهام", "عصبانی‌ام",
+                "عصبانیام", "مریضم", "بیمارم", "نگرانم", "تنهایم", "تنهایَم",
+            }
+            if len(token) >= 3 and token.endswith("م") and token not in non_name_predicates:
                 candidate = token[:-1]
                 if candidate and candidate not in {"هست", "خوب", "آماده"}:
                     facts.append(self._fact("name", candidate, .98))
