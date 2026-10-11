@@ -213,3 +213,42 @@ def test_emotional_followup_varies_after_persistent_short_style(tmp_path):
         assert all(term not in (first + second + next_step).lower() for term in ("دانا", "postgresql"))
     finally:
         runtime.close()
+
+
+def test_project_followup_simplifies_the_current_goal(tmp_path):
+    config = json.loads((Path(__file__).parents[1] / "config.json").read_text(encoding="utf-8-sig"))
+    config["language_engine"]["enabled"] = False
+    config["memory"]["db"] = "data/project_simplification.db"
+    (tmp_path / "config.json").write_text(json.dumps(config, ensure_ascii=False), encoding="utf-8")
+    runtime = IranRuntime(tmp_path)
+    try:
+        runtime.handle("هدف پروژه آلفا آموزش برنامه‌نویسی پایتون است")
+        continuation = runtime.handle("ادامه بده")
+        simpler = runtime.handle("همونو ساده‌تر بگو")
+        assert continuation != simpler, (continuation, simpler)
+        assert "آلفا" in simpler and "برنامه‌نویسی پایتون" in simpler, simpler
+        assert any(action in simpler for action in ("انجام بده", "بنویس", "تمرین کن")), simpler
+        assert "کدام واژه" not in simpler, simpler
+    finally:
+        runtime.close()
+
+
+def test_project_name_recall_ignores_stored_question_after_restart(tmp_path):
+    config = json.loads((Path(__file__).parents[1] / "config.json").read_text(encoding="utf-8-sig"))
+    config["language_engine"]["enabled"] = False
+    config["memory"]["db"] = "data/project_name_recall.db"
+    (tmp_path / "config.json").write_text(json.dumps(config, ensure_ascii=False), encoding="utf-8")
+    runtime = IranRuntime(tmp_path)
+    try:
+        runtime.memory.add("user", "اسم پروژه من دانا هست")
+        first = runtime.handle("اسم پروژه من چی بود؟")
+        assert "دانا" in first and "چی" not in first, first
+    finally:
+        runtime.close()
+
+    restored = IranRuntime(tmp_path)
+    try:
+        recalled = restored.handle("اسم پروژه من چی بود؟")
+        assert "دانا" in recalled and "چی" not in recalled, recalled
+    finally:
+        restored.close()
