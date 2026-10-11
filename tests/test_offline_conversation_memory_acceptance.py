@@ -165,3 +165,51 @@ def test_name_correction_history_and_unfinished_question_survive_restart(tmp_pat
         assert question in restored.dialogue.state.unresolved_questions
     finally:
         restored.close()
+
+def test_live_reproduction_restores_named_project_and_applies_scoped_goal_correction(tmp_path):
+    config = json.loads((Path(__file__).parents[1] / "config.json").read_text(encoding="utf-8-sig"))
+    config["language_engine"]["enabled"] = False
+    config["memory"]["db"] = "data/live_project_context.db"
+    (tmp_path / "config.json").write_text(json.dumps(config, ensure_ascii=False), encoding="utf-8")
+    runtime = IranRuntime(tmp_path)
+    try:
+        runtime.handle("هدف پروژه آلفا آموزش زبان انگلیسی است")
+        runtime.handle("هدف پروژه دانا ساخت کتاب صوتی است")
+        runtime.handle("چرا آسمان آبی است؟")
+        returned = runtime.handle("برگردیم به پروژه آلفا؛ هدفش چی بود؟")
+        assert "آموزش زبان انگلیسی" in returned, returned
+
+        runtime.handle("هدف پروژه آلفا را اصلاح می‌کنم: آموزش برنامه‌نویسی پایتون است.")
+        current_alpha = runtime.handle("هدف فعلی پروژه آلفا چیست؟")
+        dana = runtime.handle("هدف پروژه دانا چیست؟")
+        first_alpha = runtime.handle("نسخه اول هدف پروژه آلفا چی بود؟")
+        assert "پایتون" in current_alpha, current_alpha
+        assert "کتاب صوتی" in dana, dana
+        assert "زبان انگلیسی" in first_alpha, first_alpha
+
+        example = runtime.handle("برای هدف جدید آلفا یک مثال بزن.")
+        continued = runtime.handle("ادامه بده.")
+        assert "پایتون" in example and "برنامه" in example, example
+        assert "پایتون" in continued or "برنامه" in continued, continued
+    finally:
+        runtime.close()
+
+
+def test_emotional_followup_varies_after_persistent_short_style(tmp_path):
+    config = json.loads((Path(__file__).parents[1] / "config.json").read_text(encoding="utf-8-sig"))
+    config["language_engine"]["enabled"] = False
+    config["memory"]["db"] = "data/live_emotional_context.db"
+    (tmp_path / "config.json").write_text(json.dumps(config, ensure_ascii=False), encoding="utf-8")
+    runtime = IranRuntime(tmp_path)
+    try:
+        runtime.handle("کوتاه و طبیعی جواب بده")
+        first = runtime.handle("امروز خسته‌ام")
+        second = runtime.handle("هنوز خسته‌ام")
+        runtime.handle("جواب تکراری نده")
+        next_step = runtime.handle("پس الان چی کار کنم؟")
+        assert first != second, (first, second)
+        assert next_step not in {first, second}, (first, second, next_step)
+        assert any(marker in next_step for marker in ("استراحت", "آب", "سبک‌تر", "کنار بذار")), next_step
+        assert all(term not in (first + second + next_step).lower() for term in ("دانا", "postgresql"))
+    finally:
+        runtime.close()
