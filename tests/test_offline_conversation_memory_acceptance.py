@@ -376,5 +376,6 @@ def test_current_question_about_unanswered_topics_is_not_history_recall(tmp_path
     try:
         answer = runtime.handle("چرا بعضی سؤال‌ها بی‌جواب می‌مانند؟")
         assert "سؤال بی‌جواب قبلی‌ات این بود" not in answer, answer
+        assert "سؤال بی‌جوابی در سابقهٔ گفتگو پیدا نکردم" not in answer, answer
     finally:
         runtime.close()
