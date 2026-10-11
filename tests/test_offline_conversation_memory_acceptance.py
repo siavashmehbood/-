@@ -326,6 +326,7 @@ def test_name_is_not_replaced_by_unrelated_first_person_verb_after_restart(tmp_p
     try:
         runtime.handle("من سیاوشم")
         runtime.handle("من دارم امروز برنامه‌ریزی می‌کنم.")
+        runtime.handle("من دارم.")
         current = runtime.handle("اسم من چیه؟")
         assert "سیاوش" in current, current
         assert "دار" not in current, current
