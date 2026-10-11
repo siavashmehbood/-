@@ -701,7 +701,7 @@ class CognitivePipeline:
                 "برای اجرای یک دستیار محلی با معماری شناختی که فهم، حافظه، استدلال و یادگیری را "
                 "در مسیر واحد هماهنگ می‌کند."
             )
-            return self._persist_answer(text, answer, "DIRECT_FACT", .95, evidence=[])
+            return self._persist_answer(text, answer, "META", .95, evidence=[])
 
         if explicit_why_question:
             try:
@@ -1303,6 +1303,23 @@ class CognitivePipeline:
             return self._persist_answer(
                 text, f"خوشبختم، {clean(name_fact.get('object'))}.", "SOCIAL", .99, evidence=[]
             )
+
+        try:
+            identity_answer = self.runtime.user_model.answer_identity(text)
+            name_facts = self.runtime.user_model.current_belief("name", limit=1)
+        except Exception:
+            identity_answer, name_facts = None, []
+        if identity_answer and name_facts:
+            name = clean(name_facts[0].get("object", ""))
+            if name:
+                return self._persist_answer(
+                    text, f"اسمت «{name}» است.", "MEMORY_RECALL", .99,
+                    evidence=[{
+                        "subject": "user", "predicate": "name", "object": name,
+                        "source": name_facts[0].get("source", "user_profile"),
+                        "resolved": True,
+                    }],
+                )
 
         # Structured fact queries outrank raw-history recall. Resolve
         # reference -> owned entity -> name relation -> stored semantic value.
