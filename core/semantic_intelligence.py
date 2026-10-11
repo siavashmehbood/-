@@ -375,7 +375,7 @@ class SemanticIntelligence:
     }
     TYPE_LABELS = {
         "project": "پروژه", "product": "محصول", "organization": "سازمان",
-        "person": "شخص", "preference": "ترجیح",
+        "person": "شخص", "preference": "ترجیح", "user": "تو",
     }
     QUESTION_MARKERS = ("؟", "?", "چی", "چیه", "چیست", "چه ", "کدام", "کدوم", "چطور", "چگونه")
     UNCERTAIN_MARKERS = ("شاید", "احتمالا", "احتمالاً", "فکر کنم", "گمان کنم")
