@@ -316,6 +316,7 @@ class CognitivePipeline:
             "FOLLOW_UP", "REFERENCE", "CORRECTION", "SOCIAL", "META",
             "REEXPLAIN", "EXAMPLE", "STYLE", "CONTINUATION", "MEMORY_RECALL"
         }
+        self._remember_substantive_turn(text, answer, answer_type)
         if (not checked.accepted and answer_type in context_transform_types
                 and not checked.contradictions and str(answer).strip()):
             checked.accepted = True
@@ -345,13 +346,15 @@ class CognitivePipeline:
         e = self.engine
         read_only_types = {
             "MEMORY", "MEMORY_RECALL", "REFERENCE", "CONSTRAINT",
-            "PROJECT_FACT", "DIRECT_FACT", "UNKNOWN"
+            "PROJECT_FACT", "DIRECT_FACT", "UNKNOWN", "FOLLOW_UP", "EXAMPLE",
+            "STYLE", "REEXPLAIN", "CONTINUATION", "META", "SOCIAL", "CORRECTION"
         }
         state_parsed = {
             "intent": "question"
             if answer_type in read_only_types or any(mark in text for mark in ("؟", "?"))
             else "general"
         }
+        self._remember_substantive_turn(text, answer, answer_type)
         e.state.update(text, answer, answer_type, state_parsed, score)
         e.state.save(e.state_path)
         try:
@@ -394,6 +397,45 @@ class CognitivePipeline:
         except Exception:
             pass
         return answer
+
+    def _contextual_followup(self, text, mode):
+        """Expand the latest substantive answer from durable dialogue context."""
+        turn = getattr(self.engine.state, "references", {}).get("last_substantive_turn", {})
+        if not isinstance(turn, dict) or not turn.get("answer"):
+            topic = clean(self.engine.state.current_topic)
+            return (f"کدام بخش از «{topic}» را باز کنم؟" if topic else "کدام موضوع یا پاسخ قبلی را ادامه بدهم؟")
+        answer = clean(turn.get("answer"))
+        question = clean(turn.get("question"))
+        source = f"{question} {answer}".lower()
+        concepts = [
+            (("حافظه", "اطلاعات", "بازیابی"),
+             "حافظه، اطلاعات صریح را نگه می‌دارد و هنگام پرسش فقط مورد مرتبط را برمی‌گرداند؛ دادهٔ موضوع دیگر وارد پاسخ نمی‌شود.",
+             "مثلاً اگر بگویی «اسمم سیاوش است»، بعداً با پرسش «اسم من چیه؟» همان نام بازیابی می‌شود؛ خاطرهٔ پروژهٔ دیگری در این پاسخ نقشی ندارد."),
+            (("یادگیری", "پیشنهاد", "تأیید"),
+             "بازخورد اول پیشنهاد می‌شود؛ تا بررسی و تأییدهای لازم انجام نشود، دانش فعال تغییر نمی‌کند.",
+             "مثلاً پیشنهاد یادگیری پس از بررسی وارد صف تأیید انسانی می‌شود و فقط بعد از عبور از دروازه اعمال خواهد شد."),
+            (("پروژه", "هدف"), "هدف هر پروژه جداست؛ اصلاح یک هدف، نسخهٔ قبلی را در تاریخچه نگه می‌دارد.",
+             "مثلاً اصلاح هدف اطلس، هدف دانا را تغییر نمی‌دهد و پرسش دربارهٔ نسخهٔ اول اطلس هم از تاریخچه پاسخ می‌گیرد."),
+            (("آفلاین", "اینترنت", "محلی"), "این مسیر از داده و ابزار محلی استفاده می‌کند؛ اگر شاهد محلی کافی نباشد، کمبود اطلاعات را اعلام می‌کند.",
+             "مثلاً محاسبه با رقم فارسی در ابزار محلی انجام می‌شود و برای نتیجه به سرویس بیرونی وابسته نیست."),
+            (("پاسخ", "شاهد", "اطلاعات کافی"), "ادعا باید با شاهد موجود سنجیده شود؛ حدس به‌جای واقعیت ارائه نمی‌شود.",
+             "مثلاً اگر مقدار فروش آینده در داده‌ها نباشد، پاسخ باید آن را نامعلوم اعلام کند.")
+        ]
+        matched = [item for item in concepts if any(term in source for term in item[0])]
+        if not matched:
+            return f"پاسخ قبلی دربارهٔ «{question}» این بود: {answer} کدام بخش را بیشتر باز کنم؟"
+        if mode == "example":
+            return "یک نمونهٔ مرتبط: " + matched[0][2]
+        if mode == "continue":
+            return f"نکتهٔ تکمیلی دربارهٔ «{question}»: {matched[0][1]}"
+        return answer + "\n" + "\n".join(item[1] for item in matched[:2])
+
+    def _remember_substantive_turn(self, text, answer, answer_type):
+        if answer_type not in {"DIRECT", "DIRECT_FACT", "GROUNDED", "PROJECT_FACT", "FACT"} or not str(answer).strip() or str(answer).startswith("UNKNOWN"):
+            return
+        self.engine.state.references["last_substantive_turn"] = {
+            "question": clean(text), "answer": clean(answer), "answer_type": str(answer_type)
+        }
 
     def _reexpress_previous(self, mode):
         """Transform only the preceding answer; never retrieve unrelated user facts."""
@@ -473,12 +515,25 @@ class CognitivePipeline:
                     }])
                 except Exception:
                     pass
-        goal_correction = re.match(
-            r"^نه[،,\s]+هدفش\s+.+?\s+نبود[،,\s]+(.+?)(?:\s+(?:است|هست|بود))?[.!]*$",
+        named_goal_correction = re.match(
+            r"^نه[،,\s]+هدف\s+(?P<project>[آ-یA-Za-z0-9_-]+)\s+"
+            r"(?P<old>.+?)\s+نبود[،,\s]+(?P<goal>.+?)"
+            r"(?:\s+(?:است|هست|بود))?[.!؟?]*$",
             clean(text),
         )
-        if goal_correction:
-            goal = clean(goal_correction.group(1)).strip(" ،,:؛")
+        pronoun_goal_correction = re.match(
+            r"^نه[،,\s]+هدفش\s+.+?\s+نبود[،,\s]+"
+            r"(.+?)(?:\s+(?:است|هست|بود))?[.!؟?]*$",
+            clean(text),
+        )
+        if named_goal_correction:
+            project = clean(named_goal_correction.group("project")).strip(" ،,:؛")
+            goal = clean(named_goal_correction.group("goal")).strip(" ،,:؛")
+            if project and goal:
+                state.set_topic_goal(project, goal)
+                changed = True
+        elif pronoun_goal_correction:
+            goal = clean(pronoun_goal_correction.group(1)).strip(" ،,:؛")
             if goal:
                 project = self._active_goal_project()
                 if project:
@@ -533,6 +588,11 @@ class CognitivePipeline:
             mode = "simple" if "simple" in styles else "long"
             return self._persist_answer(text, self._reexpress_previous(mode), "REEXPLAIN", .95, evidence=[])
 
+        normalized_followup = re.sub(r"\\s+", " ", low).strip(" ؟?!.,،؛")
+        if any(marker in normalized_followup for marker in ("مثال بزن", "یه مثال", "یک مثال", "مثالی بزن")):
+            return self._persist_answer(text, self._contextual_followup(text, "example"), "EXAMPLE", .95, evidence=[])
+        if any(marker in normalized_followup for marker in ("ادامه بده", "ادامه‌ش", "ادامه اش", "همونو توضیح", "همون رو توضیح", "همان را توضیح", "بیشتر توضیح بده")):
+            return self._persist_answer(text, self._contextual_followup(text, "continue"), "CONTINUATION", .95, evidence=[])
         # Generic meta-conversation reads bounded local conversation state before
         # retrieval. It never consults long-term memory for "what did we just say?".
         if foundation_meaning.dialogue_act == "meta_conversation":
@@ -1414,6 +1474,10 @@ class CognitivePipeline:
                 verification = e.verifier.verify(context, answer, plan)
         if "اطلاعات کافی ندارم" in answer and not answer.startswith("UNKNOWN:"):
             answer = "UNKNOWN: " + answer
+        if answer.startswith("UNKNOWN:") and text not in e.state.unresolved_questions:
+            e.state.unresolved_questions.append(text)
+            e.state.unresolved_questions = e.state.unresolved_questions[-30:]
+        self._remember_substantive_turn(text, answer, plan.answer_type)
         if verification.status == "UNKNOWN":
             answer = "UNKNOWN: برای این سؤال در دانش و شواهد محلی اطلاعات کافی ندارم؛ نمی‌خواهم حدس را به‌عنوان واقعیت بگویم."
 
