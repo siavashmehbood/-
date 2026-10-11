@@ -640,6 +640,7 @@ class CognitivePipeline:
             foundation_meaning.dialogue_act in {"simplify", "length_control", "response_style"}
             and any(marker in low for marker in ("بگو", "توضیح"))
             and not any(marker in low for marker in ("از این به بعد", "از حالا به بعد"))
+            and not any(marker in low for marker in ("همونو توضیح", "همون رو توضیح", "همان را توضیح"))
         )
         if immediate_transform and any(style in styles for style in ("simple", "long")):
             e.state.set_style(styles, e.understanding.temporal_scope(text))
