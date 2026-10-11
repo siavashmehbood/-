@@ -280,3 +280,23 @@ def test_identity_and_project_updates_answer_the_current_turn(tmp_path):
         assert "ادامه می‌دهم" not in continuation, continuation
     finally:
         runtime.close()
+
+
+def test_why_questions_keep_their_subject_and_short_why_uses_dialogue_context(tmp_path):
+    config = json.loads((Path(__file__).parents[1] / "config.json").read_text(encoding="utf-8-sig"))
+    config["language_engine"]["enabled"] = False
+    config["memory"]["db"] = "data/why_context.db"
+    (tmp_path / "config.json").write_text(json.dumps(config, ensure_ascii=False), encoding="utf-8")
+    runtime = IranRuntime(tmp_path)
+    try:
+        runtime.handle("هدف پروژه آلفا آموزش برنامه‌نویسی پایتون است")
+        explicit = runtime.handle("چرا آسمان آبی است؟")
+        assert "آلفا" not in explicit and "پایتون" not in explicit, explicit
+        assert "ادامه را از" not in explicit and "مبنا می‌گیرم" not in explicit, explicit
+        assert explicit.startswith("UNKNOWN:") or ("آسمان" in explicit and "پراکندگی" in explicit), explicit
+
+        runtime.handle("موضوع اصلی ما پروژه ایران است.")
+        contextual = runtime.handle("چرا؟")
+        assert "پروژه ایران" in contextual or "کدام بخش" in contextual, contextual
+    finally:
+        runtime.close()
