@@ -78,7 +78,7 @@ class ChatWindow(QMainWindow):
         self.resize(1440, 900)
         self.setLayoutDirection(Qt.RightToLeft)
         self.runtime = IranRuntime(ROOT)
-        self.last_answer = ""; self.messages = []; self.busy = False
+        self.last_answer = ""; self.messages = []; self._display_start = 0; self.busy = False
         self._jobs = {}
         self._job_callbacks = {}
         self._closing = False
@@ -131,8 +131,8 @@ class ChatWindow(QMainWindow):
         l = QVBoxLayout(w); l.setContentsMargins(12, 12, 12, 12); l.setSpacing(8)
         h = QLabel("گفت‌وگوها"); h.setObjectName("sectionTitle"); l.addWidget(h)
         self.sessions = QListWidget(); self.sessions.setObjectName("sessions")
-        self.sessions.addItem("گفت‌وگوی فعلی"); l.addWidget(self.sessions, 1)
-        self.newbtn = QPushButton("+ گفت‌وگوی جدید"); self.newbtn.setObjectName("primaryButton"); self.newbtn.clicked.connect(self.new_chat); l.addWidget(self.newbtn)
+        self.sessions.addItem("گفت‌وگوی پیوسته"); self.sessions.hide()
+        self.newbtn = QPushButton("پاک‌کردن نمایش"); self.newbtn.setObjectName("primaryButton"); self.newbtn.clicked.connect(self.new_chat); l.addWidget(self.newbtn)
         row = QHBoxLayout(); row.setSpacing(6)
         self.savebtn = QPushButton("ذخیره"); self.savebtn.clicked.connect(self.save_chat); row.addWidget(self.savebtn)
         self.clearbtn = QPushButton("پاک‌کردن"); self.clearbtn.clicked.connect(self.clear_display); row.addWidget(self.clearbtn)
@@ -676,14 +676,25 @@ class ChatWindow(QMainWindow):
         self.persist_session(); self.runtime.close(); event.accept()
 
     def persist_session(self):
-        try: (ROOT / "logs" / "current_session.json").write_text(json.dumps(self.messages, ensure_ascii=False, indent=2), encoding="utf-8")
+        try:
+            logs = ROOT / "logs"
+            logs.mkdir(parents=True, exist_ok=True)
+            (logs / "current_session.json").write_text(
+                json.dumps(self.messages, ensure_ascii=False, indent=2), encoding="utf-8")
+            (logs / "current_session_view.json").write_text(
+                json.dumps({"display_start": int(getattr(self, "_display_start", 0))}),
+                encoding="utf-8")
         except Exception: pass
     def load_session(self):
         try:
             p = ROOT / "logs" / "current_session.json"
             if p.exists():
                 self.messages = json.loads(p.read_text(encoding="utf-8"))
-                for m in self.messages:
+                view = ROOT / "logs" / "current_session_view.json"
+                self._display_start = max(0, min(len(self.messages),
+                    int(json.loads(view.read_text(encoding="utf-8")).get("display_start", 0))
+                    if view.exists() else 0))
+                for m in self.messages[self._display_start:]:
                     safe = str(m.get("text", "")).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\n", "<br>")
                     self.chat.append(f"<b>{m.get('who','')}</b><br>{safe}<br>")
                 for m in reversed(self.messages):
@@ -691,10 +702,18 @@ class ChatWindow(QMainWindow):
         except Exception: pass
         self.update_title_stats(); self.refresh_learning_stats(); self.refresh_chatgpt_count()
     def clear_display(self):
-        if self.busy: self.stop_operation()
-        self.chat.clear(); self.last_answer = ""; self.messages = []; self.update_title_stats(); self.persist_session(); self.status.setText("گفت‌وگو پاک شد")
+        if self.busy:
+            self._chat_cancelled = True
+            self.stopbtn.setEnabled(False)
+        self.chat.clear()
+        self.last_answer = ""
+        self._display_start = len(self.messages)
+        self.update_title_stats()
+        self.persist_session()
+        self.status.setText("نمایش پاک شد؛ سابقه و حافظهٔ گفتگو حفظ شد")
     def new_chat(self):
-        self.clear_display(); self.sessions.addItem(datetime.now().strftime("گفت‌وگو %Y-%m-%d %H:%M:%S")); self.sessions.setCurrentRow(self.sessions.count() - 1)
+        # One continuous assistant conversation: this control only clears the view.
+        self.clear_display()
     def search_chat(self):
         q = self.search.text().strip()
         if q: self.chat.find(q); self.status.setText(f"نتایج جست‌وجو: {self.chat.toPlainText().lower().count(q.lower())}")
