@@ -509,6 +509,14 @@ class CognitivePipeline:
             "آفلاین": ("بدون نیاز به اینترنت", "برای این بخش ارتباط اینترنتی لازم نیست"),
         }
         if mode == "simple":
+            project_goal = re.search(
+                r"پروژه(?:ٔ|‌ی|ی)?\s*«(?P<project>[^»]+)»\s*(?:یعنی|با\s+هدف)\s*«(?P<goal>[^»]+)»",
+                previous,
+            )
+            if project_goal:
+                project = clean(project_goal.group("project"))
+                goal = clean(project_goal.group("goal"))
+                return f"برای پروژهٔ «{project}»، یک کار کوچک برای «{goal}» انجام بده."
             rendered = previous
             for term, (plain, _) in vocabulary.items():
                 rendered = rendered.replace(term, plain)
@@ -768,6 +776,11 @@ class CognitivePipeline:
                     match = re.search(r"(?:اسم|نام)\s+پروژه(?:\s+من)?\s+([آ-یA-Za-z0-9_-]+)\s+(?:هست|است|بود)", clean(content), re.I)
                     if match:
                         value = clean(match.group(1))
+                        # The user's stored question can match the legacy
+                        # declarative pattern ("... چی بود؟"). Never treat an
+                        # interrogative placeholder as a project name.
+                        if value.lower() in {"چی", "چه", "کدام", "کدوم", "چیه", "چیست"}:
+                            continue
                         if value:
                             return self._persist_answer(text, f"اسم پروژه‌ات «{value}» است.", "MEMORY_RECALL", .99, evidence=[{"subject":"پروژه","predicate":"اسم","object":value,"source":"durable_explicit_memory","resolved":True}])
             except Exception:
