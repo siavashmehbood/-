@@ -649,7 +649,13 @@ class CognitivePipeline:
         normalized_followup = re.sub(r"\\s+", " ", low).strip(" ؟?!.,،؛")
         if any(marker in normalized_followup for marker in ("مثال بزن", "یه مثال", "یک مثال", "مثالی بزن")):
             return self._persist_answer(text, self._contextual_followup(text, "example"), "EXAMPLE", .95, evidence=[])
-        if any(marker in normalized_followup for marker in ("ادامه بده", "ادامه‌ش", "ادامه اش")):
+        topic_restore_request = any(
+            marker in normalized_followup
+            for marker in ("موضوع قبلی", "برگرد به موضوع", "برگردیم به موضوع")
+        )
+        if not topic_restore_request and any(
+            marker in normalized_followup for marker in ("ادامه بده", "ادامه‌ش", "ادامه اش")
+        ):
             return self._persist_answer(text, self._contextual_followup(text, "continue"), "CONTINUATION", .95, evidence=[])
         if any(marker in normalized_followup for marker in ("همونو توضیح", "همون رو توضیح", "همان را توضیح")):
             return self._persist_answer(text, self._contextual_followup(text, "explain"), "CONTINUATION", .95, evidence=[])
