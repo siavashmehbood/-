@@ -311,6 +311,7 @@ def test_name_recall_uses_the_current_explicit_name_naturally(tmp_path):
     try:
         runtime.handle("من سیاوشم")
         answer = runtime.handle("اسم من چیه؟")
-        assert "سیاوش" in answer and "اسم مورد" not in answer, answer
+        assert "سیاوش" in answer and any(marker in answer for marker in ("اسم تو", "اسمت")), answer
+        assert "اسم مورد" not in answer, answer
     finally:
         runtime.close()
