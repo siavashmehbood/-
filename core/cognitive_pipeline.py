@@ -685,6 +685,17 @@ class CognitivePipeline:
             return self._persist_answer(
                 text, self._contextual_followup(text, "explain"), "CONTINUATION", .95, evidence=[]
             )
+        if explicit_why_question:
+            try:
+                why_knowledge = e._knowledge(text, foundation_parsed) or []
+            except Exception:
+                why_knowledge = []
+            if not why_knowledge:
+                return self._persist_answer(
+                    text,
+                    "UNKNOWN: برای این «چرا» شاهد محلی کافی ندارم؛ اگر منظورت موضوع قبلی است، کوتاه‌تر مشخصش کن.",
+                    "UNKNOWN", .60, evidence=[],
+                )
 
         if goal_transition:
             action, project, goal = goal_transition
@@ -705,9 +716,13 @@ class CognitivePipeline:
         )
         if topic_statement:
             topic = clean(topic_statement.group(1))
-            return self._persist_answer(
+            answer = self._persist_answer(
                 text, f"باشه؛ موضوع اصلی گفت‌وگو «{topic}» است.", "META", .99, evidence=[]
             )
+            e.state._push_topic(topic)
+            e.state.references["latest"] = topic
+            e.state.save(e.state_path)
+            return answer
 
         # Historical identity and project-version questions must be resolved
         # before generic meta/reference handlers can reinterpret their wording.
@@ -764,7 +779,10 @@ class CognitivePipeline:
             return self._persist_answer(text, self._contextual_followup(text, "example"), "EXAMPLE", .95, evidence=[])
         topic_restore_request = any(
             marker in normalized_followup
-            for marker in ("موضوع قبلی", "برگرد به موضوع", "برگردیم به موضوع")
+            for marker in (
+                "موضوع قبلی", "برگرد به موضوع", "برگردیم به موضوع",
+                "همون قبلی رو ادامه بده", "همان قبلی را ادامه بده",
+            )
         )
         if not topic_restore_request and any(
             marker in normalized_followup for marker in ("ادامه بده", "ادامه‌ش", "ادامه اش")
