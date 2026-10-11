@@ -33,10 +33,38 @@ def recover(root):
             return
         state = load_critical_json(journal, {})
         if state.get('status') == 'prepared':
+            # Validate the complete checkpoint before rolling back any store.
+            # A valid SQLite snapshot cannot compensate for damaged JSON metadata.
+            valid = (isinstance(state.get('memory'), str) and bool(state['memory'].strip())
+                     and isinstance(state.get('files'), dict)
+                     and isinstance(state.get('rows'), dict))
+            if valid:
+                valid = all(isinstance(name, str) and bool(name.strip())
+                            for name in (*state['files'], *state['rows']))
+            if valid:
+                for originals in state['rows'].values():
+                    if not isinstance(originals, list):
+                        valid = False
+                        break
+                    ids = [row.get('proposal_id') if isinstance(row, dict) else None
+                           for row in originals]
+                    if any(not isinstance(pid, str) or not pid for pid in ids) or len(set(ids)) != len(ids):
+                        valid = False
+                        break
+            if not valid:
+                raise RuntimeError('Invalid approval recovery checkpoint; no stores were changed')
             # Restore SQLite through its backup API, including WAL databases.
             # contextlib.closing is required here: sqlite3.Connection.__exit__
             # commits/rolls back but does not close the OS file handle on Windows.
-            with closing(sqlite3.connect(root / 'data/approval_memory.sqlite')) as source:
+            backup_path = root / 'data/approval_memory.sqlite'
+            if not backup_path.is_file():
+                raise RuntimeError('Approval recovery backup is missing; refusing to overwrite memory')
+            # Read-only opening must never create an empty source database.
+            with closing(sqlite3.connect(backup_path.resolve().as_uri() + '?mode=ro', uri=True)) as source:
+                if source.execute('PRAGMA integrity_check').fetchone() != ('ok',):
+                    raise RuntimeError('Approval recovery backup is corrupt')
+                if not source.execute("SELECT 1 FROM sqlite_master WHERE type='table' LIMIT 1").fetchone():
+                    raise RuntimeError('Approval recovery backup is empty; refusing to erase memory')
                 with closing(sqlite3.connect(root / state['memory'])) as target:
                     source.backup(target)
             for name, value in state['files'].items():
@@ -99,4 +127,5 @@ def approval_checkpoint(runtime, proposal_ids):
         raise
     else:
         journal.unlink()
+        journal.with_suffix('.json.bak').unlink(missing_ok=True)
         (root / 'data/approval_memory.sqlite').unlink(missing_ok=True)

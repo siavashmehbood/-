@@ -1,0 +1,60 @@
+name: IRAN Core Quality Acceptance
+on:
+  pull_request:
+    branches: [master]
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  core-quality:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    env:
+      QT_QPA_PLATFORM: offscreen
+      PYTHONUTF8: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Linux Qt runtime
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libegl1
+      - name: Install dependencies
+        run: python -m pip install -r requirements-dev.txt
+      - name: Conversation and follow-ups
+        run: python -m pytest -q tests/test_general_conversation.py tests/test_chat50_conversation.py tests/test_offline_conversation_memory_acceptance.py --junitxml=conversation.xml
+      - name: Memory relevance and corrections
+        if: ${{ !cancelled() }}
+        run: python -m pytest -q tests/test_conversation_fact_memory.py tests/test_canonical_conversation_red_team.py tests/test_memory_intelligence_v2.py --junitxml=memory.xml
+      - name: Single cognitive owner
+        if: ${{ !cancelled() }}
+        run: python -m pytest -q tests/test_single_brain_routing.py tests/test_persian_architecture_contract.py --junitxml=brain.xml
+      - name: Online reviewer and human approval
+        if: ${{ !cancelled() }}
+        run: python -m pytest -q tests/test_chatgpt_review_pipeline.py tests/test_reviewer_providers.py tests/test_reviewer_human_gate_restart_acceptance.py tests/test_review_safety.py tests/test_internet_permission_recovery.py --junitxml=learning.xml
+      - name: Offline Persian and reasoning
+        if: ${{ !cancelled() }}
+        run: python -m pytest -q tests/test_language.py tests/test_chain_reasoning.py tests/test_reasoning_planning.py tests/test_temporal_expression_isolation.py tests/test_offline_core_restart_acceptance.py tests/test_offline_arithmetic_acceptance.py --junitxml=offline.xml
+      - name: Restart integrity and learning deduplication
+        if: ${{ !cancelled() }}
+        run: python -m pytest -q tests/test_approval_recovery.py tests/test_approval_backup_integrity.py tests/test_critical_persistence.py tests/test_learning_gate_concurrency.py tests/test_shared_file_lock_concurrency.py tests/test_review_decision_journal_concurrency.py tests/test_runtime_ownership.py tests/test_effect_learning.py --junitxml=integrity.xml
+      - name: GUI responsiveness and selected proposal
+        if: ${{ !cancelled() }}
+        run: python -m pytest -q tests/test_gui_responsiveness.py tests/test_gui_contract.py --junitxml=gui.xml
+      - name: Save results for each area
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: core-quality-${{ runner.os }}
+          path: "*.xml"
+          if-no-files-found: warn

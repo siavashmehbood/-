@@ -256,9 +256,21 @@ class CognitivePipeline:
             pass
         return "",[]
 
+    def _apply_conversation_style(self, answer, answer_type):
+        styles = self.engine.state.response_style
+        if "short" not in styles or answer_type not in {"SOCIAL", "FOLLOW_UP", "REEXPLAIN", "EXAMPLE", "CONTINUATION"}:
+            return answer
+        # Keep complete sentences and do not truncate facts or multi-part answers.
+        sentences = re.split(r"(?<=[.!؟])\s+|[؛\n]+", str(answer))
+        return sentences[0].strip() if sentences else answer
+
     def _persist_answer(self, text, answer, answer_type="DIRECT_FACT", score=.95, evidence=None):
+        answer = self._apply_conversation_style(answer, answer_type)
         # A raw user turn or a near-copy of the question is never accepted as a
         # final answer merely because retrieval found similar text.
+        if str(answer).startswith("UNKNOWN:") and text not in self.engine.state.unresolved_questions:
+            self.engine.state.unresolved_questions.append(text)
+            self.engine.state.unresolved_questions = self.engine.state.unresolved_questions[-30:]
         try:
             evidence_backed=False
             if evidence:
@@ -307,6 +319,7 @@ class CognitivePipeline:
             "FOLLOW_UP", "REFERENCE", "CORRECTION", "SOCIAL", "META",
             "REEXPLAIN", "EXAMPLE", "STYLE", "CONTINUATION", "MEMORY_RECALL"
         }
+        self._remember_substantive_turn(text, answer, answer_type)
         if (not checked.accepted and answer_type in context_transform_types
                 and not checked.contradictions and str(answer).strip()):
             checked.accepted = True
@@ -336,13 +349,15 @@ class CognitivePipeline:
         e = self.engine
         read_only_types = {
             "MEMORY", "MEMORY_RECALL", "REFERENCE", "CONSTRAINT",
-            "PROJECT_FACT", "DIRECT_FACT", "UNKNOWN"
+            "PROJECT_FACT", "DIRECT_FACT", "UNKNOWN", "FOLLOW_UP", "EXAMPLE",
+            "STYLE", "REEXPLAIN", "CONTINUATION", "META", "SOCIAL", "CORRECTION"
         }
         state_parsed = {
             "intent": "question"
             if answer_type in read_only_types or any(mark in text for mark in ("؟", "?"))
             else "general"
         }
+        self._remember_substantive_turn(text, answer, answer_type)
         e.state.update(text, answer, answer_type, state_parsed, score)
         e.state.save(e.state_path)
         try:
@@ -386,6 +401,109 @@ class CognitivePipeline:
             pass
         return answer
 
+    def _contextual_followup(self, text, mode):
+        """Expand the latest substantive answer from durable dialogue context."""
+        turn = getattr(self.engine.state, "references", {}).get("last_substantive_turn", {})
+        if not isinstance(turn, dict) or not turn.get("answer"):
+            topic = clean(self.engine.state.current_topic)
+            return (f"کدام بخش از «{topic}» را باز کنم؟" if topic else "کدام موضوع یا پاسخ قبلی را ادامه بدهم؟")
+        answer = clean(turn.get("answer"))
+        question = clean(turn.get("question"))
+        source = f"{question} {answer}".lower()
+        concepts = [
+            (("حافظه", "اطلاعات", "بازیابی"),
+             "حافظه، اطلاعات صریح را نگه می‌دارد و هنگام پرسش فقط مورد مرتبط را برمی‌گرداند؛ دادهٔ موضوع دیگر وارد پاسخ نمی‌شود.",
+             "مثلاً اگر بگویی «اسمم سیاوش است»، بعداً با پرسش «اسم من چیه؟» همان نام بازیابی می‌شود؛ خاطرهٔ پروژهٔ دیگری در این پاسخ نقشی ندارد."),
+            (("یادگیری", "پیشنهاد", "تأیید"),
+             "بازخورد اول پیشنهاد می‌شود؛ تا بررسی و تأییدهای لازم انجام نشود، دانش فعال تغییر نمی‌کند.",
+             "مثلاً پیشنهاد یادگیری پس از بررسی وارد صف تأیید انسانی می‌شود و فقط بعد از عبور از دروازه اعمال خواهد شد."),
+            (("پروژه", "هدف"), "هدف هر پروژه جداست؛ اصلاح یک هدف، نسخهٔ قبلی را در تاریخچه نگه می‌دارد.",
+             "مثلاً اصلاح هدف اطلس، هدف دانا را تغییر نمی‌دهد و پرسش دربارهٔ نسخهٔ اول اطلس هم از تاریخچه پاسخ می‌گیرد."),
+            (("آفلاین", "اینترنت", "محلی"), "این مسیر از داده و ابزار محلی استفاده می‌کند؛ اگر شاهد محلی کافی نباشد، کمبود اطلاعات را اعلام می‌کند.",
+             "مثلاً محاسبه با رقم فارسی در ابزار محلی انجام می‌شود و برای نتیجه به سرویس بیرونی وابسته نیست."),
+            (("پاسخ", "شاهد", "اطلاعات کافی"), "ادعا باید با شاهد موجود سنجیده شود؛ حدس به‌جای واقعیت ارائه نمی‌شود.",
+             "مثلاً اگر مقدار فروش آینده در داده‌ها نباشد، پاسخ باید آن را نامعلوم اعلام کند.")
+        ]
+        matched = [item for item in concepts if any(term in source for term in item[0])]
+        if not matched:
+            return f"پاسخ قبلی دربارهٔ «{question}» این بود: {answer} کدام بخش را بیشتر باز کنم؟"
+        if mode == "example":
+            return "یک نمونهٔ مرتبط: " + matched[0][2]
+        if mode == "continue":
+            return f"نکتهٔ تکمیلی دربارهٔ «{question}»: {matched[0][1]}"
+        if mode == "explain":
+            explanations = {
+                "حافظه": "اطلاعات نام شخص و اطلاعات هر پروژه جدا ذخیره می‌شوند؛ هنگام بازیابی، سؤال درباره نام شخص به واقعیت نام وصل می‌شود و خاطره پروژه فقط با پرسش درباره همان پروژه به کار می‌آید.",
+                "یادگیری": "تأیید ناظر فقط پیشنهاد را برای بازبینی آماده می‌کند؛ تغییر دانش فعال به تأیید انسانی و عبور از Learning Gate نیاز دارد.",
+                "پروژه": "هر نسخهٔ هدف کنار همان پروژه نگه داشته می‌شود؛ پاسخ فعلی از آخرین نسخه می‌آید و پرسش تاریخی نسخهٔ قبلی را می‌خواند.",
+                "آفلاین": "محاسبه یا بازیابی محلی با شواهد موجود انجام می‌شود؛ اگر دادهٔ لازم موجود نباشد، مسیر باید صریحاً نامعلوم بماند.",
+                "پاسخ": "پیش از پاسخ نهایی، ادعا با شواهد همان درخواست سنجیده می‌شود؛ خاطرهٔ مشابه به‌تنهایی شاهد کافی نیست.",
+            }
+            for item in matched:
+                for term in item[0]:
+                    if term in source:
+                        for key, detail in explanations.items():
+                            if term in key:
+                                return detail
+            return matched[0][1]
+        return answer + "\n" + "\n".join(item[1] for item in matched[:2])
+
+    def _remember_substantive_turn(self, text, answer, answer_type):
+        non_substantive = {
+            "UNKNOWN", "SOCIAL", "STYLE", "META", "FOLLOW_UP", "REFERENCE",
+            "CORRECTION", "REEXPLAIN", "EXAMPLE", "CONTINUATION", "MEMORY_RECALL"
+        }
+        if answer_type in non_substantive or not str(answer).strip() or str(answer).startswith("UNKNOWN"):
+            return
+        self.engine.state.references["last_substantive_turn"] = {
+            "question": clean(text), "answer": clean(answer), "answer_type": str(answer_type)
+        }
+
+    def _reexpress_previous(self, mode):
+        """Transform only the preceding answer; never retrieve unrelated user facts."""
+        previous = clean(self.engine.state.last_assistant_answer)
+        if not previous or previous.startswith("UNKNOWN"):
+            return "کدام بخش را ساده‌تر بگویم؟ یک موضوع یا جمله مشخص بگو." if mode == "simple" else "کدام بخش را توضیح بدهم؟ یک موضوع یا جمله مشخص بگو."
+        # A local vocabulary supplies meanings, not new claims about the user.
+        vocabulary = {
+            "معماری شناختی": ("سیستم فکر و تصمیم‌گیری", "بخش‌های فهم، حافظه و تصمیم‌گیری در یک مسیر هماهنگ کار می‌کنند"),
+            "استدلال": ("نتیجه‌گیری از اطلاعات", "از اطلاعات موجود نتیجه گرفته می‌شود؛ نتیجه بدون شاهد قطعی نیست"),
+            "برنامه‌ریزی": ("مرتب‌کردن کارها", "هدف به گام‌های کوچک‌تر تقسیم می‌شود و ترتیب آن‌ها مشخص می‌شود"),
+            "راستی‌آزمایی": ("بررسی درستی پاسخ", "پاسخ با شواهد سنجیده می‌شود و کمبود اطلاعات باید روشن بماند"),
+            "حافظه": ("نگهداری اطلاعات", "اطلاعات قبلی نگه داشته می‌شود و بخش مرتبط با سؤال دوباره استفاده می‌شود"),
+            "یادگیری": ("بهترشدن با تجربه", "تجربه و بازخورد می‌تواند رفتار بعدی را بهتر کند؛ پیشنهاد هنوز به معنی اعمال دانش نیست"),
+            "آفلاین": ("بدون نیاز به اینترنت", "برای این بخش ارتباط اینترنتی لازم نیست"),
+        }
+        if mode == "simple":
+            rendered = previous
+            for term, (plain, _) in vocabulary.items():
+                rendered = rendered.replace(term, plain)
+            sentences = re.split(r"(?<=[.!؟])\s+|[؛\n]+", rendered)
+            if len(sentences) > 1:
+                rendered = sentences[0]
+            if rendered == previous:
+                return "کدام واژه یا بخش این جواب را ساده‌تر بگویم؟"
+            return rendered
+        details = [f"{term}: {meaning}." for term, (_, meaning) in vocabulary.items()
+                   if re.search(r"(?<!\w)" + re.escape(term) + r"(?!\w)", previous)]
+        if details:
+            return previous + "\n" + "\n".join(details)
+        return "برای توضیح دقیق‌تر، کدام بخش جواب قبلی را می‌خواهی باز کنم؟"
+
+    def _active_goal_project(self, text=""):
+        """Bind goal pronouns/history to a named entity already in conversation."""
+        state = self.engine.state
+        projects = sorted(state.topic_goals, key=len, reverse=True)
+        candidates = [clean(text), clean(state.last_user_message)]
+        candidates.extend(reversed(list(getattr(state, "recent_user_turns", []) or [])))
+        candidates.append(clean(state.current_topic))
+        for candidate in candidates:
+            matches = [project for project in projects
+                       if re.search(r"(?<!\w)" + re.escape(project) + r"(?!\w)", clean(candidate))]
+            if len(matches) == 1:
+                return matches[0]
+        return ""
+
     def _preflight_conversation_route(self, text):
         """Canonical state transitions that must happen before reasoning/verification."""
         import re
@@ -419,15 +537,30 @@ class CognitivePipeline:
                     }])
                 except Exception:
                     pass
-        goal_correction = re.match(
-            r"^نه[،,\s]+هدفش\s+.+?\s+نبود[،,\s]+(.+?)(?:\s+(?:است|هست|بود))?[.!]*$",
+        named_goal_correction = re.match(
+            r"^نه[،,\s]+هدف\s+(?P<project>[آ-یA-Za-z0-9_-]+)\s+"
+            r"(?P<old>.+?)\s+نبود[،,\s]+(?P<goal>.+?)"
+            r"(?:\s+(?:است|هست|بود))?[.!؟?]*$",
             clean(text),
         )
-        if goal_correction:
-            goal = clean(goal_correction.group(1)).strip(" ،,:؛")
-            if goal:
-                state.set_topic_goal("دانا", goal)
+        pronoun_goal_correction = re.match(
+            r"^نه[،,\s]+هدفش\s+.+?\s+نبود[،,\s]+"
+            r"(.+?)(?:\s+(?:است|هست|بود))?[.!؟?]*$",
+            clean(text),
+        )
+        if named_goal_correction:
+            project = clean(named_goal_correction.group("project")).strip(" ،,:؛")
+            goal = clean(named_goal_correction.group("goal")).strip(" ،,:؛")
+            if project and goal:
+                state.set_topic_goal(project, goal)
                 changed = True
+        elif pronoun_goal_correction:
+            goal = clean(pronoun_goal_correction.group(1)).strip(" ،,:؛")
+            if goal:
+                project = self._active_goal_project()
+                if project:
+                    state.set_topic_goal(project, goal)
+                    changed = True
         m = re.match(r"^موضوع\s+اصلی\s+ما\s+(.+?)\s+است[.!؟?]*$", clean(text))
         if m:
             topic = clean(m.group(1)).strip(" ،,:؛")
@@ -464,8 +597,71 @@ class CognitivePipeline:
         foundation_meaning = e.understanding.analyze(text, e.state, foundation_parsed)
         self.conversation_foundation.ingest(foundation_meaning, foundation_parsed)
 
+        # Historical identity and project-version questions must be resolved
+        # before generic meta/reference handlers can reinterpret their wording.
+        low = text.lower()
+        asks_previous_name = (
+            any(marker in low for marker in ("قبلاً", "قبلا", "پیش‌تر", "پیشتر", "اسم قبلیم", "نام قبلیم"))
+            and any(marker in low for marker in ("اسم من", "نام من", "اسمم"))
+        )
+        if asks_previous_name:
+            try:
+                names = self.runtime.user_model.facts(predicate="name", limit=100)
+                unique = []
+                for fact in names:
+                    value = clean(fact.get("object", ""))
+                    if value and value not in unique:
+                        unique.append(value)
+                if len(unique) > 1:
+                    return self._persist_answer(
+                        text,
+                        f"نام ثبت‌شدهٔ قبلی‌ات «{unique[1]}» بود؛ نام فعلی «{unique[0]}» است.",
+                        "MEMORY_RECALL", .99)
+            except Exception:
+                pass
+
+        asks_first_goal = bool(
+            re.search(r"نسخه(?:ٔ|‌)?\s*اول\s+هدف|هدف.*نسخه(?:ٔ|‌)?\s*اول", low)
+        )
+        if asks_first_goal:
+            project = self._active_goal_project(text)
+            versions = e.state.goal_versions(project)
+            answer = (
+                f"نسخه اول هدف «{project}»: «{versions[0]}»."
+                if versions
+                else "برای کدام پروژه نسخه هدف را می‌خواهی؟"
+            )
+            return self._persist_answer(text, answer, "MEMORY_RECALL", .99)
+
         low = text.lower()
 
+        styles = e.understanding.style_request(text)
+        immediate_transform = (
+            foundation_meaning.dialogue_act in {"simplify", "length_control", "response_style"}
+            and any(marker in low for marker in ("بگو", "توضیح"))
+            and not any(marker in low for marker in ("از این به بعد", "از حالا به بعد"))
+            and not any(marker in low for marker in ("همونو توضیح", "همون رو توضیح", "همان را توضیح"))
+        )
+        if immediate_transform and any(style in styles for style in ("simple", "long")):
+            e.state.set_style(styles, e.understanding.temporal_scope(text))
+            mode = "simple" if "simple" in styles else "long"
+            return self._persist_answer(text, self._reexpress_previous(mode), "REEXPLAIN", .95, evidence=[])
+
+        normalized_followup = re.sub(r"\s+", " ", low).strip(" ؟?!.,،؛")
+        if any(marker in normalized_followup for marker in ("مثال بزن", "یه مثال", "یک مثال", "مثالی بزن")):
+            return self._persist_answer(text, self._contextual_followup(text, "example"), "EXAMPLE", .95, evidence=[])
+        topic_restore_request = any(
+            marker in normalized_followup
+            for marker in ("موضوع قبلی", "برگرد به موضوع", "برگردیم به موضوع")
+        )
+        if not topic_restore_request and any(
+            marker in normalized_followup for marker in ("ادامه بده", "ادامه‌ش", "ادامه اش")
+        ):
+            return self._persist_answer(text, self._contextual_followup(text, "continue"), "CONTINUATION", .95, evidence=[])
+        if any(marker in normalized_followup for marker in ("همونو توضیح", "همون رو توضیح", "همان را توضیح")):
+            return self._persist_answer(text, self._contextual_followup(text, "explain"), "CONTINUATION", .95, evidence=[])
+        if "بیشتر توضیح بده" in normalized_followup:
+            return self._persist_answer(text, self._contextual_followup(text, "explain"), "CONTINUATION", .95, evidence=[])
         # Generic meta-conversation reads bounded local conversation state before
         # retrieval. It never consults long-term memory for "what did we just say?".
         if foundation_meaning.dialogue_act == "meta_conversation":
@@ -656,11 +852,12 @@ class CognitivePipeline:
             answer = "پروژه IRAN یک معماری شناختی مستقل و آفلاین برای حافظه، استدلال، برنامه‌ریزی، یادگیری و راستی‌آزمایی است."
             return self._persist_answer(text, answer, "PROJECT_FACT", .99)
         if "هدف اصلاح شد" in low:
-            goal = e.state.topic_goals.get("دانا", "")
+            project = self._active_goal_project()
+            goal = e.state.topic_goals.get(project, "")
             answer = (
-                f"بله؛ هدف اصلاح‌شده «دانا» اکنون «{goal}» است."
+                f"بله؛ هدف اصلاح‌شده «{project}» اکنون «{goal}» است."
                 if goal
-                else "هدف ثبت‌شده‌ای برای «دانا» پیدا نکردم."
+                else "هدف کدام پروژه را می‌گویی؟"
             )
             return self._persist_answer(text, answer, "MEMORY_RECALL", .99)
         if "این پروژه آفلاینه" in low or "این پروژه آفلاین است" in low:
@@ -709,21 +906,22 @@ class CognitivePipeline:
 
         # Goal versions are read-only history queries; the latest accepted goal
         # remains effective while older versions stay available across restart.
-        goal_versions = e.state.goal_versions("دانا")
+        goal_project = self._active_goal_project(text)
+        goal_versions = e.state.goal_versions(goal_project)
         asks_first_goal = bool(
             re.search(r"نسخه(?:ٔ|‌)?\s*اول\s+هدف|هدف.*نسخه(?:ٔ|‌)?\s*اول", low)
         )
         asks_latest_goal = "نسخه جدید" in low and ("هدف" in low or "برگرد" in low)
         if asks_first_goal:
             answer = (
-                f"نسخه اول هدف «دانا»: «{goal_versions[0]}»."
+                f"نسخه اول هدف «{goal_project}»: «{goal_versions[0]}»."
                 if goal_versions
-                else "نسخه‌ای برای هدف «دانا» در حافظه ثبت نشده است."
+                else "برای کدام پروژه نسخه هدف را می‌خواهی؟"
             )
             return self._persist_answer(text, answer, "MEMORY_RECALL", .99)
         if asks_latest_goal:
             answer = (
-                f"نسخه جدید هدف «دانا»: «{goal_versions[-1]}»."
+                f"نسخه جدید هدف «{goal_project}»: «{goal_versions[-1]}»."
                 if goal_versions
                 else "نسخه‌ای برای هدف «دانا» در حافظه ثبت نشده است."
             )
@@ -795,27 +993,6 @@ class CognitivePipeline:
             return self._persist_answer(
                 text, answer, "MEMORY_RECALL", .99, evidence=project_evidence
             )
-
-        if "هدف دانا چی بود" in low or "هدفش چی بود" in low:
-            goal = e.state.topic_goals.get("دانا", "")
-            if not goal:
-                goal = next((f.get("object", "") for f in self.runtime.user_model.current_profile(limit=30)
-                             if f.get("predicate") == "goal"), "")
-            if goal:
-                goal_evidence = [{
-                    "subject": "دانا",
-                    "predicate": "هدف",
-                    "object": goal,
-                    "source": "conversation_state",
-                    "resolved": True,
-                }]
-                return self._persist_answer(
-                    text,
-                    f"هدف ثبت‌شده برای «دانا»: «{goal}».",
-                    "MEMORY_RECALL",
-                    .99,
-                    evidence=goal_evidence,
-                )
 
         # Keep practical follow-ups anchored to the active conversational need
         # instead of letting unrelated durable memory replace the current turn.
@@ -1044,6 +1221,26 @@ class CognitivePipeline:
                 e.state.save(e.state_path)
         except Exception: pass
 
+        asks_previous_name = (
+            any(marker in low for marker in ("قبلاً", "قبلا", "پیش‌تر", "پیشتر", "اسم قبلیم", "نام قبلیم"))
+            and any(marker in low for marker in ("اسم من", "نام من", "اسمم"))
+        )
+        if asks_previous_name:
+            try:
+                names = self.runtime.user_model.facts(predicate="name", limit=100)
+                unique = []
+                for fact in names:
+                    value = clean(fact.get("object", ""))
+                    if value and value not in unique:
+                        unique.append(value)
+                if len(unique) > 1:
+                    return self._persist_answer(
+                        text,
+                        f"نام ثبت‌شدهٔ قبلی‌ات «{unique[1]}» بود؛ نام فعلی «{unique[0]}» است.",
+                        "MEMORY_RECALL", .99)
+            except Exception:
+                pass
+
         # Resolve identity and terse contextual follow-ups inside the canonical route.
         try:
             identity = self.runtime.user_model.answer_identity(text)
@@ -1092,6 +1289,13 @@ class CognitivePipeline:
             tool = self.runtime.orchestrator._auto_tool(text)
             if tool is not None:
                 self.runtime.memory.add("tool_result", tool, .78)
+                tool_name, tool_args = self.runtime.orchestrator.router.choose(text)
+                if tool_name == "calculate":
+                    return self._persist_answer(text, tool, "DIRECT_FACT", .99, evidence=[{
+                        "subject": tool_args.get("expression", text),
+                        "predicate": "calculation_result", "object": str(tool),
+                        "source": "local_calculate_tool", "resolved": True,
+                    }])
                 self._emit("response_generated", {"goal": text, "route": "tool", "mode": "TOOL", "verified": True})
                 return tool
         except Exception:
@@ -1319,6 +1523,9 @@ class CognitivePipeline:
         if not answer:
             answer = e._direct_answer(context)
 
+        # The final realization obeys the same stored style as early routes.
+        answer = self._apply_conversation_style(answer, plan.answer_type)
+
         # Verify and repair. Context transformations (clarification/meta/social) are
         # verified for coherence, not as unsupported factual claims.
         verification = e.verifier.verify(context, answer, plan)
@@ -1358,6 +1565,9 @@ class CognitivePipeline:
             answer = "UNKNOWN: " + answer
         if verification.status == "UNKNOWN":
             answer = "UNKNOWN: برای این سؤال در دانش و شواهد محلی اطلاعات کافی ندارم؛ نمی‌خواهم حدس را به‌عنوان واقعیت بگویم."
+        if answer.startswith("UNKNOWN:") and text not in e.state.unresolved_questions:
+            e.state.unresolved_questions.append(text)
+            e.state.unresolved_questions = e.state.unresolved_questions[-30:]
 
         # Critical anti-echo gate before final acceptance. Structured semantic
         # evidence may repair an echo; otherwise questions fail closed instead of
@@ -1410,6 +1620,7 @@ class CognitivePipeline:
         elif verification.status == "PASS":
             e.state.accept(answer)
         self.memory_intelligence.record_outcome(answer, verification.status == "PASS", e.state)
+        self._remember_substantive_turn(text, answer, plan.answer_type)
         e.state.update(text, answer, plan.answer_type, parsed, verification.score, reference)
         e.state.save(e.state_path)
         e._commit_memory(text, answer, context, verification)
