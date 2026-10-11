@@ -668,6 +668,9 @@ class CognitivePipeline:
         text = clean(text)
         if not text:
             return "چیزی برای پردازش دریافت نکردم."
+        explicit_why_question = bool(re.match(r"^چرا\s+\S+", text))
+        def is_contextual_follow_up():
+            return is_follow_up(text) and not explicit_why_question
         goal_transition = self._preflight_conversation_route(text)
 
         # Rasa foundation observes every natural-language turn before any deterministic
@@ -677,6 +680,11 @@ class CognitivePipeline:
         foundation_parsed.update(e.analyzer.analyze(text, foundation_parsed))
         foundation_meaning = e.understanding.analyze(text, e.state, foundation_parsed)
         self.conversation_foundation.ingest(foundation_meaning, foundation_parsed)
+
+        if re.fullmatch(r"چرا[؟?!.]*", text):
+            return self._persist_answer(
+                text, self._contextual_followup(text, "explain"), "CONTINUATION", .95, evidence=[]
+            )
 
         if goal_transition:
             action, project, goal = goal_transition
@@ -1127,7 +1135,7 @@ class CognitivePipeline:
 
         # Keep practical follow-ups anchored to the active conversational need
         # instead of letting unrelated durable memory replace the current turn.
-        if is_follow_up(text):
+        if is_contextual_follow_up():
             recent_context=" ".join(list(getattr(e.state,"recent_user_turns",[]) or [])[-6:])
             if any(x in recent_context for x in ("خسته","خستگی")):
                 if "پیشنهاد" in low:
@@ -1646,8 +1654,8 @@ class CognitivePipeline:
 
         unknown_candidate = (not knowledge and not memory and
             (context.question_type in {"what", "why", "how", "where", "yes_no"} or meaning.dialogue_act in {"information_request","factual_question"}) and
-            not is_follow_up(text) and not is_correction(text))
-        if not knowledge and meaning.dialogue_act=="information_request" and not is_follow_up(text) and not is_correction(text):
+            not is_contextual_follow_up() and not is_correction(text))
+        if not knowledge and meaning.dialogue_act=="information_request" and not is_contextual_follow_up() and not is_correction(text):
             answer = "UNKNOWN: برای این درخواست اطلاعات قابل اتکای محلی ندارم؛ نمی‌خواهم چیزی را بدون شاهد بسازم."
         if not answer and unknown_candidate:
             answer = "UNKNOWN: برای این سؤال در دانش و شواهد محلی اطلاعات کافی ندارم؛ نمی‌خواهم حدس را به‌عنوان واقعیت بگویم."
@@ -1675,7 +1683,7 @@ class CognitivePipeline:
         # Follow-ups are context transformations (e.g. «یعنی چه؟»), so lexical
         # question-unit coverage must not force a repair when the prior answer is
         # explicitly being explained or transformed.
-        if is_follow_up(text) and answer.strip():
+        if is_contextual_follow_up() and answer.strip():
             verification.status = "PASS"
             verification.missing_units = []
             verification.reasons = [r for r in verification.reasons if r not in {"uncertainty_not_expressed", "too_generic"}]
