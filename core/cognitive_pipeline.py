@@ -184,13 +184,17 @@ class CognitivePipeline:
                 }]
         except Exception:
             pass
+        # A profile goal without a matching project subject is ambiguous.
+        # Never use another project's goal as evidence for this named project.
         try:
+            entity_id=f"project:{self.semantic_intelligence._slug(project)}"
             row=next((f for f in self.runtime.user_model.current_profile(limit=50)
-                      if f.get("predicate")=="goal" and f.get("object")),None)
+                      if f.get("predicate")=="goal" and f.get("object")
+                      and clean(f.get("subject","")) in {project,entity_id}),None)
             if row:
                 goal=clean(row.get("object",""))
                 return goal,[{
-                    "subject":project,"predicate":"goal","object":goal,
+                    "subject":row.get("subject",entity_id),"predicate":"goal","object":goal,
                     "source":row.get("source","user_profile"),"resolved":True,
                 }]
         except Exception:
@@ -402,14 +406,25 @@ class CognitivePipeline:
         return answer
 
     def _contextual_followup(self, text, mode):
-        """Expand the latest substantive answer from durable dialogue context."""
+        """Expand the latest relevant exchange from durable dialogue context."""
         turn = getattr(self.engine.state, "references", {}).get("last_substantive_turn", {})
+        recent_users = list(getattr(self.engine.state, "recent_user_turns", []) or [])
+        recent_answers = list(getattr(self.engine.state, "recent_assistant_turns", []) or [])
+        # A follow-up refers to the immediately preceding exchange, including
+        # an example or explanation, before any older substantive summary.
+        if recent_users and recent_answers:
+            recent_question = clean(recent_users[-1])
+            recent_answer = clean(recent_answers[-1])
+            if recent_question and recent_answer and not recent_answer.startswith("UNKNOWN"):
+                turn = {"question": recent_question, "answer": recent_answer}
         if not isinstance(turn, dict) or not turn.get("answer"):
             topic = clean(self.engine.state.current_topic)
             return (f"کدام بخش از «{topic}» را باز کنم؟" if topic else "کدام موضوع یا پاسخ قبلی را ادامه بدهم؟")
         answer = clean(turn.get("answer"))
         question = clean(turn.get("question"))
-        source = f"{question} {answer}".lower()
+        project = self._active_goal_project(text) or self._active_goal_project(question)
+        project_goal, _ = self._project_goal(project) if project else ("", [])
+        source = f"{question} {answer} {project_goal}".lower()
         concepts = [
             (("حافظه", "اطلاعات", "بازیابی"),
              "حافظه، اطلاعات صریح را نگه می‌دارد و هنگام پرسش فقط مورد مرتبط را برمی‌گرداند؛ دادهٔ موضوع دیگر وارد پاسخ نمی‌شود.",
@@ -425,12 +440,31 @@ class CognitivePipeline:
              "مثلاً اگر مقدار فروش آینده در داده‌ها نباشد، پاسخ باید آن را نامعلوم اعلام کند.")
         ]
         matched = [item for item in concepts if any(term in source for term in item[0])]
+        if project_goal and mode == "example":
+            goal_low = project_goal.lower().replace("‌", " ")
+            if any(term in goal_low for term in ("پایتون", "برنامه نویسی", "کدنویسی", "نرم افزار")):
+                example = "مثلاً یک برنامه کوچک بنویس که دو عدد بگیرد و جمعشان را نمایش بدهد."
+            elif any(term in goal_low for term in ("زبان", "انگلیسی")):
+                example = "مثلاً یک گفت‌وگوی کوتاه برای معرفی خود تمرین کن و چند جملهٔ تازه بساز."
+            elif any(term in goal_low for term in ("پژوهش", "تحقیق")):
+                example = "مثلاً یک پرسش مشخص انتخاب کن، شواهدش را جمع کن و نتیجه را در چند جمله بنویس."
+            else:
+                example = f"یک کار کوچک و قابل‌سنجش مرتبط با «{project_goal}» تعریف کن و نتیجه‌اش را بررسی کن."
+            return f"برای هدف پروژهٔ «{project}» یعنی «{project_goal}»، {example}"
+        if project_goal and mode == "continue":
+            return f"برای ادامهٔ هدف پروژهٔ «{project}» یعنی «{project_goal}»، یک گام کوچک و قابل‌سنجش تعریف کن و نتیجه‌اش را با همین هدف بسنج."
+        if project_goal and mode == "explain":
+            return f"یعنی پروژهٔ «{project}» روی «{project_goal}» تمرکز دارد؛ آن را به کارهای کوچک و قابل‌بررسی تقسیم کن."
         if not matched:
+            if mode == "example":
+                return f"برای نمونه، نکتهٔ «{answer}» را در یک مورد کوچک از موضوع «{question}» به کار ببر و نتیجه را بررسی کن."
+            if mode == "continue":
+                return f"گام بعد دربارهٔ «{question}»: {answer} را روی یک مورد مشخص اجرا کن و نتیجه‌اش را بررسی کن."
+            if mode == "explain":
+                return f"به بیان ساده، «{answer}» یعنی همان نکته را در موضوع «{question}» به کار ببری."
             return f"پاسخ قبلی دربارهٔ «{question}» این بود: {answer} کدام بخش را بیشتر باز کنم؟"
         if mode == "example":
             return "یک نمونهٔ مرتبط: " + matched[0][2]
-        if mode == "continue":
-            return f"نکتهٔ تکمیلی دربارهٔ «{question}»: {matched[0][1]}"
         if mode == "explain":
             explanations = {
                 "حافظه": "اطلاعات نام شخص و اطلاعات هر پروژه جدا ذخیره می‌شوند؛ هنگام بازیابی، سؤال درباره نام شخص به واقعیت نام وصل می‌شود و خاطره پروژه فقط با پرسش درباره همان پروژه به کار می‌آید.",
@@ -515,12 +549,18 @@ class CognitivePipeline:
             state.remembered_constraints.append("آفلاین"); changed = True
         if "بدون api" in low and "بدون API" not in state.remembered_constraints:
             state.remembered_constraints.append("بدون API"); changed = True
+        explicit_goal_correction = re.match(
+            r"^هدف\s+(?:پروژه\s+)?(?P<project>[آ-یA-Za-z0-9_-]+)\s+(?:را|رو)\s+"
+            r"(?:اصلاح|تغییر|عوض)(?:\s+(?:می‌کنم|می‌دهم|کردم))?\s*[:،]\s*"
+            r"(?P<goal>.+?)(?:\s+(?:است|هست))?[.!؟?]*$",
+            clean(text),
+        )
         goal_statement = re.match(
             r"^هدف(?:\s+پروژه)?\s+(?P<project>[آ-یA-Za-z0-9_-]+)\s+"
             r"(?P<goal>.+?)\s+(?:است|هست|بود)[.!]*$",
             clean(text),
         )
-        if goal_statement:
+        if goal_statement and not explicit_goal_correction:
             project=clean(goal_statement.group("project")).strip(" ،,:؛")
             goal = clean(goal_statement.group("goal")).strip(" ،,:؛")
             if project and goal and goal not in {"چی", "چه"}:
@@ -548,7 +588,24 @@ class CognitivePipeline:
             r"(.+?)(?:\s+(?:است|هست|بود))?[.!؟?]*$",
             clean(text),
         )
-        if named_goal_correction:
+        if explicit_goal_correction:
+            project=clean(explicit_goal_correction.group("project")).strip(" ،,:؛")
+            goal=clean(explicit_goal_correction.group("goal")).strip(" ،,:؛")
+            if project and goal:
+                state.set_topic_goal(project, goal)
+                changed = True
+                try:
+                    entity_id=f"project:{self.semantic_intelligence._slug(project)}"
+                    self.runtime.user_model.record_from_facts([{
+                        "subject":entity_id,
+                        "predicate":"goal",
+                        "object":goal,
+                        "confidence":.99,
+                        "source":"explicit_user_correction",
+                    }])
+                except Exception:
+                    pass
+        elif named_goal_correction:
             project = clean(named_goal_correction.group("project")).strip(" ،,:؛")
             goal = clean(named_goal_correction.group("goal")).strip(" ،,:؛")
             if project and goal:
@@ -561,6 +618,16 @@ class CognitivePipeline:
                 if project:
                     state.set_topic_goal(project, goal)
                     changed = True
+        restore_project = re.search(
+            r"(?:برگردیم|برگرد|بازگردیم|بازگرد)\s+(?:به|سراغ)\s+پروژه\s+([آ-یA-Za-z0-9_-]+)",
+            clean(text),
+            re.I,
+        )
+        if restore_project:
+            project = clean(restore_project.group(1))
+            state._push_topic(project)
+            state.references["latest"] = project
+            changed = True
         m = re.match(r"^موضوع\s+اصلی\s+ما\s+(.+?)\s+است[.!؟?]*$", clean(text))
         if m:
             topic = clean(m.group(1)).strip(" ،,:؛")
@@ -756,7 +823,10 @@ class CognitivePipeline:
             previous = clean(getattr(e.state, "last_assistant_answer", ""))
             primary = "متأسفم که حالت خوب نیست. من اینجام؛ اگه دوست داری بگو چی بیشتر اذیتت کرده، یا می‌تونیم فقط یکم معمولی حرف بزنیم."
             alternate = "باشه، کنارت می‌مونم. لازم نیست الان چیزی رو حل کنیم؛ هر چی دلت می‌خواد بگو، من گوش می‌دم."
-            answer = alternate if previous == primary or "چی بیشتر اذیتت کرده" in previous else primary
+            answer = alternate if (
+                previous.startswith("متأسفم که حالت خوب نیست")
+                or "چی بیشتر اذیتت کرده" in previous
+            ) else primary
             return self._persist_answer(text, answer, "SOCIAL", .99, evidence=[])
 
         def activate_topic(topic):
@@ -889,11 +959,17 @@ class CognitivePipeline:
         # Project-goal recall is a read-only state query. Resolve it before
         # semantic/retrieval fallbacks so a pronoun like «هدفش» binds to the
         # active project rather than being reinterpreted as a generic question.
-        asks_project_goal = bool(re.search(r"(?:هدف(?:ش|\s+[^ ]+)?)\s+(?:چی|چه)\s+بود", low))
+        asks_project_goal = bool(
+            re.search(r"هدف(?:ش|(?:\s+[^ ]+){0,4})\s+(?:چی|چه)\s+(?:بود|است|هست)", low)
+            or re.search(r"هدف(?:ش|(?:\s+[^ ]+){0,4})\s*(?:چیست|چیه)", low)
+        )
         if asks_project_goal:
-            explicit = re.search(r"هدف\s+(?P<project>[آ-یA-Za-z0-9_-]+)\s+(?:چی|چه)\s+بود", clean(text), re.I)
-            project = clean(explicit.group("project")) if explicit else clean(e.state.current_topic)
+            explicit = re.search(r"پروژه\s+(?P<project>[آ-یA-Za-z0-9_-]+)", clean(text), re.I)
+            project = clean(explicit.group("project")) if explicit else (self._active_goal_project(text) or clean(e.state.current_topic))
             if project:
+                e.state._push_topic(project)
+                e.state.references["latest"] = project
+                e.state.save(self.engine.state_path)
                 goal,goal_evidence=self._project_goal(project)
                 if goal:
                     return self._persist_answer(
