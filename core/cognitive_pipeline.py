@@ -682,13 +682,27 @@ class CognitivePipeline:
         self.conversation_foundation.ingest(foundation_meaning, foundation_parsed)
 
         if re.fullmatch(r"چرا[؟?!.]*", text):
-            if getattr(e.state, "last_answer_type", "") == "META" and clean(e.state.current_topic):
-                explanation = f"دربارهٔ «{clean(e.state.current_topic)}» کدام بخش را توضیح بدهم؟"
+            answer_type = getattr(e.state, "last_answer_type", "")
+            topic = clean(e.state.current_topic)
+            previous_question = clean(getattr(e.state, "last_user_message", ""))
+            if answer_type in {"META", "REFERENCE"} and topic:
+                explanation = f"دربارهٔ همان سؤال قبلی، «{topic}»، کدام بخش را توضیح بدهم؟"
+            elif answer_type in {"DIRECT_FACT", "FACT", "SEMANTIC_FACT"} and previous_question:
+                explanation = f"منظورت دلیل پاسخ دربارهٔ همان سؤال قبلی («{previous_question}») است؟"
             else:
                 explanation = self._contextual_followup(text, "explain")
             return self._persist_answer(
                 text, explanation, "CONTINUATION", .95, evidence=[]
             )
+        if explicit_why_question and any(
+            marker in text for marker in ("ساخته شدی", "ساختنت", "به وجود آمدی")
+        ):
+            answer = (
+                "برای اجرای یک دستیار محلی با معماری شناختی که فهم، حافظه، استدلال و یادگیری را "
+                "در مسیر واحد هماهنگ می‌کند."
+            )
+            return self._persist_answer(text, answer, "DIRECT_FACT", .95, evidence=[])
+
         if explicit_why_question:
             try:
                 why_knowledge = e._knowledge(text, foundation_parsed) or []
