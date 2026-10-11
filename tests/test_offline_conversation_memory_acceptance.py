@@ -273,7 +273,8 @@ def test_identity_and_project_updates_answer_the_current_turn(tmp_path):
         current = runtime.handle("هدف فعلی پروژه آلفا چیست؟")
         assert "پایتون" in current, current
 
-        runtime.handle("موضوع اصلی ما پروژه IRAN است.")
+        topic_ack = runtime.handle("موضوع اصلی ما پروژه IRAN است.")
+        assert "IRAN" in topic_ack and "دانا" not in topic_ack, topic_ack
         continuation = runtime.handle("همون قبلی رو ادامه بده")
         assert any(topic in continuation for topic in ("IRAN", "ایران", "پروژه")), continuation
         assert "ادامه می‌دهم" not in continuation, continuation
