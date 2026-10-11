@@ -434,7 +434,11 @@ class CognitivePipeline:
         return answer + "\n" + "\n".join(item[1] for item in matched[:2])
 
     def _remember_substantive_turn(self, text, answer, answer_type):
-        if answer_type not in {"DIRECT", "DIRECT_FACT", "GROUNDED", "PROJECT_FACT", "FACT"} or not str(answer).strip() or str(answer).startswith("UNKNOWN"):
+        non_substantive = {
+            "UNKNOWN", "SOCIAL", "STYLE", "META", "FOLLOW_UP", "REFERENCE",
+            "CORRECTION", "REEXPLAIN", "EXAMPLE", "CONTINUATION", "MEMORY_RECALL"
+        }
+        if answer_type in non_substantive or not str(answer).strip() or str(answer).startswith("UNKNOWN"):
             return
         self.engine.state.references["last_substantive_turn"] = {
             "question": clean(text), "answer": clean(answer), "answer_type": str(answer_type)
@@ -577,6 +581,42 @@ class CognitivePipeline:
         foundation_parsed.update(e.analyzer.analyze(text, foundation_parsed))
         foundation_meaning = e.understanding.analyze(text, e.state, foundation_parsed)
         self.conversation_foundation.ingest(foundation_meaning, foundation_parsed)
+
+        # Historical identity and project-version questions must be resolved
+        # before generic meta/reference handlers can reinterpret their wording.
+        low = text.lower()
+        asks_previous_name = (
+            any(marker in low for marker in ("قبلاً", "قبلا", "پیش‌تر", "پیشتر", "اسم قبلیم", "نام قبلیم"))
+            and any(marker in low for marker in ("اسم من", "نام من", "اسمم"))
+        )
+        if asks_previous_name:
+            try:
+                names = self.runtime.user_model.facts(predicate="name", limit=100)
+                unique = []
+                for fact in names:
+                    value = clean(fact.get("object", ""))
+                    if value and value not in unique:
+                        unique.append(value)
+                if len(unique) > 1:
+                    return self._persist_answer(
+                        text,
+                        f"نام ثبت‌شدهٔ قبلی‌ات «{unique[1]}» بود؛ نام فعلی «{unique[0]}» است.",
+                        "MEMORY_RECALL", .99)
+            except Exception:
+                pass
+
+        asks_first_goal = bool(
+            re.search(r"نسخه(?:ٔ|‌)?\\s*اول\\s+هدف|هدف.*نسخه(?:ٔ|‌)?\\s*اول", low)
+        )
+        if asks_first_goal:
+            project = self._active_goal_project(text)
+            versions = e.state.goal_versions(project)
+            answer = (
+                f"نسخه اول هدف «{project}»: «{versions[0]}»."
+                if versions
+                else "برای کدام پروژه نسخه هدف را می‌خواهی؟"
+            )
+            return self._persist_answer(text, answer, "MEMORY_RECALL", .99)
 
         low = text.lower()
 
@@ -1554,6 +1594,7 @@ class CognitivePipeline:
         elif verification.status == "PASS":
             e.state.accept(answer)
         self.memory_intelligence.record_outcome(answer, verification.status == "PASS", e.state)
+        self._remember_substantive_turn(text, answer, plan.answer_type)
         e.state.update(text, answer, plan.answer_type, parsed, verification.score, reference)
         e.state.save(e.state_path)
         e._commit_memory(text, answer, context, verification)
