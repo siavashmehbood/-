@@ -682,8 +682,12 @@ class CognitivePipeline:
         self.conversation_foundation.ingest(foundation_meaning, foundation_parsed)
 
         if re.fullmatch(r"چرا[؟?!.]*", text):
+            if getattr(e.state, "last_answer_type", "") == "META" and clean(e.state.current_topic):
+                explanation = f"دربارهٔ «{clean(e.state.current_topic)}» کدام بخش را توضیح بدهم؟"
+            else:
+                explanation = self._contextual_followup(text, "explain")
             return self._persist_answer(
-                text, self._contextual_followup(text, "explain"), "CONTINUATION", .95, evidence=[]
+                text, explanation, "CONTINUATION", .95, evidence=[]
             )
         if explicit_why_question:
             try:
