@@ -98,7 +98,14 @@ def test_followup_requests_deliver_memory_content_not_promises(tmp_path):
         transcript = []
         for prompt in ("ادامه بده", "همونو توضیح بده", "یه مثال بزن"):
             answer = runtime.handle(prompt); transcript.append((prompt, answer))
-            assert not answer.startswith("UNKNOWN:"), (transcript, runtime.cognitive_system.last_trace)
+            if answer.startswith("UNKNOWN:"):
+                trace = runtime.cognitive_system.last_trace
+                raise AssertionError((
+                    transcript,
+                    getattr(trace, "answer_status", None),
+                    getattr(trace, "verification_status", None),
+                    getattr(trace, "verification_reasons", None),
+                ))
             assert not any(x in answer for x in ("ادامه می‌دهم", "مبنا می‌گیرم", "نمونه کوچک و مشخص")), transcript
             assert "دانا" not in answer, transcript
             if "مثال" in prompt:
