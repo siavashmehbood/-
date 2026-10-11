@@ -252,3 +252,30 @@ def test_project_name_recall_ignores_stored_question_after_restart(tmp_path):
         assert "دانا" in recalled and "چی" not in recalled, recalled
     finally:
         restored.close()
+
+
+def test_identity_and_project_updates_answer_the_current_turn(tmp_path):
+    config = json.loads((Path(__file__).parents[1] / "config.json").read_text(encoding="utf-8-sig"))
+    config["language_engine"]["enabled"] = False
+    config["memory"]["db"] = "data/current_turn_acknowledgements.db"
+    (tmp_path / "config.json").write_text(json.dumps(config, ensure_ascii=False), encoding="utf-8")
+    runtime = IranRuntime(tmp_path)
+    try:
+        intro = runtime.handle("من سیاوشم")
+        assert "سیاوش" in intro and "UNKNOWN" not in intro, intro
+
+        initial = runtime.handle("هدف پروژه آلفا آموزش زبان انگلیسی است")
+        assert "آلفا" in initial and "آموزش زبان انگلیسی" in initial, initial
+        correction = runtime.handle(
+            "هدف پروژه آلفا را اصلاح می‌کنم: آموزش برنامه‌نویسی پایتون است."
+        )
+        assert "آلفا" in correction and "پایتون" in correction, correction
+        current = runtime.handle("هدف فعلی پروژه آلفا چیست؟")
+        assert "پایتون" in current, current
+
+        runtime.handle("موضوع اصلی ما پروژه IRAN است.")
+        continuation = runtime.handle("همون قبلی رو ادامه بده")
+        assert any(topic in continuation for topic in ("IRAN", "ایران", "پروژه")), continuation
+        assert "ادامه می‌دهم" not in continuation, continuation
+    finally:
+        runtime.close()
