@@ -646,7 +646,7 @@ class CognitivePipeline:
             mode = "simple" if "simple" in styles else "long"
             return self._persist_answer(text, self._reexpress_previous(mode), "REEXPLAIN", .95, evidence=[])
 
-        normalized_followup = re.sub(r"\\s+", " ", low).strip(" ؟?!.,،؛")
+        normalized_followup = re.sub(r"\s+", " ", low).strip(" ؟?!.,،؛")
         if any(marker in normalized_followup for marker in ("مثال بزن", "یه مثال", "یک مثال", "مثالی بزن")):
             return self._persist_answer(text, self._contextual_followup(text, "example"), "EXAMPLE", .95, evidence=[])
         topic_restore_request = any(
