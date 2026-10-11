@@ -553,6 +553,7 @@ class CognitivePipeline:
         low = clean(text).lower()
         # Explicit constraints are durable state, not post-answer patches.
         changed = False
+        goal_transition = None
         if "آفلاین" in low and "آفلاین" not in state.remembered_constraints:
             state.remembered_constraints.append("آفلاین"); changed = True
         if "بدون api" in low and "بدون API" not in state.remembered_constraints:
@@ -573,6 +574,7 @@ class CognitivePipeline:
             goal = clean(goal_statement.group("goal")).strip(" ،,:؛")
             if project and goal and goal not in {"چی", "چه"}:
                 state.set_topic_goal(project, goal)
+                goal_transition = ("recorded", project, goal)
                 changed = True
                 try:
                     entity_id=f"project:{self.semantic_intelligence._slug(project)}"
@@ -601,6 +603,7 @@ class CognitivePipeline:
             goal=clean(explicit_goal_correction.group("goal")).strip(" ،,:؛")
             if project and goal:
                 state.set_topic_goal(project, goal)
+                goal_transition = ("corrected", project, goal)
                 changed = True
                 try:
                     entity_id=f"project:{self.semantic_intelligence._slug(project)}"
@@ -618,6 +621,7 @@ class CognitivePipeline:
             goal = clean(named_goal_correction.group("goal")).strip(" ،,:؛")
             if project and goal:
                 state.set_topic_goal(project, goal)
+                goal_transition = ("corrected", project, goal)
                 changed = True
         elif pronoun_goal_correction:
             goal = clean(pronoun_goal_correction.group(1)).strip(" ،,:؛")
@@ -625,6 +629,7 @@ class CognitivePipeline:
                 project = self._active_goal_project()
                 if project:
                     state.set_topic_goal(project, goal)
+                    goal_transition = ("corrected", project, goal)
                     changed = True
         restore_project = re.search(
             r"(?:برگردیم|برگرد|بازگردیم|بازگرد)\s+(?:به|سراغ)\s+پروژه\s+([آ-یA-Za-z0-9_-]+)",
@@ -648,6 +653,7 @@ class CognitivePipeline:
                 state._push_topic(topic); state.references["latest"] = topic; changed = True
         if changed:
             state.save(self.engine.state_path)
+        return goal_transition
 
     def run(self, text):
         started = datetime.now()
@@ -662,7 +668,7 @@ class CognitivePipeline:
         text = clean(text)
         if not text:
             return "چیزی برای پردازش دریافت نکردم."
-        self._preflight_conversation_route(text)
+        goal_transition = self._preflight_conversation_route(text)
 
         # Rasa foundation observes every natural-language turn before any deterministic
         # early return. It contributes only NLU/state events; CognitiveSystem remains
@@ -671,6 +677,20 @@ class CognitivePipeline:
         foundation_parsed.update(e.analyzer.analyze(text, foundation_parsed))
         foundation_meaning = e.understanding.analyze(text, e.state, foundation_parsed)
         self.conversation_foundation.ingest(foundation_meaning, foundation_parsed)
+
+        if goal_transition:
+            action, project, goal = goal_transition
+            verb = "اصلاح شد" if action == "corrected" else "ثبت شد"
+            entity = f"project:{self.semantic_intelligence._slug(project)}"
+            return self._persist_answer(
+                text,
+                f"{verb}: هدف پروژهٔ «{project}» «{goal}» است.",
+                "PROJECT_FACT", .99,
+                evidence=[{
+                    "subject": entity, "predicate": "goal", "object": goal,
+                    "source": "explicit_user_statement", "resolved": True,
+                }],
+            )
 
         # Historical identity and project-version questions must be resolved
         # before generic meta/reference handlers can reinterpret their wording.
@@ -849,13 +869,24 @@ class CognitivePipeline:
 
         # Explicit continuation references the immediately preceding user turn.
         if low in {"همون قبلی رو ادامه بده", "همان قبلی را ادامه بده"}:
-            try:
-                recent_users = [clean(row[1]) for row in reversed(self.runtime.memory.recent(20)) if isinstance(row,(tuple,list)) and len(row)>=2 and row[0]=="user" and clean(row[1]) != text]
-                previous_user = next((x for x in recent_users if x), "")
-                if previous_user:
-                    return self._persist_answer(text, f"حتماً؛ «{previous_user}» را ادامه می‌دهم.", "REFERENCE", .99)
-            except Exception:
-                pass
+            recent_users = list(getattr(e.state, "recent_user_turns", []) or [])
+            previous_user = next(
+                (clean(item) for item in reversed(recent_users) if clean(item) and clean(item) != text),
+                "",
+            )
+            topic_statement = re.match(
+                r"^موضوع اصلی ما\s+(.+?)\s+است[.!؟?]*$", previous_user
+            )
+            if topic_statement:
+                topic = clean(topic_statement.group(1))
+                return self._persist_answer(
+                    text,
+                    f"موضوع اصلی گفتگو «{topic}» است؛ کدام بخشش را ادامه بدهم؟",
+                    "REFERENCE", .99,
+                )
+            return self._persist_answer(
+                text, self._contextual_followup(text, "continue"), "CONTINUATION", .95, evidence=[]
+            )
 
         # Ordinal history queries are read-only reference lookups. Reuse the
         # canonical ReferenceIntelligence resolver so direct compatibility
@@ -1208,6 +1239,15 @@ class CognitivePipeline:
             except Exception:
                 pass
 
+
+        name_fact = next(
+            (fact for fact in extracted if fact.get("predicate") == "name" and fact.get("object")),
+            None,
+        )
+        if name_fact and re.fullmatch(r"من\s+\S+(?:م|\s+هستم|\s+ام)", text):
+            return self._persist_answer(
+                text, f"خوشبختم، {clean(name_fact.get('object'))}.", "SOCIAL", .99, evidence=[]
+            )
 
         # Structured fact queries outrank raw-history recall. Resolve
         # reference -> owned entity -> name relation -> stored semantic value.
