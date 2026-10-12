@@ -612,7 +612,7 @@ class CognitivePipeline:
                     rendered = re.sub(pattern, meaning, rendered, count=1)
                 else:
                     rendered = rendered.replace(term, _)
-            sentences = re.split(r"(?<=[.!؟])\s+|[؛\n]+", rendered)
+            sentences = re.split(r"(?<=[.!؟])\s+", rendered)
             if len(sentences) > 1:
                 rendered = sentences[0]
             if rendered == previous:
