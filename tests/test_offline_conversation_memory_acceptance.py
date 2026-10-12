@@ -492,3 +492,20 @@ def test_generic_python_followups_add_explanation_example_and_next_detail(tmp_pa
         assert "در یک مورد کوچک" not in demonstrated, demonstrated
     finally:
         example.close()
+
+
+def test_why_after_supported_python_definition_gives_a_grounded_reason(tmp_path):
+    config = json.loads((Path(__file__).parents[1] / "config.json").read_text(encoding="utf-8-sig"))
+    config["language_engine"]["enabled"] = False
+    config["memory"]["db"] = "data/python_why_followup.db"
+    (tmp_path / "config.json").write_text(json.dumps(config, ensure_ascii=False), encoding="utf-8")
+    runtime = IranRuntime(tmp_path)
+    try:
+        first = runtime.handle("پایتون چیه؟")
+        explanation = runtime.handle("چرا؟")
+        assert "پایتون" in first and "زبان" in first, first
+        assert "پایتون" in explanation and "جزئیات سخت‌افزار" in explanation, explanation
+        assert "منظورت دلیل پاسخ" not in explanation, explanation
+        assert not explanation.rstrip().endswith("؟"), explanation
+    finally:
+        runtime.close()
