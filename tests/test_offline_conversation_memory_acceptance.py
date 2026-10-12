@@ -449,3 +449,46 @@ def test_followup_after_persistent_style_keeps_the_previous_topic(tmp_path):
         assert "کوتاه" not in continued and "جواب بده" not in continued, continued
     finally:
         runtime.close()
+
+
+def test_generic_python_followups_add_explanation_example_and_next_detail(tmp_path):
+    config = json.loads((Path(__file__).parents[1] / "config.json").read_text(encoding="utf-8-sig"))
+    config["language_engine"]["enabled"] = False
+    config["memory"]["db"] = "data/python_followups.db"
+    (tmp_path / "config.json").write_text(json.dumps(config, ensure_ascii=False), encoding="utf-8")
+    runtime = IranRuntime(tmp_path)
+    try:
+        first = runtime.handle("پایتون چیه؟")
+        continued = runtime.handle("ادامه بده")
+        assert "پایتون" in first and "زبان" in first, first
+        assert continued != first, (first, continued)
+        assert "متغیر" in continued and "print" in continued, continued
+        assert "روی یک مورد مشخص اجرا کن" not in continued, continued
+    finally:
+        runtime.close()
+
+    explain_root = tmp_path / "explain"
+    explain_root.mkdir()
+    (explain_root / "config.json").write_text(json.dumps(config, ensure_ascii=False), encoding="utf-8")
+    explain = IranRuntime(explain_root)
+    try:
+        first = explain.handle("پایتون چیه؟")
+        expanded = explain.handle("همونو توضیح بده")
+        assert "پایتون" in expanded and expanded != first, (first, expanded)
+        assert "جزئیات سخت‌افزار" in expanded or "کارهای مختلف" in expanded, expanded
+        assert "همان نکته را به کار ببری" not in expanded, expanded
+    finally:
+        explain.close()
+
+    example_root = tmp_path / "example"
+    example_root.mkdir()
+    (example_root / "config.json").write_text(json.dumps(config, ensure_ascii=False), encoding="utf-8")
+    example = IranRuntime(example_root)
+    try:
+        first = example.handle("پایتون چیه؟")
+        demonstrated = example.handle("مثال بزن")
+        assert "پایتون" in demonstrated and demonstrated != first, (first, demonstrated)
+        assert "print" in demonstrated and "5" in demonstrated, demonstrated
+        assert "در یک مورد کوچک" not in demonstrated, demonstrated
+    finally:
+        example.close()
