@@ -412,3 +412,21 @@ def test_current_question_about_unanswered_topics_is_not_history_recall(tmp_path
         assert "سؤال بی‌جوابی در سابقهٔ گفتگو پیدا نکردم" not in answer, answer
     finally:
         runtime.close()
+
+
+def test_followup_after_topic_change_does_not_resume_old_project(tmp_path):
+    config = json.loads((Path(__file__).parents[1] / "config.json").read_text(encoding="utf-8-sig"))
+    config["language_engine"]["enabled"] = False
+    config["memory"]["db"] = "data/topic_shift_followup.db"
+    (tmp_path / "config.json").write_text(json.dumps(config, ensure_ascii=False), encoding="utf-8")
+    runtime = IranRuntime(tmp_path)
+    try:
+        runtime.handle("هدف پروژه آلفا یادگیری برنامه‌نویسی پایتون است")
+        first_topic = runtime.handle("حافظه در ایران چیه؟")
+        continued = runtime.handle("ادامه بده")
+
+        assert "حافظه" in first_topic, first_topic
+        assert "حافظه" in continued and "اطلاعات" in continued, continued
+        assert "پایتون" not in continued and "پروژهٔ «آلفا»" not in continued, continued
+    finally:
+        runtime.close()
