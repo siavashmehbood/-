@@ -774,7 +774,13 @@ class CognitivePipeline:
             if answer_type in {"META", "REFERENCE"} and topic:
                 explanation = f"دربارهٔ همان سؤال قبلی، «{topic}»، کدام بخش را توضیح بدهم؟"
             elif answer_type in {"DIRECT_FACT", "FACT", "SEMANTIC_FACT"} and previous_question:
-                explanation = f"منظورت دلیل پاسخ دربارهٔ همان سؤال قبلی («{previous_question}») است؟"
+                previous_turn = getattr(e.state, "references", {}).get("last_substantive_turn", {})
+                previous_answer = clean(previous_turn.get("answer", ""))
+                explanation = self._defined_offline_followup(
+                    previous_question, previous_answer, "explain"
+                )
+                if not explanation:
+                    explanation = f"منظورت دلیل پاسخ دربارهٔ همان سؤال قبلی («{previous_question}») است؟"
             else:
                 explanation = self._contextual_followup(text, "explain")
             return self._persist_answer(
