@@ -430,3 +430,21 @@ def test_followup_after_topic_change_does_not_resume_old_project(tmp_path):
         assert "پایتون" not in continued and "پروژهٔ «آلفا»" not in continued, continued
     finally:
         runtime.close()
+
+
+def test_followup_after_persistent_style_keeps_the_previous_topic(tmp_path):
+    config = json.loads((Path(__file__).parents[1] / "config.json").read_text(encoding="utf-8-sig"))
+    config["language_engine"]["enabled"] = False
+    config["memory"]["db"] = "data/style_followup_context.db"
+    (tmp_path / "config.json").write_text(json.dumps(config, ensure_ascii=False), encoding="utf-8")
+    runtime = IranRuntime(tmp_path)
+    try:
+        first = runtime.handle("حافظه در ایران چیه؟")
+        runtime.handle("از این به بعد کوتاه و طبیعی جواب بده")
+        continued = runtime.handle("ادامه بده")
+
+        assert "حافظه" in first, first
+        assert "حافظه" in continued and "اطلاعات" in continued, continued
+        assert "کوتاه" not in continued and "جواب بده" not in continued, continued
+    finally:
+        runtime.close()
