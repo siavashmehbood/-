@@ -1,5 +1,5 @@
 """30-category conversational benchmark using the public runtime path."""
-import json,shutil,tempfile
+import json,re,shutil,tempfile
 from pathlib import Path
 from runtime.app import IranRuntime
 CATEGORIES=("greetings","casual","factual","explanation","comparison","follow_up","reference","ellipsis","correction","topic_switch",
@@ -56,7 +56,16 @@ class GeneralConversationBenchmark:
             check("noisy_persian",lambda:((len(a:=r.handle("ميخوام  پایتون رو بفهمم"))>3),a))
             check("mixed",lambda:((len(a:=r.handle("Python برای پروژه IRAN خوبه؟"))>3),a))
             r.handle("پایتون یک زبان برنامه‌نویسی است")
-            check("length",lambda:((len(a:=r.handle("کوتاه بگو"))<300),a))
+            def concise_follow_up():
+                source=r.conversation_snapshot().get("last_assistant_answer","")
+                answer=r.handle("کوتاه بگو")
+                source_terms=set(re.findall(r"[\\w]{3,}",source))
+                answer_terms=set(re.findall(r"[\\w]{3,}",answer))
+                framing=re.findall(r"(?:^|[.!؟]\\s*)(?:خلاصه|پاسخ مستقیم|پاسخ کوتاه)\\s*:",answer)
+                retained=len(source_terms & answer_terms)
+                evidence={"source":source,"answer":answer,"shared_content_terms":retained,"framing_labels":framing}
+                return bool(answer and len(answer)<300 and retained>=2 and len(framing)<=1),evidence
+            check("length",concise_follow_up)
             check("contradiction",lambda:((len(a:=r.handle("نه، منظورم این نبود"))>3),a))
             check("feedback",lambda:((len(a:=r.handle("اشتباه فهمیدی"))>3),a))
             check("incomplete",lambda:(("UNKNOWN" not in (a:=r.handle("بعدش؟"))),a))
