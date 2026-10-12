@@ -428,7 +428,7 @@ class CognitivePipeline:
         # in the latest substantive question/answer.
         named_projects = [
             name for name in getattr(self.engine.state, "topic_goals", {})
-            if re.search(r"(?<!\\w)" + re.escape(name) + r"(?!\\w)", f"{text} {question}")
+            if re.search(r"(?<!\w)" + re.escape(name) + r"(?!\w)", f"{text} {question}")
         ]
         project = named_projects[0] if len(named_projects) == 1 else ""
         if not project and not named_projects:
