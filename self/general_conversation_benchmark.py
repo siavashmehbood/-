@@ -1,5 +1,5 @@
 """30-category conversational benchmark using the public runtime path."""
-import json,shutil,tempfile
+import json,re,shutil,tempfile
 from pathlib import Path
 from runtime.app import IranRuntime
 CATEGORIES=("greetings","casual","factual","explanation","comparison","follow_up","reference","ellipsis","correction","topic_switch",
@@ -29,7 +29,22 @@ class GeneralConversationBenchmark:
             check("correction",lambda:(("ویندوز" in (a:=r.handle("نه منظورم ویندوز بود"))),a))
             r.handle("پایتون چیه؟"); before=r.conversation_snapshot().get("current_topic",""); r.handle("Django چیه؟")
             check("topic_switch",lambda:((r.conversation_snapshot().get("current_topic","")!=before),r.conversation_snapshot()))
-            check("return_topic",lambda:((before in (a:=r.handle("برگردیم بحث قبلی")) or before in r.conversation_snapshot().get("current_topic","")),a))
+            def topic_round_trip():
+                isolated=self._runtime()
+                try:
+                    isolated.handle("پایتون چیه؟")
+                    first=isolated.conversation_snapshot().get("current_topic","")
+                    second_answer=isolated.handle("ویندوز چیه؟")
+                    second_snapshot=isolated.conversation_snapshot()
+                    second=second_snapshot.get("current_topic","")
+                    answer=isolated.handle("برگردیم بحث قبلی")
+                    returned_snapshot=isolated.conversation_snapshot()
+                    returned=returned_snapshot.get("current_topic","")
+                    evidence={"first_topic":first,"second_topic":second,"second_answer":second_answer,"second_answer_type":second_snapshot.get("last_answer_type"),"second_question":second_snapshot.get("current_question"),"topic_stack":second_snapshot.get("topic_stack"),"returned_topic":returned,"answer":answer}
+                    return bool(first and second and first!=second and returned==first and "UNKNOWN" not in answer),evidence
+                finally:
+                    isolated.close()
+            check("return_topic",topic_round_trip)
             check("ambiguity",lambda:((any(x in (a:=r.handle("اون یکی رو انجام بده")) for x in ("کدام","کدوم","مشخص","منظور"))),a))
             check("clarification",lambda:(("UNKNOWN" not in (a:=r.handle("یعنی چی؟"))),a))
             check("reasoning",lambda:((len(a:=r.handle("اگر برعکسش کنیم چی؟"))>3),a))
@@ -43,7 +58,16 @@ class GeneralConversationBenchmark:
             check("noisy_persian",lambda:((len(a:=r.handle("ميخوام  پایتون رو بفهمم"))>3),a))
             check("mixed",lambda:((len(a:=r.handle("Python برای پروژه IRAN خوبه؟"))>3),a))
             r.handle("پایتون یک زبان برنامه‌نویسی است")
-            check("length",lambda:((len(a:=r.handle("کوتاه بگو"))<300),a))
+            def concise_follow_up():
+                source=r.conversation_snapshot().get("last_assistant_answer","")
+                answer=r.handle("کوتاه بگو")
+                source_terms=set(re.findall(r"[\w]{3,}",source))
+                answer_terms=set(re.findall(r"[\w]{3,}",answer))
+                framing=re.findall(r"(?:خلاصه|پاسخ مستقیم|پاسخ کوتاه)\s*:",answer)
+                retained=len(source_terms & answer_terms)
+                evidence={"source":source,"answer":answer,"shared_content_terms":retained,"framing_labels":framing}
+                return bool(answer and len(answer)<300 and retained>=2 and len(framing)<=1),evidence
+            check("length",concise_follow_up)
             check("contradiction",lambda:((len(a:=r.handle("نه، منظورم این نبود"))>3),a))
             check("feedback",lambda:((len(a:=r.handle("اشتباه فهمیدی"))>3),a))
             check("incomplete",lambda:(("UNKNOWN" not in (a:=r.handle("بعدش؟"))),a))
