@@ -509,3 +509,22 @@ def test_why_after_supported_python_definition_gives_a_grounded_reason(tmp_path)
         assert not explanation.rstrip().endswith("؟"), explanation
     finally:
         runtime.close()
+
+
+def test_no_repeat_style_does_not_cycle_during_a_long_emotional_followup(tmp_path):
+    config = json.loads((Path(__file__).parents[1] / "config.json").read_text(encoding="utf-8-sig"))
+    config["language_engine"]["enabled"] = False
+    config["memory"]["db"] = "data/no_repeat_cycle.db"
+    (tmp_path / "config.json").write_text(json.dumps(config, ensure_ascii=False), encoding="utf-8")
+    runtime = IranRuntime(tmp_path)
+    try:
+        first = runtime.handle("امروز خسته‌ام")
+        runtime.handle("جواب تکراری نده")
+        answers = [first]
+        for _ in range(6):
+            answers.append(runtime.handle("امروز خسته‌ام"))
+        for previous, current in zip(answers, answers[1:]):
+            assert current != previous, answers
+            assert any(term in current for term in ("خسته", "هم‌صحبتی", "پیشنهاد", "کمکت", "گوش می‌دهم", "حالت")), answers
+    finally:
+        runtime.close()
