@@ -166,7 +166,22 @@ class ConversationState:
             )
             return
 
-        if reference:
+        explicit_question_topic = (
+            (
+                parsed.get("intent") == "question"
+                or parsed.get("question_units")
+                or "؟" in text
+                or "?" in text
+            )
+            and answer_type in {"DIRECT_FACT", "FACT", "GROUNDED", "UNKNOWN", "SEMANTIC_FACT"}
+            and not is_follow_up(text)
+            and not is_correction(text)
+        )
+        anaphoric_reference = any(
+            marker in text
+            for marker in ("این", "اون", "آن", "همین", "همون", "قبلی", "این بخش", "این قسمت", "این جواب")
+        )
+        if reference and (not explicit_question_topic or anaphoric_reference):
             self.references["latest"] = reference
             if not is_follow_up(text):
                 self._push_topic(reference)
@@ -189,17 +204,6 @@ class ConversationState:
         previous_topic = self.current_topic
         goal = clean(parsed.get("goal", ""))
         candidate = self._topic_from_parsed(parsed) or goal
-        explicit_question_topic = (
-            (
-                parsed.get("intent") == "question"
-                or parsed.get("question_units")
-                or "؟" in text
-                or "?" in text
-            )
-            and answer_type in {"DIRECT_FACT", "FACT", "GROUNDED", "UNKNOWN", "SEMANTIC_FACT"}
-            and not is_follow_up(text)
-            and not is_correction(text)
-        )
         if explicit_question_topic:
             # Parser/context candidates can be stale after a topic switch. Keep
             # the current question as the topic when the candidate is not in it.
