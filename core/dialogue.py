@@ -143,6 +143,12 @@ class ConversationState:
             self.last_assistant_answer = clean(answer)
         if answer_type:
             self.last_answer_type = answer_type
+        if answer and answer_type != "STYLE":
+            self.references["last_non_style_answer"] = {
+                "question": text,
+                "answer": clean(answer),
+                "answer_type": answer_type,
+            }
         self.current_question = (
             text if parsed.get("question_units") or "؟" in text
             else self.current_question
