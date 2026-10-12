@@ -535,6 +535,10 @@ class CognitivePipeline:
                             if term in key:
                                 return detail
             return matched[0][1]
+        if mode == "continue":
+            # Continue with new relevant information; repeating the full prior
+            # answer makes persistent short-answer style collapse into an echo.
+            return "\n".join(item[1] for item in matched[:2])
         return answer + "\n" + "\n".join(item[1] for item in matched[:2])
 
     def _remember_substantive_turn(self, text, answer, answer_type):
