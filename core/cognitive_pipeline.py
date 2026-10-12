@@ -410,9 +410,10 @@ class CognitivePipeline:
         turn = getattr(self.engine.state, "references", {}).get("last_substantive_turn", {})
         recent_users = list(getattr(self.engine.state, "recent_user_turns", []) or [])
         recent_answers = list(getattr(self.engine.state, "recent_assistant_turns", []) or [])
-        # A follow-up refers to the immediately preceding exchange, including
-        # an example or explanation, before any older substantive summary.
-        if recent_users and recent_answers:
+        # A follow-up can continue an immediately preceding example or
+        # explanation, but a style/control acknowledgement is not the topic.
+        recent_answer_type = clean(getattr(self.engine.state, "last_answer_type", ""))
+        if recent_users and recent_answers and recent_answer_type != "STYLE":
             recent_question = clean(recent_users[-1])
             recent_answer = clean(recent_answers[-1])
             if recent_question and recent_answer and not recent_answer.startswith("UNKNOWN"):
