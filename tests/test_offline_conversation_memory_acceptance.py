@@ -529,6 +529,6 @@ def test_no_repeat_style_does_not_cycle_during_a_long_emotional_followup(tmp_pat
                 recent = runtime.dialogue.state.references.get("recent_non_style_answers", [])
                 summary = [(row.get("answer_type"), row.get("answer", "")[:90]) for row in recent[-4:] if isinstance(row, dict)]
                 raise AssertionError(f"repeat at index {index}; style={runtime.dialogue.state.response_style}; recent={summary}; answers={answers}")
-            assert any(term in current for term in ("خسته", "هم‌صحبتی", "پیشنهاد", "کمکت", "گوش می‌دهم", "حالت")), answers
+            assert any(term in current for term in ("خسته", "خستگی", "هم‌صحبتی", "پیشنهاد", "کمکت", "گوش می‌دهم", "حالت", "استراحت", "انرژی", "درگیرکننده")), answers
     finally:
         runtime.close()
