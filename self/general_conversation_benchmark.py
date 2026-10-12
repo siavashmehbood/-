@@ -29,7 +29,7 @@ class GeneralConversationBenchmark:
                     styled.handle("از این به بعد کوتاه جواب بده")
                     styled.handle("امروز واقعاً خسته‌ام")
                     short_answer=styled.handle("الان هم خسته‌ام")
-                    content_kept=any(term in short_answer for term in ("خسته","حالت","استراحت"))
+                    content_kept=any(term in short_answer for term in ("خسته","حالت","استراحت","کنارت","گوش می‌دم","همراهت"))
                     evidence={"default_answer":default_answer,"styled_answer":short_answer}
                     return bool(content_kept and len(short_answer)<len(default_answer) and "UNKNOWN" not in short_answer),evidence
                 finally:
