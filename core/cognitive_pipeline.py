@@ -593,6 +593,8 @@ class CognitivePipeline:
             "حافظه": ("نگهداری اطلاعات", "اطلاعات قبلی نگه داشته می‌شود و بخش مرتبط با سؤال دوباره استفاده می‌شود"),
             "یادگیری": ("بهترشدن با تجربه", "تجربه و بازخورد می‌تواند رفتار بعدی را بهتر کند؛ پیشنهاد هنوز به معنی اعمال دانش نیست"),
             "آفلاین": ("بدون نیاز به اینترنت", "برای این بخش ارتباط اینترنتی لازم نیست"),
+            "سطح‌بالا": ("ساده‌تر برای استفاده", "نیازی نیست جزئیات فنی رایانه را مدیریت کنی"),
+            "چندمنظوره": ("کاربردهای مختلف", "با آن می‌شود کارهای گوناگون انجام داد"),
         }
         if mode == "simple":
             project_goal = re.search(
@@ -604,9 +606,13 @@ class CognitivePipeline:
                 goal = clean(project_goal.group("goal"))
                 return f"برای پروژهٔ «{project}»، یک کار کوچک برای «{goal}» انجام بده."
             rendered = previous
-            for term, (plain, _) in vocabulary.items():
-                rendered = rendered.replace(term, plain)
-            sentences = re.split(r"(?<=[.!؟])\s+|[؛\n]+", rendered)
+            for term, (_, meaning) in vocabulary.items():
+                if term in {"سطح‌بالا", "چندمنظوره"}:
+                    pattern = r"«?" + re.escape(term) + r"»?\s*یعنی\s*[^؛.!؟?]+"
+                    rendered = re.sub(pattern, meaning, rendered, count=1)
+                else:
+                    rendered = rendered.replace(term, _)
+            sentences = re.split(r"(?<=[.!؟])\s+", rendered)
             if len(sentences) > 1:
                 rendered = sentences[0]
             if rendered == previous:
