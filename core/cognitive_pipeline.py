@@ -405,6 +405,30 @@ class CognitivePipeline:
             pass
         return answer
 
+    @staticmethod
+    def _defined_offline_followup(question, answer, mode):
+        """Expand a locally recognized programming-language definition with grounded content."""
+        source = clean(f"{question} {answer}").lower().replace("‌", " ")
+        source = source.replace("ي", "ی").replace("ك", "ک")
+        mentions_python = bool(re.search(r"پایتون|(?<![a-z])python(?![a-z])", source))
+        defines_language = "زبان برنامه نویسی" in source
+        if not (mentions_python and defines_language):
+            return ""
+        if mode == "continue":
+            return (
+                "یک ویژگی کاربردی پایتون این است که نوع مقدار از خود مقدار مشخص می‌شود؛ "
+                "مثلاً `score = 10` عدد را در متغیر نگه می‌دارد و "
+                "`print(score + 2)` مقدار ۱۲ را نمایش می‌دهد."
+            )
+        if mode == "explain":
+            return (
+                "در پایتون، «سطح‌بالا» یعنی لازم نیست جزئیات سخت‌افزار را مستقیم مدیریت کنی؛ "
+                "«چندمنظوره» یعنی می‌توان با همین زبان برای کارهای متفاوت برنامه نوشت."
+            )
+        if mode == "example":
+            return "مثلاً در پایتون `print(2 + 3)` را اجرا کن؛ خروجی آن `5` است."
+        return ""
+
     def _contextual_followup(self, text, mode):
         """Expand the latest relevant exchange from durable dialogue context."""
         turn = getattr(self.engine.state, "references", {}).get("last_substantive_turn", {})
@@ -511,6 +535,9 @@ class CognitivePipeline:
         if project_goal and mode == "explain":
             return f"یعنی پروژهٔ «{project}» روی «{project_goal}» تمرکز دارد؛ آن را به کارهای کوچک و قابل‌بررسی تقسیم کن."
         if not matched:
+            specific = self._defined_offline_followup(question, answer, mode)
+            if specific:
+                return specific
             if mode == "example":
                 return f"برای نمونه، نکتهٔ «{answer}» را در یک مورد کوچک از موضوع «{question}» به کار ببر و نتیجه را بررسی کن."
             if mode == "continue":
