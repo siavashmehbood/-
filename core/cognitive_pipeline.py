@@ -260,8 +260,58 @@ class CognitivePipeline:
             pass
         return "",[]
 
-    def _apply_conversation_style(self, answer, answer_type):
+    @staticmethod
+    def _response_similarity(left, right):
+        left, right = clean(left), clean(right)
+        if not left or not right:
+            return 0.0
+        if left == right:
+            return 1.0
+        a = set(re.findall(r"[آ-یA-Za-z]{3,}", left.lower()))
+        b = set(re.findall(r"[آ-یA-Za-z]{3,}", right.lower()))
+        return len(a & b) / len(a | b) if a | b else 0.0
+
+    def _nonrepeating_variant(self, user_text, answer, answer_type, prior_answers):
+        low = clean(user_text).lower()
+        emotional = any(term in low for term in ("خسته", "ناراحت", "نگران", "استرس", "عصبانی", "حالم خوب نیست"))
+        if emotional or answer_type in {"SOCIAL", "EMOTIONAL_EXPRESSION"}:
+            candidates = [
+                "می‌فهمم؛ الان بیشتر به هم‌صحبتی نیاز داری یا یک پیشنهاد عملی؟",
+                "این بار بگو چه چیزی همین الآن بیشتر کمکت می‌کند؛ گوش می‌دهم.",
+            ]
+        elif str(answer).startswith("UNKNOWN"):
+            candidates = [
+                "برای این پرسش هنوز شاهد تازه‌ای ندارم؛ اگر زاویهٔ مشخصی داری بگو تا همان را بررسی کنم.",
+                "اطلاعات محلی تازه‌ای برای حدس مطمئن ندارم؛ کدام بخش را می‌خواهی روشن کنیم؟",
+            ]
+        elif answer_type in {"DIRECT_FACT", "FACT", "GROUNDED", "SEMANTIC_FACT"}:
+            candidates = [
+                "پاسخ قبلی را تکرار نمی‌کنم؛ کاربردش را می‌خواهی یا یک مثال تازه؟",
+                "می‌توانم از زاویهٔ دیگری ادامه بدهم؛ دلیل، کاربرد یا مثال را ترجیح می‌دهی؟",
+            ]
+        else:
+            candidates = [
+                "این بار بگو کدام بخش را از زاویه‌ای تازه بررسی کنم.",
+                "برای ادامه، یک مثال تازه می‌خواهی یا توضیح بخش دیگری را؟",
+            ]
+        return min(
+            candidates,
+            key=lambda candidate: max(
+                (self._response_similarity(candidate, previous) for previous in prior_answers),
+                default=0.0,
+            ),
+        )
+
+    def _apply_conversation_style(self, answer, answer_type, user_text=""):
         styles = self.engine.state.response_style
+        if "no_repeat" in styles and user_text:
+            history = list(self.engine.state.references.get("recent_non_style_answers", []) or [])
+            prior_answers = [
+                clean(item.get("answer", "")) for item in history[-8:]
+                if isinstance(item, dict) and clean(item.get("answer", ""))
+            ]
+            if any(self._response_similarity(answer, previous) >= .80 for previous in prior_answers):
+                answer = self._nonrepeating_variant(user_text, answer, answer_type, prior_answers)
         if "short" not in styles or answer_type not in {"SOCIAL", "FOLLOW_UP", "REEXPLAIN", "EXAMPLE", "CONTINUATION"}:
             return answer
         # Keep complete sentences and do not truncate facts or multi-part answers.
@@ -269,7 +319,7 @@ class CognitivePipeline:
         return sentences[0].strip() if sentences else answer
 
     def _persist_answer(self, text, answer, answer_type="DIRECT_FACT", score=.95, evidence=None):
-        answer = self._apply_conversation_style(answer, answer_type)
+        answer = self._apply_conversation_style(answer, answer_type, text)
         # A raw user turn or a near-copy of the question is never accepted as a
         # final answer merely because retrieval found similar text.
         if str(answer).startswith("UNKNOWN:") and text not in self.engine.state.unresolved_questions:
@@ -1837,7 +1887,7 @@ class CognitivePipeline:
             answer = e._direct_answer(context)
 
         # The final realization obeys the same stored style as early routes.
-        answer = self._apply_conversation_style(answer, plan.answer_type)
+        answer = self._apply_conversation_style(answer, plan.answer_type, text)
 
         # Verify and repair. Context transformations (clarification/meta/social) are
         # verified for coherence, not as unsupported factual claims.

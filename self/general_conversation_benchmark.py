@@ -2,7 +2,7 @@
 import json,re,shutil,tempfile
 from pathlib import Path
 from runtime.app import IranRuntime
-CATEGORIES=("greetings","casual","persistent_style","factual","explanation","comparison","follow_up","reference","ellipsis","correction","topic_switch",
+CATEGORIES=("greetings","casual","persistent_style","no_repeat","factual","explanation","comparison","follow_up","reference","ellipsis","correction","topic_switch",
 "return_topic","simple_follow_up","ambiguity","clarification","reasoning","memory","unknown","tool_request","computer_continuity","learning_intent",
 "meta","colloquial","noisy_persian","mixed","length","contradiction","feedback","incomplete","multi_turn_goal","unsupported","long_stability")
 class GeneralConversationBenchmark:
@@ -36,6 +36,21 @@ class GeneralConversationBenchmark:
                     ordinary.close()
                     styled.close()
             check("persistent_style",persistent_short_style)
+            def no_repeat_follow_up():
+                isolated=self._runtime()
+                try:
+                    first=isolated.handle("امروز خسته‌ام")
+                    isolated.handle("جواب تکراری نده")
+                    second=isolated.handle("امروز خسته‌ام")
+                    tokens=lambda value:set(re.findall(r"[آ-یA-Za-z]{3,}",value.lower()))
+                    left,right=tokens(first),tokens(second)
+                    overlap=(len(left & right)/len(left | right)) if left | right else 1.0
+                    relevant=any(term in second for term in ("خسته","حالت","کنارت","استراحت","انرژی","گوش می‌دم","گوش می‌دهم","می‌فهمم","کمکت"))
+                    evidence={"first_answer":first,"second_answer":second,"token_overlap":round(overlap,3)}
+                    return bool(relevant and "UNKNOWN" not in second and overlap<0.80),evidence
+                finally:
+                    isolated.close()
+            check("no_repeat",no_repeat_follow_up)
             check("factual",lambda:(("زبان" in (a:=r.handle("پایتون چیه؟"))),a))
             check("explanation",lambda:(("UNKNOWN" not in (a:=r.handle("چرا؟"))),a))
             check("comparison",lambda:((len(a:=r.handle("فرق پایتون و Django چیه؟"))>5),a))
