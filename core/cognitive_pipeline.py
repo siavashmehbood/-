@@ -49,8 +49,6 @@ class CognitivePipeline:
         self.semantic_intelligence = SemanticIntelligence(self.runtime.memory)
         self.last_semantic_turn = None
         self.last_cognitive_cycle = None
-        self._active_turn_text = ""
-        self._active_turn_parsed = {}
 
     def _local_language_reply(self, text):
         """Use the subordinate local model only to realize conversational text.
@@ -363,24 +361,6 @@ class CognitivePipeline:
             if answer_type in read_only_types or any(mark in text for mark in ("؟", "?"))
             else "general"
         }
-        active_parsed = (
-            self._active_turn_parsed
-            if clean(self._active_turn_text) == clean(text)
-            else {}
-        )
-        entities = active_parsed.get("entities") or []
-        if entities:
-            state_parsed["entities"] = entities
-        # Even when local evidence is insufficient to answer, a direct factual
-        # question is still a real topic switch. Do not let the previous topic
-        # remain active simply because this route did not produce answer content.
-        if (
-            answer_type in {"DIRECT_FACT", "FACT", "UNKNOWN"}
-            and active_parsed.get("question_type") in {"what", "how", "why"}
-            and not is_follow_up(text)
-            and not entities
-        ):
-            state_parsed["goal"] = text
         self._remember_substantive_turn(text, answer, answer_type)
         e.state.update(text, answer, answer_type, state_parsed, score)
         e.state.save(e.state_path)
@@ -784,8 +764,6 @@ class CognitivePipeline:
         # the sole decision owner and all answer/tool/learning decisions stay below.
         foundation_parsed = e._parse(text)
         foundation_parsed.update(e.analyzer.analyze(text, foundation_parsed))
-        self._active_turn_text = text
-        self._active_turn_parsed = foundation_parsed
         foundation_meaning = e.understanding.analyze(text, e.state, foundation_parsed)
         self.conversation_foundation.ingest(foundation_meaning, foundation_parsed)
 
