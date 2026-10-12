@@ -29,7 +29,20 @@ class GeneralConversationBenchmark:
             check("correction",lambda:(("ویندوز" in (a:=r.handle("نه منظورم ویندوز بود"))),a))
             r.handle("پایتون چیه؟"); before=r.conversation_snapshot().get("current_topic",""); r.handle("Django چیه؟")
             check("topic_switch",lambda:((r.conversation_snapshot().get("current_topic","")!=before),r.conversation_snapshot()))
-            check("return_topic",lambda:((before in (a:=r.handle("برگردیم بحث قبلی")) or before in r.conversation_snapshot().get("current_topic","")),a))
+            def topic_round_trip():
+                isolated=self._runtime()
+                try:
+                    isolated.handle("پایتون چیه؟")
+                    first=isolated.conversation_snapshot().get("current_topic","")
+                    isolated.handle("ویندوز چیه؟")
+                    second=isolated.conversation_snapshot().get("current_topic","")
+                    answer=isolated.handle("برگردیم بحث قبلی")
+                    returned=isolated.conversation_snapshot().get("current_topic","")
+                    evidence={"first_topic":first,"second_topic":second,"returned_topic":returned,"answer":answer}
+                    return bool(first and second and first!=second and returned==first and "UNKNOWN" not in answer),evidence
+                finally:
+                    isolated.close()
+            check("return_topic",topic_round_trip)
             check("ambiguity",lambda:((any(x in (a:=r.handle("اون یکی رو انجام بده")) for x in ("کدام","کدوم","مشخص","منظور"))),a))
             check("clarification",lambda:(("UNKNOWN" not in (a:=r.handle("یعنی چی؟"))),a))
             check("reasoning",lambda:((len(a:=r.handle("اگر برعکسش کنیم چی؟"))>3),a))
