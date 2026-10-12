@@ -444,7 +444,8 @@ def test_followup_after_persistent_style_keeps_the_previous_topic(tmp_path):
         continued = runtime.handle("ادامه بده")
 
         assert "حافظه" in first, first
-        assert "حافظه" in continued and "اطلاعات" in continued, continued
+        assert continued != first, (first, continued)
+        assert "حافظه" in continued and "مورد مرتبط" in continued, continued
         assert "کوتاه" not in continued and "جواب بده" not in continued, continued
     finally:
         runtime.close()
