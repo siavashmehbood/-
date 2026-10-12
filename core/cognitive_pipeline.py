@@ -426,7 +426,6 @@ class CognitivePipeline:
         # the topic of this follow-up. Prefer a project named in the current
         # exchange; otherwise infer one only when its goal is uniquely present
         # in the latest substantive question/answer.
-        current_exchange = f"{text} {question} {answer}"
         named_projects = [
             name for name in getattr(self.engine.state, "topic_goals", {})
             if re.search(r"(?<!\\w)" + re.escape(name) + r"(?!\\w)", f"{text} {question}")
