@@ -189,6 +189,17 @@ class ConversationState:
         previous_topic = self.current_topic
         goal = clean(parsed.get("goal", ""))
         candidate = self._topic_from_parsed(parsed) or goal
+        explicit_question_topic = (
+            parsed.get("intent") == "question"
+            and answer_type in {"DIRECT_FACT", "FACT", "GROUNDED", "UNKNOWN", "SEMANTIC_FACT"}
+            and not is_follow_up(text)
+            and not is_correction(text)
+        )
+        if explicit_question_topic:
+            # Parser/context candidates can be stale after a topic switch. Keep
+            # the current question as the topic when the candidate is not in it.
+            if not candidate or clean(candidate).lower() not in text.lower():
+                candidate = text
         if candidate and substantive(candidate):
             self._push_topic(candidate)
         elif substantive(text) and parsed.get("intent") not in {"question"}:
