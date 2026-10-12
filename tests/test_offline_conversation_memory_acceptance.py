@@ -524,7 +524,7 @@ def test_no_repeat_style_does_not_cycle_during_a_long_emotional_followup(tmp_pat
         for _ in range(6):
             answers.append(runtime.handle("امروز خسته‌ام"))
         for previous, current in zip(answers, answers[1:]):
-            assert current != previous, answers
+            assert current != previous, {"answers": answers, "styles": runtime.dialogue.state.response_style, "history": runtime.dialogue.state.references.get("recent_non_style_answers")}
             assert any(term in current for term in ("خسته", "هم‌صحبتی", "پیشنهاد", "کمکت", "گوش می‌دهم", "حالت")), answers
     finally:
         runtime.close()
