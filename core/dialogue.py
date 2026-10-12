@@ -190,7 +190,12 @@ class ConversationState:
         goal = clean(parsed.get("goal", ""))
         candidate = self._topic_from_parsed(parsed) or goal
         explicit_question_topic = (
-            parsed.get("intent") == "question"
+            (
+                parsed.get("intent") == "question"
+                or parsed.get("question_units")
+                or "؟" in text
+                or "?" in text
+            )
             and answer_type in {"DIRECT_FACT", "FACT", "GROUNDED", "UNKNOWN", "SEMANTIC_FACT"}
             and not is_follow_up(text)
             and not is_correction(text)
