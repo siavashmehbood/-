@@ -59,9 +59,9 @@ class GeneralConversationBenchmark:
             def concise_follow_up():
                 source=r.conversation_snapshot().get("last_assistant_answer","")
                 answer=r.handle("کوتاه بگو")
-                source_terms=set(re.findall(r"[\\w]{3,}",source))
-                answer_terms=set(re.findall(r"[\\w]{3,}",answer))
-                framing=re.findall(r"(?:^|[.!؟]\\s*)(?:خلاصه|پاسخ مستقیم|پاسخ کوتاه)\\s*:",answer)
+                source_terms=set(re.findall(r"[\w]{3,}",source))
+                answer_terms=set(re.findall(r"[\w]{3,}",answer))
+                framing=re.findall(r"(?:^|[.!؟]\s*)(?:خلاصه|پاسخ مستقیم|پاسخ کوتاه)\s*:",answer)
                 retained=len(source_terms & answer_terms)
                 evidence={"source":source,"answer":answer,"shared_content_terms":retained,"framing_labels":framing}
                 return bool(answer and len(answer)<300 and retained>=2 and len(framing)<=1),evidence
