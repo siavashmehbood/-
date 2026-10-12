@@ -2,7 +2,7 @@
 import json,re,shutil,tempfile
 from pathlib import Path
 from runtime.app import IranRuntime
-CATEGORIES=("greetings","casual","factual","explanation","comparison","follow_up","reference","ellipsis","correction","topic_switch",
+CATEGORIES=("greetings","casual","persistent_style","factual","explanation","comparison","follow_up","reference","ellipsis","correction","topic_switch",
 "return_topic","simple_follow_up","ambiguity","clarification","reasoning","memory","unknown","tool_request","computer_continuity","learning_intent",
 "meta","colloquial","noisy_persian","mixed","length","contradiction","feedback","incomplete","multi_turn_goal","unsupported","long_stability")
 class GeneralConversationBenchmark:
@@ -20,6 +20,22 @@ class GeneralConversationBenchmark:
         try:
             check("greetings",lambda:(("سلام" in (a:=r.handle("درود دوست من"))),a))
             check("casual",lambda:((len(a:=r.handle("امروز یکم خسته‌ام"))>3),a))
+            def persistent_short_style():
+                ordinary=self._runtime()
+                styled=self._runtime()
+                try:
+                    ordinary.handle("امروز واقعاً خسته‌ام")
+                    default_answer=ordinary.handle("الان هم خسته‌ام")
+                    styled.handle("از این به بعد کوتاه جواب بده")
+                    styled.handle("امروز واقعاً خسته‌ام")
+                    short_answer=styled.handle("الان هم خسته‌ام")
+                    content_kept=any(term in short_answer for term in ("خسته","حالت","استراحت"))
+                    evidence={"default_answer":default_answer,"styled_answer":short_answer}
+                    return bool(content_kept and len(short_answer)<len(default_answer) and "UNKNOWN" not in short_answer),evidence
+                finally:
+                    ordinary.close()
+                    styled.close()
+            check("persistent_style",persistent_short_style)
             check("factual",lambda:(("زبان" in (a:=r.handle("پایتون چیه؟"))),a))
             check("explanation",lambda:(("UNKNOWN" not in (a:=r.handle("چرا؟"))),a))
             check("comparison",lambda:((len(a:=r.handle("فرق پایتون و Django چیه؟"))>5),a))
