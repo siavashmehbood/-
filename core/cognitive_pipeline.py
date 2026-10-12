@@ -422,7 +422,35 @@ class CognitivePipeline:
             return (f"کدام بخش از «{topic}» را باز کنم؟" if topic else "کدام موضوع یا پاسخ قبلی را ادامه بدهم؟")
         answer = clean(turn.get("answer"))
         question = clean(turn.get("question"))
-        project = self._active_goal_project(text) or self._active_goal_project(question)
+        # A project mentioned somewhere in the transcript is not automatically
+        # the topic of this follow-up. Prefer a project named in the current
+        # exchange; otherwise infer one only when its goal is uniquely present
+        # in the latest substantive question/answer.
+        named_projects = [
+            name for name in getattr(self.engine.state, "topic_goals", {})
+            if re.search(r"(?<!\w)" + re.escape(name) + r"(?!\w)", f"{text} {question}")
+        ]
+        project = named_projects[0] if len(named_projects) == 1 else ""
+        if not project and not named_projects:
+            exchange_terms = set(re.findall(
+                r"[آ-یA-Za-z0-9]+",
+                f"{question} {answer}".lower().replace("‌", " "),
+            ))
+            generic_goal_terms = {
+                "هدف", "پروژه", "یادگیری", "آموزش", "ساخت", "ایجاد", "انجام",
+                "برای", "است", "هست", "کردن", "شدن", "یک", "و", "به", "از",
+            }
+            related_projects = []
+            for candidate in getattr(self.engine.state, "topic_goals", {}):
+                candidate_goal, _ = self._project_goal(candidate)
+                goal_terms = set(re.findall(
+                    r"[آ-یA-Za-z0-9]+",
+                    candidate_goal.lower().replace("‌", " "),
+                )) - generic_goal_terms
+                if goal_terms & exchange_terms:
+                    related_projects.append(candidate)
+            if len(related_projects) == 1:
+                project = related_projects[0]
         project_goal, _ = self._project_goal(project) if project else ("", [])
         source = f"{question} {answer} {project_goal}".lower()
         concepts = [
