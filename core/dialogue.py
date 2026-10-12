@@ -758,8 +758,8 @@ class LocalDialogueEngine:
         if act=="length_control" and previous:
             low=bare(context.user_message).lower()
             if "کوتاه" in low:
-                core=re.sub(r"^(?:(?:پاسخ مستقیم|خلاصه|پاسخ کوتاه)\\s*:\\s*)+","",previous).split("؛")[0].split("\\n")[0]
-                core=re.sub(r"[\\s.!؟?؛،]+$","",core).strip()
+                core=re.sub(r"^(?:(?:پاسخ مستقیم|خلاصه|پاسخ کوتاه)\s*:\s*)+","",previous).split("؛")[0].split("\n")[0]
+                core=re.sub(r"[\s.!؟?؛،]+$","",core).strip()
                 return (core[:220].rstrip()+"." if core else "")
             return previous+" اگر بخش مشخصی مدنظرت است، همان را بازتر توضیح می‌دهم."
         if act=="example_request" and topic:
