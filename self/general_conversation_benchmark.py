@@ -34,11 +34,13 @@ class GeneralConversationBenchmark:
                 try:
                     isolated.handle("پایتون چیه؟")
                     first=isolated.conversation_snapshot().get("current_topic","")
-                    isolated.handle("ویندوز چیه؟")
-                    second=isolated.conversation_snapshot().get("current_topic","")
+                    second_answer=isolated.handle("ویندوز چیه؟")
+                    second_snapshot=isolated.conversation_snapshot()
+                    second=second_snapshot.get("current_topic","")
                     answer=isolated.handle("برگردیم بحث قبلی")
-                    returned=isolated.conversation_snapshot().get("current_topic","")
-                    evidence={"first_topic":first,"second_topic":second,"returned_topic":returned,"answer":answer}
+                    returned_snapshot=isolated.conversation_snapshot()
+                    returned=returned_snapshot.get("current_topic","")
+                    evidence={"first_topic":first,"second_topic":second,"second_answer":second_answer,"second_answer_type":second_snapshot.get("last_answer_type"),"second_question":second_snapshot.get("current_question"),"topic_stack":second_snapshot.get("topic_stack"),"returned_topic":returned,"answer":answer}
                     return bool(first and second and first!=second and returned==first and "UNKNOWN" not in answer),evidence
                 finally:
                     isolated.close()
