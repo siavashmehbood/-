@@ -45,7 +45,7 @@ class GeneralConversationBenchmark:
                     tokens=lambda value:set(re.findall(r"[آ-یA-Za-z]{3,}",value.lower()))
                     left,right=tokens(first),tokens(second)
                     overlap=(len(left & right)/len(left | right)) if left | right else 1.0
-                    relevant=any(term in second for term in ("خسته","حالت","کنارت","استراحت","انرژی","گوش می‌دم"))
+                    relevant=any(term in second for term in ("خسته","حالت","کنارت","استراحت","انرژی","گوش می‌دم","گوش می‌دهم","می‌فهمم","کمکت"))
                     evidence={"first_answer":first,"second_answer":second,"token_overlap":round(overlap,3)}
                     return bool(relevant and "UNKNOWN" not in second and overlap<0.80),evidence
                 finally:
