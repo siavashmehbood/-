@@ -757,7 +757,10 @@ class LocalDialogueEngine:
             return "ساده‌تر بگم: "+core
         if act=="length_control" and previous:
             low=bare(context.user_message).lower()
-            if "کوتاه" in low:return "خلاصه: "+previous.split("؛")[0].split("\n")[0][:220]
+            if "کوتاه" in low:
+                core=re.sub(r"^(?:(?:پاسخ مستقیم|خلاصه|پاسخ کوتاه)\\s*:\\s*)+","",previous).split("؛")[0].split("\\n")[0]
+                core=re.sub(r"[\\s.!؟?؛،]+$","",core).strip()
+                return (core[:220].rstrip()+"." if core else "")
             return previous+" اگر بخش مشخصی مدنظرت است، همان را بازتر توضیح می‌دهم."
         if act=="example_request" and topic:
             return f"مثلاً برای «{topic}»، یک نمونه کوچک و مشخص را در همان زمینه بررسی می‌کنیم تا تفاوت نتیجه روشن شود."
