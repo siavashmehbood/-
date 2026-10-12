@@ -3,7 +3,7 @@ import json,re,shutil,tempfile
 from pathlib import Path
 from runtime.app import IranRuntime
 CATEGORIES=("greetings","casual","factual","explanation","comparison","follow_up","reference","ellipsis","correction","topic_switch",
-"return_topic","ambiguity","clarification","reasoning","memory","unknown","tool_request","computer_continuity","learning_intent",
+"return_topic","simple_follow_up","ambiguity","clarification","reasoning","memory","unknown","tool_request","computer_continuity","learning_intent",
 "meta","colloquial","noisy_persian","mixed","length","contradiction","feedback","incomplete","multi_turn_goal","unsupported","long_stability")
 class GeneralConversationBenchmark:
     def _runtime(self):
@@ -68,6 +68,20 @@ class GeneralConversationBenchmark:
                 evidence={"source":source,"answer":answer,"shared_content_terms":retained,"framing_labels":framing}
                 return bool(answer and len(answer)<300 and retained>=2 and len(framing)<=1),evidence
             check("length",concise_follow_up)
+            def simple_follow_up():
+                isolated=self._runtime()
+                try:
+                    isolated.handle("پایتون چیه؟")
+                    isolated.handle("چرا؟")
+                    source=isolated.conversation_snapshot().get("last_assistant_answer","")
+                    answer=isolated.handle("ساده‌تر بگو")
+                    evidence={"source":source,"answer":answer}
+                    clear_terms=all(term not in answer for term in ("سطح‌بالا","سطح بالا","چندمنظوره"))
+                    grounded_plain_language=("پایتون" in answer and "کار" in answer and ("لازم نیست" in answer or "نیازی نیست" in answer))
+                    return bool(source and answer!=source and clear_terms and grounded_plain_language and "؟" not in answer),evidence
+                finally:
+                    isolated.close()
+            check("simple_follow_up",simple_follow_up)
             check("contradiction",lambda:((len(a:=r.handle("نه، منظورم این نبود"))>3),a))
             check("feedback",lambda:((len(a:=r.handle("اشتباه فهمیدی"))>3),a))
             check("incomplete",lambda:(("UNKNOWN" not in (a:=r.handle("بعدش؟"))),a))
