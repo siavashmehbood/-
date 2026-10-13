@@ -519,7 +519,12 @@ class CognitivePipeline:
         # A follow-up can continue an immediately preceding example or
         # explanation, but a style/control acknowledgement is not the topic.
         recent_answer_type = clean(getattr(self.engine.state, "last_answer_type", ""))
-        if recent_users and recent_answers and recent_answer_type != "STYLE":
+        non_substantive_followup_types = {
+            "UNKNOWN", "SOCIAL", "STYLE", "META", "FOLLOW_UP", "REFERENCE",
+            "CORRECTION", "REEXPLAIN", "EXAMPLE", "CONTINUATION", "MEMORY_RECALL",
+        }
+        if (recent_users and recent_answers
+                and recent_answer_type not in non_substantive_followup_types):
             recent_question = clean(recent_users[-1])
             recent_answer = clean(recent_answers[-1])
             if recent_question and recent_answer and not recent_answer.startswith("UNKNOWN"):
