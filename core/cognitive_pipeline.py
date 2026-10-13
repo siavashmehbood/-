@@ -373,6 +373,12 @@ class CognitivePipeline:
                     explanations.append(explanation)
             if explanations and "به زبان ساده:" not in normalized:
                 answer = str(answer).rstrip() + " به زبان ساده: " + "؛ ".join(item.removeprefix("یعنی ") for item in explanations) + "."
+        if "long" in styles and answer_type in {
+                "DIRECT_FACT", "FACT", "GROUNDED", "SEMANTIC_FACT",
+                "MULTI_INTENT", "PROJECT_FACT", "META"}:
+            detail = self._defined_offline_followup(user_text, answer, "explain")
+            if detail and detail not in clean(answer):
+                answer = str(answer).rstrip() + " " + detail
         if "short" not in styles or answer_type not in {"SOCIAL", "FOLLOW_UP", "REEXPLAIN", "EXAMPLE", "CONTINUATION"}:
             return answer
         # Keep complete sentences and do not truncate facts or multi-part answers.
