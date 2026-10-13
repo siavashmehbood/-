@@ -673,3 +673,20 @@ def test_persistent_long_style_expands_grounded_answers_across_restart(tmp_path)
         assert "جزئیات سخت‌افزار" in after_restart and "کارهای متفاوت" in after_restart, after_restart
     finally:
         restored.close()
+
+
+def test_persistent_long_style_explains_a_second_grounded_fact(tmp_path):
+    config = json.loads((Path(__file__).parents[1] / "config.json").read_text(encoding="utf-8-sig"))
+    config["language_engine"]["enabled"] = False
+    config["memory"]["db"] = "data/persistent_long_style_second_fact.db"
+    (tmp_path / "config.json").write_text(json.dumps(config, ensure_ascii=False), encoding="utf-8")
+    runtime = IranRuntime(tmp_path)
+    try:
+        original = runtime.handle("هفته چند روز دارد؟")
+        runtime.handle("از این به بعد مفصل‌تر توضیح بده")
+        expanded = runtime.handle("هفته چند روز دارد؟")
+        assert "هفت" in original, original
+        assert expanded != original, (original, expanded)
+        assert "یک «هفته»" in expanded and "روز" in expanded, expanded
+    finally:
+        runtime.close()
