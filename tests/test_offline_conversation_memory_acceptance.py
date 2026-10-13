@@ -551,3 +551,20 @@ def test_explain_followup_expands_a_local_fact_beyond_the_python_special_case(tm
         assert "همان نکته را به کار ببری" not in explanation, explanation
     finally:
         runtime.close()
+
+
+
+def test_simple_followup_reexpresses_a_supported_local_fact(tmp_path):
+    config = json.loads((Path(__file__).parents[1] / "config.json").read_text(encoding="utf-8-sig"))
+    config["language_engine"]["enabled"] = False
+    config["memory"]["db"] = "data/local_fact_simplification.db"
+    (tmp_path / "config.json").write_text(json.dumps(config, ensure_ascii=False), encoding="utf-8")
+    runtime = IranRuntime(tmp_path)
+    try:
+        first = runtime.handle("هفته چند روز دارد؟")
+        simpler = runtime.handle("ساده‌تر بگو")
+        assert "هفت" in first, first
+        assert "هفت" in simpler and "روز" in simpler and "هفته" in simpler, simpler
+        assert "کدام واژه" not in simpler and "ساده‌تر بگم:" not in simpler, simpler
+    finally:
+        runtime.close()
