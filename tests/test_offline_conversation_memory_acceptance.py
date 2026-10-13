@@ -645,6 +645,6 @@ def test_persistent_simple_style_applies_to_grounded_system_explanations(tmp_pat
         runtime.handle("از این به بعد ساده‌تر توضیح بده")
         answer = runtime.handle("چرا ساخته شدی؟")
         assert "معماری شناختی" in answer, answer
-        assert "سیستم فکر و تصمیم‌گیری" in answer and "با شواهد سنجیده می‌شود" in answer, answer
+        assert "سیستم فکر و تصمیم‌گیری" in answer and "بخش مرتبط با سؤال" in answer, answer
     finally:
         runtime.close()
