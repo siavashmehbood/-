@@ -367,7 +367,7 @@ class CognitivePipeline:
                 if any(marker in normalized for marker in markers):
                     explanations.append(explanation)
             if explanations and "به زبان ساده:" not in normalized:
-                answer = str(answer).rstrip() + " به زبان ساده: " + "؛ ".join(explanations) + "."
+                answer = str(answer).rstrip() + " به زبان ساده: " + "؛ ".join(item.removeprefix("یعنی ") for item in explanations) + "."
         if "short" not in styles or answer_type not in {"SOCIAL", "FOLLOW_UP", "REEXPLAIN", "EXAMPLE", "CONTINUATION"}:
             return answer
         # Keep complete sentences and do not truncate facts or multi-part answers.
