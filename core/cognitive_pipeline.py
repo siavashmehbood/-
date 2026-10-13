@@ -552,6 +552,14 @@ class CognitivePipeline:
                 subject = clean(fact.get("subject", ""))
                 predicate = clean(fact.get("predicate", ""))
                 value = clean(fact.get("object", fact.get("value", "")))
+                normalized_question = clean(question).lower().replace("‌", " ")
+                normalized_question = normalized_question.replace("ي", "ی").replace("ك", "ک")
+                normalized_subject = subject.lower().replace("ي", "ی").replace("ك", "ک")
+                # A contextual why/how turn can retrieve its earlier fact, but
+                # the persistent long preference must not replace that answer
+                # with a generic restatement of the fact.
+                if not normalized_subject or normalized_subject not in normalized_question:
+                    return ""
                 unit_match = re.search(r"تعداد\s+(\S+)", predicate)
                 periods = {"هفته", "ماه", "سال", "روز", "ساعت", "دقیقه"}
                 units = {"روز", "ماه", "سال", "ساعت", "دقیقه"}
