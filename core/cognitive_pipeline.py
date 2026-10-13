@@ -524,26 +524,49 @@ class CognitivePipeline:
 
     @staticmethod
     def _defined_offline_followup(question, answer, mode):
-        """Expand a locally recognized programming-language definition with grounded content."""
+        """Expand locally supported answers using the answer or retrieved facts."""
         source = clean(f"{question} {answer}").lower().replace("‌", " ")
         source = source.replace("ي", "ی").replace("ك", "ک")
         mentions_python = bool(re.search(r"پایتون|(?<![a-z])python(?![a-z])", source))
         defines_language = "زبان برنامه نویسی" in source
-        if not (mentions_python and defines_language):
-            return ""
-        if mode == "continue":
-            return (
-                "یک ویژگی کاربردی پایتون این است که نوع مقدار از خود مقدار مشخص می‌شود؛ "
-                "مثلاً `score = 10` عدد را در متغیر نگه می‌دارد و "
-                "`print(score + 2)` مقدار ۱۲ را نمایش می‌دهد."
-            )
+        if mentions_python and defines_language:
+            if mode == "continue":
+                return (
+                    "یک ویژگی کاربردی پایتون این است که نوع مقدار از خود مقدار مشخص می‌شود؛ "
+                    "مثلاً `score = 10` عدد را در متغیر نگه می‌دارد و "
+                    "`print(score + 2)` مقدار ۱۲ را نمایش می‌دهد."
+                )
+            if mode == "explain":
+                return (
+                    "در پایتون، «سطح‌بالا» یعنی لازم نیست جزئیات سخت‌افزار را مستقیم مدیریت کنی؛ "
+                    "«چندمنظوره» یعنی می‌توان با همین زبان برای کارهای متفاوت برنامه نوشت."
+                )
+            if mode == "example":
+                return "مثلاً در پایتون `print(2 + 3)` را اجرا کن؛ خروجی آن `5` است."
         if mode == "explain":
-            return (
-                "در پایتون، «سطح‌بالا» یعنی لازم نیست جزئیات سخت‌افزار را مستقیم مدیریت کنی؛ "
-                "«چندمنظوره» یعنی می‌توان با همین زبان برای کارهای متفاوت برنامه نوشت."
-            )
-        if mode == "example":
-            return "مثلاً در پایتون `print(2 + 3)` را اجرا کن؛ خروجی آن `5` است."
+            try:
+                facts = self.engine._knowledge(question, {}) or []
+            except Exception:
+                facts = []
+            if facts:
+                fact = facts[0]
+                subject = clean(fact.get("subject", ""))
+                predicate = clean(fact.get("predicate", ""))
+                value = clean(fact.get("object", fact.get("value", "")))
+                unit_match = re.search(r"تعداد\s+(\S+)", predicate)
+                periods = {"هفته", "ماه", "سال", "روز", "ساعت", "دقیقه"}
+                units = {"روز", "ماه", "سال", "ساعت", "دقیقه"}
+                if subject in periods and unit_match and unit_match.group(1) in units:
+                    unit = unit_match.group(1)
+                    return (
+                        f"یعنی یک «{subject}» شامل «{value}» {unit} است؛ "
+                        f"وقتی همین {value} {unit} کامل شود، یک «{subject}» کامل شده است."
+                    )
+                if subject and predicate and value:
+                    return (
+                        f"این پاسخ رابطهٔ «{predicate}» را برای «{subject}» بیان می‌کند؛ "
+                        f"مقدار آن «{value}» است."
+                    )
         return ""
 
     def _contextual_followup(self, text, mode):
