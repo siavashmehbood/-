@@ -613,3 +613,21 @@ def test_persistent_simple_style_changes_future_answers_and_survives_restart(tmp
         assert "جزئیات فنی رایانه" in after_restart and "کارهای گوناگون" in after_restart, after_restart
     finally:
         restored.close()
+
+
+
+def test_persistent_simple_style_rephrases_supported_framework_definitions(tmp_path):
+    config = json.loads((Path(__file__).parents[1] / "config.json").read_text(encoding="utf-8-sig"))
+    config["language_engine"]["enabled"] = False
+    config["memory"]["db"] = "data/persistent_framework_simplification.db"
+    (tmp_path / "config.json").write_text(json.dumps(config, ensure_ascii=False), encoding="utf-8")
+    runtime = IranRuntime(tmp_path)
+    try:
+        original = runtime.handle("Django چیه؟")
+        runtime.handle("از این به بعد ساده‌تر توضیح بده")
+        simplified = runtime.handle("Django چیه؟")
+        assert "چارچوب وب" in original, original
+        assert simplified != original, (original, simplified)
+        assert "ساخت وب‌سایت" in simplified, simplified
+    finally:
+        runtime.close()
