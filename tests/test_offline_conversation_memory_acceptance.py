@@ -533,3 +533,21 @@ def test_no_repeat_style_does_not_cycle_during_a_long_emotional_followup(tmp_pat
             assert any(term in current for term in relevant), f"non-relevant response at {index}: {current!r}"
     finally:
         runtime.close()
+
+
+
+def test_explain_followup_expands_a_local_fact_beyond_the_python_special_case(tmp_path):
+    config = json.loads((Path(__file__).parents[1] / "config.json").read_text(encoding="utf-8-sig"))
+    config["language_engine"]["enabled"] = False
+    config["memory"]["db"] = "data/local_fact_explanation.db"
+    (tmp_path / "config.json").write_text(json.dumps(config, ensure_ascii=False), encoding="utf-8")
+    runtime = IranRuntime(tmp_path)
+    try:
+        first = runtime.handle("هفته چند روز دارد؟")
+        explanation = runtime.handle("همونو توضیح بده")
+        assert "هفت" in first, first
+        assert "هفت" in explanation and ("هفته کامل" in explanation or "هفت روز پیاپی" in explanation), explanation
+        assert explanation != first, (first, explanation)
+        assert "همان نکته را به کار ببری" not in explanation, explanation
+    finally:
+        runtime.close()
