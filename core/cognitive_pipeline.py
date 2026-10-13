@@ -522,8 +522,7 @@ class CognitivePipeline:
             pass
         return answer
 
-    @staticmethod
-    def _defined_offline_followup(question, answer, mode):
+    def _defined_offline_followup(self, question, answer, mode):
         """Expand locally supported answers using the answer or retrieved facts."""
         source = clean(f"{question} {answer}").lower().replace("‌", " ")
         source = source.replace("ي", "ی").replace("ك", "ک")
