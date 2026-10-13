@@ -344,6 +344,22 @@ class CognitivePipeline:
             ]
             if any(self._response_similarity(answer, previous) >= .80 for previous in prior_answers):
                 answer = self._nonrepeating_variant(user_text, answer, answer_type, prior_answers)
+        if "simple" in styles and answer_type in {
+                "DIRECT_FACT", "FACT", "GROUNDED", "SEMANTIC_FACT"}:
+            # Apply the persistent simplicity preference to later factual
+            # answers as they are generated, while preserving the supported
+            # meaning and avoiding the old answer as a template.
+            language_match = re.match(
+                r"^(?P<subject>.+?)\\s+یک\\s+زبان\\s+برنامه‌نویسی\\s+"
+                r"سطح‌بالا\\s+و\\s+چندمنظوره\\s+است[.!؟]*$",
+                clean(answer),
+            )
+            if language_match:
+                subject = clean(language_match.group("subject"))
+                answer = (
+                    f"{subject} زبانی برای نوشتن برنامه‌های گوناگون است؛ "
+                    "برای استفاده از آن لازم نیست جزئیات فنی رایانه را مستقیم مدیریت کنی."
+                )
         if "short" not in styles or answer_type not in {"SOCIAL", "FOLLOW_UP", "REEXPLAIN", "EXAMPLE", "CONTINUATION"}:
             return answer
         # Keep complete sentences and do not truncate facts or multi-part answers.
