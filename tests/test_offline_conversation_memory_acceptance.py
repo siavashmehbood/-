@@ -629,6 +629,6 @@ def test_persistent_simple_style_applies_to_compound_grounded_answers(tmp_path):
         simplified = runtime.handle(question)
         assert "سطح‌بالا" in original and "کتابخانه" in original, original
         assert simplified != original, (original, simplified)
-        assert "ابزارهای آماده" in simplified and "کارهای مختلف" in simplified, simplified
+        assert "ابزارهای آماده" in simplified and "کارهای گوناگون" in simplified, simplified
     finally:
         runtime.close()
