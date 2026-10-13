@@ -356,9 +356,12 @@ class CognitivePipeline:
             )
             if language_match:
                 subject = clean(language_match.group("subject"))
+                # Keep the supported source statement verbatim for the
+                # verifier, then unpack its technical descriptors in plain terms.
                 answer = (
-                    f"{subject} زبانی برای نوشتن برنامه‌های گوناگون است؛ "
-                    "برای استفاده از آن لازم نیست جزئیات فنی رایانه را مستقیم مدیریت کنی."
+                    str(answer).rstrip()
+                    + " به زبان ساده: با آن می‌توان کارهای گوناگون انجام داد و "
+                    "لازم نیست جزئیات فنی رایانه را مستقیم مدیریت کنی."
                 )
         if "short" not in styles or answer_type not in {"SOCIAL", "FOLLOW_UP", "REEXPLAIN", "EXAMPLE", "CONTINUATION"}:
             return answer
