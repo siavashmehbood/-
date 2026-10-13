@@ -648,3 +648,28 @@ def test_persistent_simple_style_applies_to_grounded_system_explanations(tmp_pat
         assert "سیستم فکر و تصمیم‌گیری" in answer and "بخش مرتبط با سؤال" in answer, answer
     finally:
         runtime.close()
+
+
+
+def test_persistent_long_style_expands_grounded_answers_across_restart(tmp_path):
+    config = json.loads((Path(__file__).parents[1] / "config.json").read_text(encoding="utf-8-sig"))
+    config["language_engine"]["enabled"] = False
+    config["memory"]["db"] = "data/persistent_long_style.db"
+    (tmp_path / "config.json").write_text(json.dumps(config, ensure_ascii=False), encoding="utf-8")
+    runtime = IranRuntime(tmp_path)
+    try:
+        original = runtime.handle("پایتون چیه؟")
+        runtime.handle("از این به بعد مفصل‌تر توضیح بده")
+        expanded = runtime.handle("پایتون چیه؟")
+        assert "سطح‌بالا" in original and "چندمنظوره" in original, original
+        assert expanded != original and len(expanded) > len(original), (original, expanded)
+        assert "جزئیات سخت‌افزار" in expanded and "کارهای متفاوت" in expanded, expanded
+    finally:
+        runtime.close()
+
+    restored = IranRuntime(tmp_path)
+    try:
+        after_restart = restored.handle("پایتون چیه؟")
+        assert "جزئیات سخت‌افزار" in after_restart and "کارهای متفاوت" in after_restart, after_restart
+    finally:
+        restored.close()
