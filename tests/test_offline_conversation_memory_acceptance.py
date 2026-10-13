@@ -632,3 +632,19 @@ def test_persistent_simple_style_applies_to_compound_grounded_answers(tmp_path):
         assert "ابزارهای آماده" in simplified and "کارهای گوناگون" in simplified, simplified
     finally:
         runtime.close()
+
+
+
+def test_persistent_simple_style_applies_to_grounded_system_explanations(tmp_path):
+    config = json.loads((Path(__file__).parents[1] / "config.json").read_text(encoding="utf-8-sig"))
+    config["language_engine"]["enabled"] = False
+    config["memory"]["db"] = "data/persistent_system_explanation.db"
+    (tmp_path / "config.json").write_text(json.dumps(config, ensure_ascii=False), encoding="utf-8")
+    runtime = IranRuntime(tmp_path)
+    try:
+        runtime.handle("از این به بعد ساده‌تر توضیح بده")
+        answer = runtime.handle("چرا ساخته شدی؟")
+        assert "معماری شناختی" in answer, answer
+        assert "سیستم فکر و تصمیم‌گیری" in answer and "با شواهد سنجیده می‌شود" in answer, answer
+    finally:
+        runtime.close()
