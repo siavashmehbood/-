@@ -376,7 +376,7 @@ class CognitivePipeline:
         if "long" in styles and answer_type in {
                 "DIRECT_FACT", "FACT", "GROUNDED", "SEMANTIC_FACT",
                 "MULTI_INTENT", "PROJECT_FACT", "META"}:
-            detail = self._defined_offline_followup(user_text, answer, "explain")
+            detail = self._defined_offline_followup(user_text, answer, "long_explain")
             if detail and detail not in clean(answer):
                 answer = str(answer).rstrip() + " " + detail
         if "short" not in styles or answer_type not in {"SOCIAL", "FOLLOW_UP", "REEXPLAIN", "EXAMPLE", "CONTINUATION"}:
@@ -535,14 +535,14 @@ class CognitivePipeline:
                     "مثلاً `score = 10` عدد را در متغیر نگه می‌دارد و "
                     "`print(score + 2)` مقدار ۱۲ را نمایش می‌دهد."
                 )
-            if mode == "explain":
+            if mode in {"explain", "long_explain"}:
                 return (
                     "در پایتون، «سطح‌بالا» یعنی لازم نیست جزئیات سخت‌افزار را مستقیم مدیریت کنی؛ "
                     "«چندمنظوره» یعنی می‌توان با همین زبان برای کارهای متفاوت برنامه نوشت."
                 )
             if mode == "example":
                 return "مثلاً در پایتون `print(2 + 3)` را اجرا کن؛ خروجی آن `5` است."
-        if mode == "explain":
+        if mode == "long_explain":
             try:
                 facts = self.engine._knowledge(question, {}) or []
             except Exception:
