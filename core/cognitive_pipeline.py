@@ -345,7 +345,8 @@ class CognitivePipeline:
             if any(self._response_similarity(answer, previous) >= .80 for previous in prior_answers):
                 answer = self._nonrepeating_variant(user_text, answer, answer_type, prior_answers)
         if "simple" in styles and answer_type in {
-                "DIRECT_FACT", "FACT", "GROUNDED", "SEMANTIC_FACT", "MULTI_INTENT"}:
+                "DIRECT_FACT", "FACT", "GROUNDED", "SEMANTIC_FACT",
+                "MULTI_INTENT", "PROJECT_FACT", "META"}:
             # Apply the persistent simplicity preference to later factual
             # answers as they are generated. Keep source claims intact for the
             # verifier and unpack only technical terms present in that answer.
@@ -362,6 +363,10 @@ class CognitivePipeline:
                  "یعنی برای کارهای گوناگون به کار می‌آید"),
                 (("چارچوب وب",),
                  "یعنی ابزاری برای ساخت وب‌سایت است"),
+                (("معماری شناختی",),
+                 "یعنی یک سیستم فکر و تصمیم‌گیری هماهنگ است"),
+                (("حافظه",),
+                 "یعنی اطلاعات قبلی نگه داشته می‌شود و بخش مرتبط با سؤال دوباره استفاده می‌شود"),
             )
             for markers, explanation in grounded_glossary:
                 if any(marker in normalized for marker in markers):
