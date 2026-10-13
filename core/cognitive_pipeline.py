@@ -345,24 +345,29 @@ class CognitivePipeline:
             if any(self._response_similarity(answer, previous) >= .80 for previous in prior_answers):
                 answer = self._nonrepeating_variant(user_text, answer, answer_type, prior_answers)
         if "simple" in styles and answer_type in {
-                "DIRECT_FACT", "FACT", "GROUNDED", "SEMANTIC_FACT"}:
+                "DIRECT_FACT", "FACT", "GROUNDED", "SEMANTIC_FACT", "MULTI_INTENT"}:
             # Apply the persistent simplicity preference to later factual
-            # answers as they are generated, while preserving the supported
-            # meaning and avoiding the old answer as a template.
-            language_match = re.match(
-                r"^(?P<subject>.+?)\s+یک\s+زبان\s+برنامه‌نویسی\s+"
-                r"سطح‌بالا\s+و\s+چندمنظوره\s+است[.!؟]*$",
-                clean(answer),
+            # answers as they are generated. Keep source claims intact for the
+            # verifier and unpack only technical terms present in that answer.
+            normalized = clean(answer).replace("‌", " ").replace("ي", "ی").replace("ك", "ک")
+            explanations = []
+            grounded_glossary = (
+                (("سطح‌بالا", "سطح بالا"),
+                 "یعنی لازم نیست جزئیات فنی رایانه را مستقیم مدیریت کنی"),
+                (("چندمنظوره",),
+                 "یعنی می‌توان از آن برای کارهای مختلف استفاده کرد"),
+                (("کتابخانه‌های گسترده", "کتابخانه های گسترده"),
+                 "یعنی ابزارهای آمادهٔ زیادی برایش وجود دارد"),
+                (("کاربردهای متنوع",),
+                 "یعنی برای کارهای گوناگون به کار می‌آید"),
+                (("چارچوب وب",),
+                 "یعنی ابزاری برای ساخت وب‌سایت است"),
             )
-            if language_match:
-                subject = clean(language_match.group("subject"))
-                # Keep the supported source statement verbatim for the
-                # verifier, then unpack its technical descriptors in plain terms.
-                answer = (
-                    str(answer).rstrip()
-                    + " به زبان ساده: با آن می‌توان کارهای گوناگون انجام داد و "
-                    "لازم نیست جزئیات فنی رایانه را مستقیم مدیریت کنی."
-                )
+            for markers, explanation in grounded_glossary:
+                if any(marker in normalized for marker in markers):
+                    explanations.append(explanation)
+            if explanations and "به زبان ساده:" not in normalized:
+                answer = str(answer).rstrip() + " به زبان ساده: " + "؛ ".join(explanations) + "."
         if "short" not in styles or answer_type not in {"SOCIAL", "FOLLOW_UP", "REEXPLAIN", "EXAMPLE", "CONTINUATION"}:
             return answer
         # Keep complete sentences and do not truncate facts or multi-part answers.
