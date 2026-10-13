@@ -350,8 +350,8 @@ class CognitivePipeline:
             # answers as they are generated, while preserving the supported
             # meaning and avoiding the old answer as a template.
             language_match = re.match(
-                r"^(?P<subject>.+?)\\s+یک\\s+زبان\\s+برنامه‌نویسی\\s+"
-                r"سطح‌بالا\\s+و\\s+چندمنظوره\\s+است[.!؟]*$",
+                r"^(?P<subject>.+?)\s+یک\s+زبان\s+برنامه‌نویسی\s+"
+                r"سطح‌بالا\s+و\s+چندمنظوره\s+است[.!؟]*$",
                 clean(answer),
             )
             if language_match:
