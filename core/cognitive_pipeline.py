@@ -719,7 +719,7 @@ class CognitivePipeline:
                     subject = clean(fact.get("subject", ""))
                     predicate = clean(fact.get("predicate", ""))
                     value = clean(fact.get("object", fact.get("value", "")))
-                    unit_match = re.search(r"تعداد\\s+(\\S+)", predicate)
+                    unit_match = re.search(r"تعداد\s+(\S+)", predicate)
                     periods = {"هفته", "ماه", "سال", "روز", "ساعت", "دقیقه"}
                     if (subject in periods and unit_match
                             and unit_match.group(1) in {"روز", "ماه", "سال", "ساعت", "دقیقه"}):
