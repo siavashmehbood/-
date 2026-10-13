@@ -706,6 +706,24 @@ class CognitivePipeline:
             "چندمنظوره": ("کاربردهای مختلف", "با آن می‌شود کارهای گوناگون انجام داد"),
         }
         if mode == "simple":
+            # Re-express structured local facts in a shorter form instead of
+            # asking the user to clarify an answer that is already simple.
+            prior_turn = self.engine.state.references.get("last_substantive_turn", {})
+            if isinstance(prior_turn, dict) and clean(prior_turn.get("answer", "")) == previous:
+                try:
+                    facts = self.engine._knowledge(clean(prior_turn.get("question", "")), {}) or []
+                except Exception:
+                    facts = []
+                if facts:
+                    fact = facts[0]
+                    subject = clean(fact.get("subject", ""))
+                    predicate = clean(fact.get("predicate", ""))
+                    value = clean(fact.get("object", fact.get("value", "")))
+                    unit_match = re.search(r"تعداد\\s+(\\S+)", predicate)
+                    periods = {"هفته", "ماه", "سال", "روز", "ساعت", "دقیقه"}
+                    if (subject in periods and unit_match
+                            and unit_match.group(1) in {"روز", "ماه", "سال", "ساعت", "دقیقه"}):
+                        return f"یک «{subject}» یعنی «{value}» {unit_match.group(1)}."
             project_goal = re.search(
                 r"پروژه(?:ٔ|‌ی|ی)?\s*«(?P<project>[^»]+)»\s*(?:یعنی|با\s+هدف)\s*«(?P<goal>[^»]+)»",
                 previous,
