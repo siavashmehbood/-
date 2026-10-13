@@ -588,3 +588,28 @@ def test_continue_and_example_expand_grounded_count_facts(tmp_path):
         assert continued != first and example != first, (first, continued, example)
     finally:
         runtime.close()
+
+
+
+def test_persistent_simple_style_changes_future_answers_and_survives_restart(tmp_path):
+    config = json.loads((Path(__file__).parents[1] / "config.json").read_text(encoding="utf-8-sig"))
+    config["language_engine"]["enabled"] = False
+    config["memory"]["db"] = "data/persistent_simple_style.db"
+    (tmp_path / "config.json").write_text(json.dumps(config, ensure_ascii=False), encoding="utf-8")
+    runtime = IranRuntime(tmp_path)
+    try:
+        original = runtime.handle("پایتون چیه؟")
+        runtime.handle("از این به بعد ساده‌تر توضیح بده")
+        simplified = runtime.handle("پایتون چیه؟")
+        assert "سطح‌بالا" in original and "چندمنظوره" in original, original
+        assert simplified != original, (original, simplified)
+        assert "جزئیات فنی رایانه" in simplified and "کارهای گوناگون" in simplified, simplified
+    finally:
+        runtime.close()
+
+    restored = IranRuntime(tmp_path)
+    try:
+        after_restart = restored.handle("پایتون چیه؟")
+        assert "جزئیات فنی رایانه" in after_restart and "کارهای گوناگون" in after_restart, after_restart
+    finally:
+        restored.close()
