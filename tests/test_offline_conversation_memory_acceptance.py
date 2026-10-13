@@ -568,3 +568,23 @@ def test_simple_followup_reexpresses_a_supported_local_fact(tmp_path):
         assert "کدام واژه" not in simpler and "ساده‌تر بگم:" not in simpler, simpler
     finally:
         runtime.close()
+
+
+
+def test_continue_and_example_expand_grounded_count_facts(tmp_path):
+    config = json.loads((Path(__file__).parents[1] / "config.json").read_text(encoding="utf-8-sig"))
+    config["language_engine"]["enabled"] = False
+    config["memory"]["db"] = "data/local_count_followups.db"
+    (tmp_path / "config.json").write_text(json.dumps(config, ensure_ascii=False), encoding="utf-8")
+    runtime = IranRuntime(tmp_path)
+    try:
+        first = runtime.handle("هفته چند روز دارد؟")
+        continued = runtime.handle("ادامه بده")
+        example = runtime.handle("مثال بزن")
+        assert "هفت" in first, first
+        for answer in (continued, example):
+            assert "هفت" in answer and "روز" in answer and "هفته" in answer, answer
+            assert "یک مورد کوچک" not in answer and "روی یک مورد مشخص" not in answer, answer
+        assert continued != first and example != first, (first, continued, example)
+    finally:
+        runtime.close()
