@@ -616,18 +616,19 @@ def test_persistent_simple_style_changes_future_answers_and_survives_restart(tmp
 
 
 
-def test_persistent_simple_style_rephrases_supported_framework_definitions(tmp_path):
+def test_persistent_simple_style_applies_to_compound_grounded_answers(tmp_path):
     config = json.loads((Path(__file__).parents[1] / "config.json").read_text(encoding="utf-8-sig"))
     config["language_engine"]["enabled"] = False
-    config["memory"]["db"] = "data/persistent_framework_simplification.db"
+    config["memory"]["db"] = "data/persistent_compound_simplification.db"
     (tmp_path / "config.json").write_text(json.dumps(config, ensure_ascii=False), encoding="utf-8")
     runtime = IranRuntime(tmp_path)
     try:
-        original = runtime.handle("Django چیه؟")
+        question = "پایتون چیه و چرا محبوب است؟"
+        original = runtime.handle(question)
         runtime.handle("از این به بعد ساده‌تر توضیح بده")
-        simplified = runtime.handle("Django چیه؟")
-        assert "چارچوب وب" in original, original
+        simplified = runtime.handle(question)
+        assert "سطح‌بالا" in original and "کتابخانه" in original, original
         assert simplified != original, (original, simplified)
-        assert "ساخت وب‌سایت" in simplified, simplified
+        assert "ابزارهای آماده" in simplified and "کارهای مختلف" in simplified, simplified
     finally:
         runtime.close()
