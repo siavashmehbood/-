@@ -546,7 +546,7 @@ def test_explain_followup_expands_a_local_fact_beyond_the_python_special_case(tm
         first = runtime.handle("هفته چند روز دارد؟")
         explanation = runtime.handle("همونو توضیح بده")
         assert "هفت" in first, first
-        assert "هفت" in explanation and ("هفته کامل" in explanation or "هفت روز پیاپی" in explanation), explanation
+        assert "هفت روز کامل" in explanation and "کامل شده است" in explanation, explanation
         assert explanation != first, (first, explanation)
         assert "همان نکته را به کار ببری" not in explanation, explanation
     finally:
