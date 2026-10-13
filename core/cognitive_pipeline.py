@@ -625,49 +625,45 @@ class CognitivePipeline:
             specific = self._defined_offline_followup(question, answer, mode)
             if specific:
                 return specific
+            try:
+                facts = self.engine._knowledge(question, {}) or []
+            except Exception:
+                facts = []
+            if facts:
+                fact = facts[0]
+                subject = clean(fact.get("subject", ""))
+                predicate = clean(fact.get("predicate", ""))
+                value = clean(fact.get("object", fact.get("value", "")))
+                unit_match = re.search(r"تعداد\s+(\S+)", predicate)
+                periods = {"هفته", "ماه", "سال", "روز", "ساعت", "دقیقه"}
+                if (subject in periods and unit_match
+                        and unit_match.group(1) in {"روز", "ماه", "سال", "ساعت", "دقیقه"}):
+                    unit = unit_match.group(1)
+                    if mode == "explain":
+                        return (
+                            f"منظور پاسخ این است که یک «{subject}» شامل «{value}» {unit} است؛ "
+                            f"وقتی همین {value} {unit} کامل شود، یک «{subject}» کامل شده است."
+                        )
+                    if mode == "continue":
+                        return (
+                            f"برای ادامه، یک «{subject}» را به «{value}» {unit} تقسیم کن و "
+                            f"در تقویم یا روی کاغذ همین مقدار {unit} را بشمار."
+                        )
+                    if mode == "example":
+                        return (
+                            f"مثلاً {value} {unit} پشت‌سرهم را در تقویم علامت بزن؛ "
+                            f"این بازه یک «{subject}» کامل است."
+                        )
+                if mode == "explain" and subject and predicate and value:
+                    return (
+                        f"پاسخ، رابطهٔ «{predicate}» را برای «{subject}» بیان می‌کند: "
+                        f"مقدارش «{value}» است."
+                    )
             if mode == "example":
                 return f"برای نمونه، نکتهٔ «{answer}» را در یک مورد کوچک از موضوع «{question}» به کار ببر و نتیجه را بررسی کن."
             if mode == "continue":
                 return f"گام بعد دربارهٔ «{question}»: {answer} را روی یک مورد مشخص اجرا کن و نتیجه‌اش را بررسی کن."
             if mode == "explain":
-                # A grounded local fact can explain its relationship without
-                # relying on the Python-only vocabulary shortcut or inventing
-                # an unrelated fact.  For duration/count facts, make the
-                # stored quantity concrete in terms of the named period.
-                try:
-                    facts = self.engine._knowledge(question, {}) or []
-                except Exception:
-                    facts = []
-                if facts:
-                    fact = facts[0]
-                    subject = clean(fact.get("subject", ""))
-                    predicate = clean(fact.get("predicate", ""))
-                    value = clean(fact.get("object", fact.get("value", "")))
-                    unit_match = re.search(r"تعداد\s+(\S+)", predicate)
-                    periods = {"هفته", "ماه", "سال", "روز", "ساعت", "دقیقه"}
-                    if (subject in periods and unit_match
-                            and unit_match.group(1) in {"روز", "ماه", "سال", "ساعت", "دقیقه"}):
-                        unit = unit_match.group(1)
-                        if mode == "explain":
-                            return (
-                                f"منظور پاسخ این است که یک «{subject}» شامل «{value}» {unit} است؛ "
-                                f"وقتی همین {value} {unit} کامل شود، یک «{subject}» کامل شده است."
-                            )
-                        if mode == "continue":
-                            return (
-                                f"برای ادامه، یک «{subject}» را به «{value}» {unit} تقسیم کن و "
-                                f"در تقویم یا روی کاغذ همین مقدار {unit} را بشمار."
-                            )
-                        if mode == "example":
-                            return (
-                                f"مثلاً {value} {unit} پشت‌سرهم را در تقویم علامت بزن؛ "
-                                f"این بازه یک «{subject}» کامل است."
-                            )
-                    if mode == "explain" and subject and predicate and value:
-                        return (
-                            f"پاسخ، رابطهٔ «{predicate}» را برای «{subject}» بیان می‌کند: "
-                            f"مقدارش «{value}» است."
-                        )
                 return f"پاسخ قبلی می‌گوید: «{answer}». اگر بخش خاصی از این گزاره مبهم است، همان را مشخص کن تا دقیق‌تر بازش کنم."
             return f"پاسخ قبلی دربارهٔ «{question}» این بود: {answer} کدام بخش را بیشتر باز کنم؟"
         if mode == "example":
