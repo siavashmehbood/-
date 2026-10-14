@@ -386,6 +386,18 @@ class CognitivePipeline:
         return sentences[0].strip() if sentences else answer
 
     def _persist_answer(self, text, answer, answer_type="DIRECT_FACT", score=.95, evidence=None):
+        # Only harmless greeting variants can enter from the subordinate model.
+        # Facts, tools, memory and learning never accept model-generated authority.
+        if answer_type == "SOCIAL" and clean(text).strip(" ؟?!.,،؛") == "سلام هستی":
+            candidate = self._local_language_reply(text)
+            allowed = {"سلام، آره هستم. بگو از کجا شروع کنیم.",
+                       "سلام، هستم. بگو چه کمکی می‌خوای.",
+                       "سلام، اینجام. از کجا شروع کنیم؟"}
+            if candidate in allowed:
+                answer = candidate
+                self._emit("local_language_realized", {"purpose":"greeting","canonical":True})
+            elif candidate:
+                self._emit("local_language_fallback", {"error_type":"UnapprovedGreeting","canonical":True})
         answer = self._apply_conversation_style(answer, answer_type, text)
         # A raw user turn or a near-copy of the question is never accepted as a
         # final answer merely because retrieval found similar text.

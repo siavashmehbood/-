@@ -1,0 +1,47 @@
+name: IRAN Final Acceptance Bundle
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  bundle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Require all final gates on this exact master commit
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const required = ['IRAN Baseline', 'IRAN Core Quality Acceptance', 'Windows Jarvis Acceptance'];
+            const deadline = Date.now() + 25 * 60 * 1000;
+            while (Date.now() < deadline) {
+              const master = await github.rest.repos.getBranch({...context.repo, branch:'master'});
+              if (master.data.commit.sha !== context.sha) throw new Error('Master moved; bundle this version only after fresh acceptance');
+              const {data} = await github.rest.actions.listWorkflowRunsForRepo({...context.repo, head_sha:context.sha, per_page:100});
+              const runs = required.map(name => data.workflow_runs.filter(r => r.name === name && r.event === 'push' && r.head_branch === 'master').sort((a,b) => b.id-a.id)[0]);
+              const failure = runs.find(r => r && r.status === 'completed' && r.conclusion !== 'success');
+              if (failure) throw new Error(failure.name + ': ' + failure.conclusion);
+              if (runs.every(r => r && r.status === 'completed' && r.conclusion === 'success')) {
+                for (const run of runs) {
+                  await core.summary.addLink(run.name, run.html_url).addRaw('\n').write();
+                }
+                return;
+              }
+              await new Promise(resolve => setTimeout(resolve, 15000));
+            }
+            throw new Error('Required gates missing or still running; no acceptance bundle produced');
+      - name: Create and validate source bundle
+        run: python evaluation/build_acceptance_bundle.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: IRAN-final-${{ github.sha }}
+          path: dist/IRAN-*.zip
+          if-no-files-found: error
+          retention-days: 30

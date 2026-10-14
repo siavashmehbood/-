@@ -19,10 +19,12 @@ class VoskSpeechToText(SpeechToText):
         if not Path(self.model_path).exists(): raise VoiceUnavailable("vosk model not found")
         return KaldiRecognizer(Model(self.model_path), self.sample_rate)
     def transcribe_file(self,path):
-        rec=self._recognizer()
         with wave.open(str(path),"rb") as wf:
             if wf.getnchannels()!=1 or wf.getsampwidth()!=2:
                 raise ValueError("Vosk WAV input must be mono 16-bit PCM")
+            if wf.getframerate()!=self.sample_rate or wf.getcomptype()!="NONE":
+                raise ValueError("Vosk WAV sample rate must match the configured PCM rate")
+            rec=self._recognizer()
             while True:
                 data=wf.readframes(4000)
                 if not data: break
@@ -60,9 +62,17 @@ class PiperTextToSpeech(TextToSpeech):
     def speak(self,text):
         if not self.model_path: raise VoiceUnavailable("Piper model is not configured")
         with tempfile.NamedTemporaryFile(suffix=".wav",delete=False) as out: output=out.name
-        subprocess.run([self.executable,"--model",str(self.model_path),"--output_file",output],
-                       input=str(text),text=True,check=True,timeout=60)
-        return {"spoken":True,"backend":"piper","artifact":output}
+        try:
+            subprocess.run([self.executable,"--model",str(self.model_path),"--output_file",output],
+                           input=str(text),text=True,check=True,timeout=60)
+            with wave.open(output,"rb") as audio:
+                if audio.getnframes() <= 0:
+                    raise VoiceUnavailable("Piper produced empty audio")
+            # Synthesis alone provides no evidence of speaker playback.
+            return {"spoken":False,"synthesized":True,"backend":"piper","artifact":output}
+        except Exception:
+            Path(output).unlink(missing_ok=True)
+            raise
 
 @dataclass
 class WakeWord:

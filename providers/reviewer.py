@@ -97,10 +97,12 @@ def decision(value):
         if label not in ('LEARN', 'REJECT'): raise ReviewFailure('invalid_decision')
         learn = label == 'LEARN'
     confidence = value.get('confidence', 0.5)
-    if not isinstance(confidence, (float, int)) or not math.isfinite(confidence) or not 0 <= confidence <= 1:
+    if isinstance(confidence, bool) or not isinstance(confidence, (float, int)) or not math.isfinite(confidence) or not 0 <= confidence <= 1:
         raise ReviewFailure('invalid_confidence')
     corrections = value.get('corrections', [])
-    if not isinstance(corrections, list): raise ReviewFailure('invalid_corrections')
+    if (not isinstance(corrections, list) or len(corrections) > 50 or
+            any(not isinstance(item, str) or not item.strip() or len(item) > 4000 for item in corrections)):
+        raise ReviewFailure('invalid_corrections')
     # A corrected claim needs a new review; never approve the original by accident.
     return {'learn': learn and not corrections, 'reason': str(value.get('reason', ''))[:2000],
             'confidence': confidence, 'corrections': corrections,
@@ -348,11 +350,27 @@ class ReviewerProvider:
     def review(self, candidate):
         status, reason = self.availability()
         if status != 'AVAILABLE': raise ReviewFailure(reason, status)
+        started = time.monotonic()
+        budget = self.timeout
+        original_timeout = self.timeout
         models = self.review_models()
         if not models: raise ReviewFailure('model_missing', 'INVALID_CONFIG')
         last_failure = None
-        for model in models[:self.model_attempts]:
+        self._models_tried = 0
+        limit = min(self.model_attempts, getattr(self, '_max_requests', self.model_attempts))
+        for model in models[:limit]:
+            remaining = budget - (time.monotonic() - started)
+            if remaining <= 0:
+                raise ReviewFailure('review_budget_exhausted')
+            permission = getattr(self, '_request_permission', None)
+            if permission is not None:
+                internet, generation = permission
+                status = internet.status()
+                if not status['enabled'] or status['generation'] != generation:
+                    raise ReviewFailure('internet_permission_changed', 'UNAVAILABLE')
             try:
+                self.timeout = min(original_timeout, remaining)
+                self._models_tried += 1
                 result = self._review_with_model(candidate, model)
                 self._record_model_health(model, 'AVAILABLE', success=True)
                 return result
@@ -364,6 +382,8 @@ class ReviewerProvider:
                     )
                 if failure.reason in ('http_401','http_402'):
                     raise
+            finally:
+                self.timeout = original_timeout
         raise last_failure or ReviewFailure('no_free_model_succeeded', 'UNAVAILABLE')
 
 class ProviderManager:
@@ -439,21 +459,26 @@ class ProviderManager:
             return {'ok':False, 'reason':'invalid_manager_configuration', 'state':'WAITING_FOR_REVIEWER', 'attempts':[]}
         if not self.internet.status()['enabled']:
             return {'ok':False, 'reason':'internet_off', 'state':'WAITING_FOR_REVIEWER', 'attempts':[]}
-        attempts=[]; start=time.monotonic()
+        attempts=[]; request_count=0; start=time.monotonic()
         for provider in self.providers:
             health = next(x for x in self.health() if x['provider'] == provider.name)
             if health['state'] != 'AVAILABLE': continue
             for _ in range(provider.retries+1):
-                if len(attempts)>=self.max_attempts or time.monotonic()-start>=self.max_seconds: break
+                if request_count>=self.max_attempts or time.monotonic()-start>=self.max_seconds: break
                 if not self.internet.status()['enabled']: break
                 try:
+                    provider._models_tried = 0
+                    provider._max_requests = self.max_attempts - request_count
                     original_timeout = provider.timeout
                     try:
                         provider.timeout = min(original_timeout, max(.01, self.max_seconds - (time.monotonic() - start)))
+                        provider._request_permission = (self.internet, self.internet.status()['generation'])
                         reviewed = provider.review(candidate)
                         result = decision(reviewed)
                     finally:
                         provider.timeout = original_timeout
+                        provider._request_permission = None
+                        request_count += max(1, getattr(provider, '_models_tried', 0))
                     result.update(provider=provider.name, model=reviewed.get('model', getattr(provider,'model','')))
                     with json_transaction(self.path,{}) as state:
                         state[provider.name]={'state':'AVAILABLE','reason':'','last_success':self.clock(),

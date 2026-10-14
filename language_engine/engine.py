@@ -20,6 +20,6 @@ class IranLanguageEngine:
         result = self.backend.generate(request)
         if not isinstance(result, GenerationResult):
             raise TypeError("language backend must return GenerationResult")
-        if not str(result.text).strip():
+        if not isinstance(result.text, str) or not result.text.strip():
             raise ValueError("language backend returned an empty response")
         return result
