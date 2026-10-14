@@ -45,6 +45,8 @@ jobs:
         run: python evaluation/runtime_suite.py
       - name: General conversation benchmark
         run: python -m self.general_conversation_benchmark
+      - name: Validate exact-commit acceptance bundle
+        run: python evaluation/build_acceptance_bundle.py
       - name: CLI smoke
         run: printf '/health\n/exit\n' | python main.py
 

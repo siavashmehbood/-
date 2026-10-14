@@ -111,7 +111,7 @@ class ChatWindow(QMainWindow):
         titles.addWidget(title); titles.addWidget(sub)
         top.addLayout(titles); top.addStretch()
         self.status = QLabel("آماده"); self.status.setObjectName("statusPill"); top.addWidget(self.status)
-        self.assistant_state = QLabel("میکروفون: غیرفعال | شنیدن: خیر | گفتار: آماده | عمل: آماده | بررسی: آماده")
+        self.assistant_state = QLabel("میکروفون: متصل نیست | شنیدن: خیر | گفتار: نیازمند مدل و آزمون دستگاه | عمل: آماده | بررسی: آماده")
         self.assistant_state.setObjectName("metric"); top.addWidget(self.assistant_state)
         self.internet_button = QPushButton(); self.internet_button.setObjectName("internetButton")
         self.internet_button.clicked.connect(self.toggle_internet); top.addWidget(self.internet_button)

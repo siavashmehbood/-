@@ -16,7 +16,7 @@ class VoskSpeechToText(SpeechToText):
         try:
             from vosk import Model, KaldiRecognizer
         except ImportError as exc: raise VoiceUnavailable("vosk optional dependency is not installed") from exc
-        if not Path(self.model_path).exists(): raise VoiceUnavailable("vosk model not found")
+        if not Path(self.model_path).is_dir(): raise VoiceUnavailable("vosk model not found")
         return KaldiRecognizer(Model(self.model_path), self.sample_rate)
     def transcribe_file(self,path):
         with wave.open(str(path),"rb") as wf:

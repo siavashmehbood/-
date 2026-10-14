@@ -176,3 +176,29 @@ def test_global_attempt_limit_counts_models_across_providers(tmp_path, monkeypat
     manager = ProviderManager(tmp_path, {"reviewers": {"max_attempts": 4}}, internet, providers)
     assert not manager.review({})["ok"]
     assert len(calls) == 4
+
+@pytest.mark.skipif(__import__("os").name != "nt", reason="PowerShell launcher runs on Windows CI")
+def test_windows_launcher_uses_project_venv_and_preserves_existing_process(tmp_path):
+    import shutil
+    import subprocess
+    import sys
+    root = tmp_path / "IRAN acceptance with spaces"
+    root.mkdir()
+    shutil.copy(ROOT / "launch_iran.ps1", root / "launch_iran.ps1")
+    subprocess.run([sys.executable, "-m", "venv", "--without-pip", str(root / ".venv")], check=True)
+    (root / "launch_gui.pyw").write_text(
+        "import json, os, sys\nfrom pathlib import Path\n"
+        "Path('startup-result.json').write_text(json.dumps({'cwd':os.getcwd(),'exe':sys.executable}))\n",
+        encoding="utf-8")
+    sleeper = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)", str(root / "gui.py")])
+    try:
+        result = subprocess.run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass",
+                                 "-File", str(root / "launch_iran.ps1")], capture_output=True, text=True)
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert sleeper.poll() is None
+        record = json.loads((root / "startup-result.json").read_text())
+        assert Path(record["cwd"]) == root
+        assert Path(record["exe"]) == root / ".venv" / "Scripts" / "python.exe"
+    finally:
+        sleeper.terminate()
+        sleeper.wait(timeout=10)
