@@ -32,7 +32,7 @@ class ConversationalUnderstanding:
             "ببخشید":"apology","باشه":"acknowledgement","اوکی":"acknowledgement","آره":"acknowledgement","خب":"acknowledgement"}
     STYLE_MARKERS={
         "short":("کوتاه","مختصر","فقط جواب"),
-        "long":("بیشتر توضیح","کامل توضیح","بازتر توضیح"),
+        "long":("بیشتر توضیح","کامل توضیح","بازتر توضیح","مفصل","با جزئیات","جزئیات بیشتر","شرح کامل"),
         "simple":("ساده‌تر","ساده تر"),
         "natural":("طبیعی","رسمی حرف نزن","رسمی نباش","دستیار عادی"),
         "stepwise":("مرحله به مرحله","قدم به قدم"),

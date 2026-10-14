@@ -533,3 +533,160 @@ def test_no_repeat_style_does_not_cycle_during_a_long_emotional_followup(tmp_pat
             assert any(term in current for term in relevant), f"non-relevant response at {index}: {current!r}"
     finally:
         runtime.close()
+
+
+
+def test_explain_followup_expands_a_local_fact_beyond_the_python_special_case(tmp_path):
+    config = json.loads((Path(__file__).parents[1] / "config.json").read_text(encoding="utf-8-sig"))
+    config["language_engine"]["enabled"] = False
+    config["memory"]["db"] = "data/local_fact_explanation.db"
+    (tmp_path / "config.json").write_text(json.dumps(config, ensure_ascii=False), encoding="utf-8")
+    runtime = IranRuntime(tmp_path)
+    try:
+        first = runtime.handle("هفته چند روز دارد؟")
+        explanation = runtime.handle("همونو توضیح بده")
+        assert "هفت" in first, first
+        assert "هفت روز کامل" in explanation and "کامل شده است" in explanation, explanation
+        assert explanation != first, (first, explanation)
+        assert "همان نکته را به کار ببری" not in explanation, explanation
+    finally:
+        runtime.close()
+
+
+
+def test_simple_followup_reexpresses_a_supported_local_fact(tmp_path):
+    config = json.loads((Path(__file__).parents[1] / "config.json").read_text(encoding="utf-8-sig"))
+    config["language_engine"]["enabled"] = False
+    config["memory"]["db"] = "data/local_fact_simplification.db"
+    (tmp_path / "config.json").write_text(json.dumps(config, ensure_ascii=False), encoding="utf-8")
+    runtime = IranRuntime(tmp_path)
+    try:
+        first = runtime.handle("هفته چند روز دارد؟")
+        simpler = runtime.handle("ساده‌تر بگو")
+        assert "هفت" in first, first
+        assert "هفت" in simpler and "روز" in simpler and "هفته" in simpler, simpler
+        assert "کدام واژه" not in simpler and "ساده‌تر بگم:" not in simpler, simpler
+    finally:
+        runtime.close()
+
+
+
+def test_continue_and_example_expand_grounded_count_facts(tmp_path):
+    config = json.loads((Path(__file__).parents[1] / "config.json").read_text(encoding="utf-8-sig"))
+    config["language_engine"]["enabled"] = False
+    config["memory"]["db"] = "data/local_count_followups.db"
+    (tmp_path / "config.json").write_text(json.dumps(config, ensure_ascii=False), encoding="utf-8")
+    runtime = IranRuntime(tmp_path)
+    try:
+        first = runtime.handle("هفته چند روز دارد؟")
+        continued = runtime.handle("ادامه بده")
+        example = runtime.handle("مثال بزن")
+        assert "هفت" in first, first
+        for answer in (continued, example):
+            assert "هفت" in answer and "روز" in answer and "هفته" in answer, answer
+            assert "یک مورد کوچک" not in answer and "روی یک مورد مشخص" not in answer, answer
+        assert continued != first and example != first, (first, continued, example)
+    finally:
+        runtime.close()
+
+
+
+def test_persistent_simple_style_changes_future_answers_and_survives_restart(tmp_path):
+    config = json.loads((Path(__file__).parents[1] / "config.json").read_text(encoding="utf-8-sig"))
+    config["language_engine"]["enabled"] = False
+    config["memory"]["db"] = "data/persistent_simple_style.db"
+    (tmp_path / "config.json").write_text(json.dumps(config, ensure_ascii=False), encoding="utf-8")
+    runtime = IranRuntime(tmp_path)
+    try:
+        original = runtime.handle("پایتون چیه؟")
+        runtime.handle("از این به بعد ساده‌تر توضیح بده")
+        simplified = runtime.handle("پایتون چیه؟")
+        assert "سطح‌بالا" in original and "چندمنظوره" in original, original
+        assert simplified != original, (original, simplified)
+        assert "جزئیات فنی رایانه" in simplified and "کارهای گوناگون" in simplified, simplified
+    finally:
+        runtime.close()
+
+    restored = IranRuntime(tmp_path)
+    try:
+        after_restart = restored.handle("پایتون چیه؟")
+        assert "جزئیات فنی رایانه" in after_restart and "کارهای گوناگون" in after_restart, after_restart
+    finally:
+        restored.close()
+
+
+
+def test_persistent_simple_style_applies_to_compound_grounded_answers(tmp_path):
+    config = json.loads((Path(__file__).parents[1] / "config.json").read_text(encoding="utf-8-sig"))
+    config["language_engine"]["enabled"] = False
+    config["memory"]["db"] = "data/persistent_compound_simplification.db"
+    (tmp_path / "config.json").write_text(json.dumps(config, ensure_ascii=False), encoding="utf-8")
+    runtime = IranRuntime(tmp_path)
+    try:
+        question = "پایتون چیه و چرا محبوب است؟"
+        original = runtime.handle(question)
+        runtime.handle("از این به بعد ساده‌تر توضیح بده")
+        simplified = runtime.handle(question)
+        assert "سطح‌بالا" in original and "کتابخانه" in original, original
+        assert simplified != original, (original, simplified)
+        assert "ابزارهای آماده" in simplified and "کارهای گوناگون" in simplified, simplified
+    finally:
+        runtime.close()
+
+
+
+def test_persistent_simple_style_applies_to_grounded_system_explanations(tmp_path):
+    config = json.loads((Path(__file__).parents[1] / "config.json").read_text(encoding="utf-8-sig"))
+    config["language_engine"]["enabled"] = False
+    config["memory"]["db"] = "data/persistent_system_explanation.db"
+    (tmp_path / "config.json").write_text(json.dumps(config, ensure_ascii=False), encoding="utf-8")
+    runtime = IranRuntime(tmp_path)
+    try:
+        runtime.handle("از این به بعد ساده‌تر توضیح بده")
+        answer = runtime.handle("چرا ساخته شدی؟")
+        assert "معماری شناختی" in answer, answer
+        assert "سیستم فکر و تصمیم‌گیری" in answer and "بخش مرتبط با سؤال" in answer, answer
+    finally:
+        runtime.close()
+
+
+
+def test_persistent_long_style_expands_grounded_answers_across_restart(tmp_path):
+    config = json.loads((Path(__file__).parents[1] / "config.json").read_text(encoding="utf-8-sig"))
+    config["language_engine"]["enabled"] = False
+    config["memory"]["db"] = "data/persistent_long_style.db"
+    (tmp_path / "config.json").write_text(json.dumps(config, ensure_ascii=False), encoding="utf-8")
+    runtime = IranRuntime(tmp_path)
+    try:
+        original = runtime.handle("پایتون چیه؟")
+        runtime.handle("از این به بعد مفصل‌تر توضیح بده")
+        expanded = runtime.handle("پایتون چیه؟")
+        assert "سطح‌بالا" in original and "چندمنظوره" in original, original
+        assert expanded != original and len(expanded) > len(original), (original, expanded)
+        assert "جزئیات سخت‌افزار" in expanded and "کارهای متفاوت" in expanded, expanded
+    finally:
+        runtime.close()
+
+    restored = IranRuntime(tmp_path)
+    try:
+        after_restart = restored.handle("پایتون چیه؟")
+        assert "جزئیات سخت‌افزار" in after_restart and "کارهای متفاوت" in after_restart, after_restart
+    finally:
+        restored.close()
+
+
+def test_persistent_long_style_explains_a_second_grounded_fact(tmp_path):
+    config = json.loads((Path(__file__).parents[1] / "config.json").read_text(encoding="utf-8-sig"))
+    config["language_engine"]["enabled"] = False
+    config["memory"]["db"] = "data/persistent_long_style_second_fact.db"
+    (tmp_path / "config.json").write_text(json.dumps(config, ensure_ascii=False), encoding="utf-8")
+    runtime = IranRuntime(tmp_path)
+    try:
+        original = runtime.handle("هفته چند روز دارد؟")
+        runtime.handle("از این به بعد مفصل‌تر توضیح بده")
+        expanded = runtime.handle("هفته چند روز دارد؟")
+        assert "هفت" in original, original
+        assert expanded != original, (original, expanded)
+        assert "یک «هفته»" in expanded and "روز" in expanded, expanded
+    finally:
+        runtime.close()

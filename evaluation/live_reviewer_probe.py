@@ -1,39 +1,38 @@
-"""One-shot live zero-budget reviewer acceptance probe for CI."""
+"""One-shot live reviewer transport probe; never impersonates human approval."""
 import json, os, shutil, tempfile
 from pathlib import Path
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from runtime.app import IranRuntime
-REPO=Path(__file__).resolve().parents[1]
-def need(v,m):
-    if not v: raise AssertionError(m)
+
+REPO = Path(__file__).resolve().parents[1]
+
 def main():
-    need(os.environ.get("OPENROUTER_API_KEY","").strip(),"OPENROUTER_API_KEY missing")
+    if not os.environ.get("OPENROUTER_API_KEY", "").strip():
+        raise RuntimeError("BLOCKED_EXTERNAL: OPENROUTER_API_KEY missing")
     with tempfile.TemporaryDirectory(prefix="iran-live-review-") as folder:
-        root=Path(folder); shutil.copy(REPO/"config.json",root/"config.json")
-        local={"max_attempts":4,"max_seconds":40,"providers":{"openrouter":{
-          "enabled":True,"base_url":"https://openrouter.ai/api/v1","key_env":"OPENROUTER_API_KEY",
-          "model":"","timeout":10,"retries":0,"cooldown":60,"min_interval":0,
-          "dynamic_free_models":True,"free_model_limit":25,"model_attempts":4,"free_models_ttl":900,
-          "free_policy":{"budget":0,"confirmed":False,"models":[],"expires_at":""}}}}
-        (root/"reviewers.local.json").write_text(json.dumps(local),encoding="utf-8")
-        runtime=IranRuntime(root)
+        root = Path(folder)
+        shutil.copy(REPO / "config.json", root / "config.json")
+        runtime = IranRuntime(root)
         try:
             runtime.internet_access.enable()
-            p=runtime.learning_gate.request("knowledge.add_fact",
-              {"subject":"live reviewer fixture","predicate":"status","object":"verified","source":"github_actions_live_probe"},
-              "Live reviewer acceptance fixture")
-            result=runtime.process_one_chatgpt_learning_review()
-            need(result.get("ok"),"external reviewer failed: "+json.dumps(result))
-            row=runtime.chatgpt_learning_review_status(p["proposal_id"]).get("row") or {}
-            need(row.get("status")=="human_pending","candidate not human-eligible")
-            need(row.get("chatgpt_decision")=="learn","controlled fixture rejected")
-            need(runtime.approve_learning(p["proposal_id"], human_confirmed=True, source='test_human').get("ok"),"human-gate apply failed")
-            need(runtime.knowledge.best_fact("live reviewer fixture","status") is not None,"knowledge not applied")
-        finally: runtime.close()
-        restarted=IranRuntime(root)
-        try:
-            fact=restarted.knowledge.best_fact("live reviewer fixture","status")
-            need(fact and fact.get("object")=="verified","knowledge lost after restart")
-            need(restarted.learning_gate.get(p["proposal_id"]).get("status")=="approved","approval lost after restart")
-        finally: restarted.close()
-    print("LIVE_REVIEWER_E2E_PASS")
-if __name__=="__main__": main()
+            proposal = runtime.learning_gate.request("knowledge.add_fact",
+                {"subject":"live reviewer fixture","predicate":"status","object":"verified",
+                 "source":"github_actions_transport_probe"},
+                "Transport diagnostic only; this claim has no external source and must not be learned automatically.")
+            result = runtime.process_one_chatgpt_learning_review()
+            if not result.get("ok"):
+                raise RuntimeError("BLOCKED_EXTERNAL: " + json.dumps(result))
+            row = runtime.chatgpt_learning_review_status(proposal["proposal_id"]).get("row") or {}
+            if row.get("status") not in {"human_pending", "rejected"}:
+                raise AssertionError("Invalid reviewer result state")
+            if runtime.knowledge.best_fact("live reviewer fixture", "status") is not None:
+                raise AssertionError("Transport probe unexpectedly applied knowledge")
+            if runtime.learning_gate.get(proposal["proposal_id"]).get("status") == "approved":
+                raise AssertionError("Probe must never approve for a human")
+            print("LIVE_REVIEWER_TRANSPORT_PASS; no human approval or durable learning performed")
+        finally:
+            runtime.close()
+
+if __name__ == "__main__":
+    main()

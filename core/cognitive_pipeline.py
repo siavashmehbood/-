@@ -344,6 +344,41 @@ class CognitivePipeline:
             ]
             if any(self._response_similarity(answer, previous) >= .80 for previous in prior_answers):
                 answer = self._nonrepeating_variant(user_text, answer, answer_type, prior_answers)
+        if "simple" in styles and answer_type in {
+                "DIRECT_FACT", "FACT", "GROUNDED", "SEMANTIC_FACT",
+                "MULTI_INTENT", "PROJECT_FACT", "META"}:
+            # Apply the persistent simplicity preference to later factual
+            # answers as they are generated. Keep source claims intact for the
+            # verifier and unpack only technical terms present in that answer.
+            normalized = clean(answer).replace("‌", " ").replace("ي", "ی").replace("ك", "ک")
+            explanations = []
+            grounded_glossary = (
+                (("سطح‌بالا", "سطح بالا"),
+                 "یعنی لازم نیست جزئیات فنی رایانه را مستقیم مدیریت کنی"),
+                (("چندمنظوره",),
+                 "یعنی می‌توان از آن برای کارهای گوناگون استفاده کرد"),
+                (("کتابخانه‌های گسترده", "کتابخانه های گسترده"),
+                 "یعنی ابزارهای آمادهٔ زیادی برایش وجود دارد"),
+                (("کاربردهای متنوع",),
+                 "یعنی برای کارهای گوناگون به کار می‌آید"),
+                (("چارچوب وب",),
+                 "یعنی ابزاری برای ساخت وب‌سایت است"),
+                (("معماری شناختی",),
+                 "یعنی یک سیستم فکر و تصمیم‌گیری هماهنگ است"),
+                (("حافظه",),
+                 "یعنی اطلاعات قبلی نگه داشته می‌شود و بخش مرتبط با سؤال دوباره استفاده می‌شود"),
+            )
+            for markers, explanation in grounded_glossary:
+                if any(marker in normalized for marker in markers):
+                    explanations.append(explanation)
+            if explanations and "به زبان ساده:" not in normalized:
+                answer = str(answer).rstrip() + " به زبان ساده: " + "؛ ".join(item.removeprefix("یعنی ") for item in explanations) + "."
+        if "long" in styles and answer_type in {
+                "DIRECT_FACT", "FACT", "GROUNDED", "SEMANTIC_FACT",
+                "MULTI_INTENT", "PROJECT_FACT", "META"}:
+            detail = self._defined_offline_followup(user_text, answer, "long_explain")
+            if detail and detail not in clean(answer):
+                answer = str(answer).rstrip() + " " + detail
         if "short" not in styles or answer_type not in {"SOCIAL", "FOLLOW_UP", "REEXPLAIN", "EXAMPLE", "CONTINUATION"}:
             return answer
         # Keep complete sentences and do not truncate facts or multi-part answers.
@@ -351,6 +386,18 @@ class CognitivePipeline:
         return sentences[0].strip() if sentences else answer
 
     def _persist_answer(self, text, answer, answer_type="DIRECT_FACT", score=.95, evidence=None):
+        # Only harmless greeting variants can enter from the subordinate model.
+        # Facts, tools, memory and learning never accept model-generated authority.
+        if answer_type == "SOCIAL" and clean(text).strip(" ؟?!.,،؛") == "سلام هستی":
+            candidate = self._local_language_reply(text)
+            allowed = {"سلام، آره هستم. بگو از کجا شروع کنیم.",
+                       "سلام، هستم. بگو چه کمکی می‌خوای.",
+                       "سلام، اینجام. از کجا شروع کنیم؟"}
+            if candidate in allowed:
+                answer = candidate
+                self._emit("local_language_realized", {"purpose":"greeting","canonical":True})
+            elif candidate:
+                self._emit("local_language_fallback", {"error_type":"UnapprovedGreeting","canonical":True})
         answer = self._apply_conversation_style(answer, answer_type, text)
         # A raw user turn or a near-copy of the question is never accepted as a
         # final answer merely because retrieval found similar text.
@@ -487,28 +534,58 @@ class CognitivePipeline:
             pass
         return answer
 
-    @staticmethod
-    def _defined_offline_followup(question, answer, mode):
-        """Expand a locally recognized programming-language definition with grounded content."""
+    def _defined_offline_followup(self, question, answer, mode):
+        """Expand locally supported answers using the answer or retrieved facts."""
         source = clean(f"{question} {answer}").lower().replace("‌", " ")
         source = source.replace("ي", "ی").replace("ك", "ک")
         mentions_python = bool(re.search(r"پایتون|(?<![a-z])python(?![a-z])", source))
         defines_language = "زبان برنامه نویسی" in source
-        if not (mentions_python and defines_language):
-            return ""
-        if mode == "continue":
-            return (
-                "یک ویژگی کاربردی پایتون این است که نوع مقدار از خود مقدار مشخص می‌شود؛ "
-                "مثلاً `score = 10` عدد را در متغیر نگه می‌دارد و "
-                "`print(score + 2)` مقدار ۱۲ را نمایش می‌دهد."
-            )
-        if mode == "explain":
-            return (
-                "در پایتون، «سطح‌بالا» یعنی لازم نیست جزئیات سخت‌افزار را مستقیم مدیریت کنی؛ "
-                "«چندمنظوره» یعنی می‌توان با همین زبان برای کارهای متفاوت برنامه نوشت."
-            )
-        if mode == "example":
-            return "مثلاً در پایتون `print(2 + 3)` را اجرا کن؛ خروجی آن `5` است."
+        if mentions_python and defines_language:
+            if mode == "continue":
+                return (
+                    "یک ویژگی کاربردی پایتون این است که نوع مقدار از خود مقدار مشخص می‌شود؛ "
+                    "مثلاً `score = 10` عدد را در متغیر نگه می‌دارد و "
+                    "`print(score + 2)` مقدار ۱۲ را نمایش می‌دهد."
+                )
+            if mode in {"explain", "long_explain"}:
+                return (
+                    "در پایتون، «سطح‌بالا» یعنی لازم نیست جزئیات سخت‌افزار را مستقیم مدیریت کنی؛ "
+                    "«چندمنظوره» یعنی می‌توان با همین زبان برای کارهای متفاوت برنامه نوشت."
+                )
+            if mode == "example":
+                return "مثلاً در پایتون `print(2 + 3)` را اجرا کن؛ خروجی آن `5` است."
+        if mode == "long_explain":
+            try:
+                facts = self.engine._knowledge(question, {}) or []
+            except Exception:
+                facts = []
+            if facts:
+                fact = facts[0]
+                subject = clean(fact.get("subject", ""))
+                predicate = clean(fact.get("predicate", ""))
+                value = clean(fact.get("object", fact.get("value", "")))
+                normalized_question = clean(question).lower().replace("‌", " ")
+                normalized_question = normalized_question.replace("ي", "ی").replace("ك", "ک")
+                normalized_subject = subject.lower().replace("ي", "ی").replace("ك", "ک")
+                # A contextual why/how turn can retrieve its earlier fact, but
+                # the persistent long preference must not replace that answer
+                # with a generic restatement of the fact.
+                if not normalized_subject or normalized_subject not in normalized_question:
+                    return ""
+                unit_match = re.search(r"تعداد\s+(\S+)", predicate)
+                periods = {"هفته", "ماه", "سال", "روز", "ساعت", "دقیقه"}
+                units = {"روز", "ماه", "سال", "ساعت", "دقیقه"}
+                if subject in periods and unit_match and unit_match.group(1) in units:
+                    unit = unit_match.group(1)
+                    return (
+                        f"یعنی یک «{subject}» شامل «{value}» {unit} است؛ "
+                        f"وقتی همین {value} {unit} کامل شود، یک «{subject}» کامل شده است."
+                    )
+                if subject and predicate and value:
+                    return (
+                        f"این پاسخ رابطهٔ «{predicate}» را برای «{subject}» بیان می‌کند؛ "
+                        f"مقدار آن «{value}» است."
+                    )
         return ""
 
     def _contextual_followup(self, text, mode):
@@ -519,7 +596,12 @@ class CognitivePipeline:
         # A follow-up can continue an immediately preceding example or
         # explanation, but a style/control acknowledgement is not the topic.
         recent_answer_type = clean(getattr(self.engine.state, "last_answer_type", ""))
-        if recent_users and recent_answers and recent_answer_type != "STYLE":
+        non_substantive_followup_types = {
+            "UNKNOWN", "SOCIAL", "STYLE", "META", "FOLLOW_UP", "REFERENCE",
+            "CORRECTION", "REEXPLAIN", "EXAMPLE", "CONTINUATION", "MEMORY_RECALL",
+        }
+        if (recent_users and recent_answers
+                and recent_answer_type not in non_substantive_followup_types):
             recent_question = clean(recent_users[-1])
             recent_answer = clean(recent_answers[-1])
             if recent_question and recent_answer and not recent_answer.startswith("UNKNOWN"):
@@ -620,12 +702,46 @@ class CognitivePipeline:
             specific = self._defined_offline_followup(question, answer, mode)
             if specific:
                 return specific
+            try:
+                facts = self.engine._knowledge(question, {}) or []
+            except Exception:
+                facts = []
+            if facts:
+                fact = facts[0]
+                subject = clean(fact.get("subject", ""))
+                predicate = clean(fact.get("predicate", ""))
+                value = clean(fact.get("object", fact.get("value", "")))
+                unit_match = re.search(r"تعداد\s+(\S+)", predicate)
+                periods = {"هفته", "ماه", "سال", "روز", "ساعت", "دقیقه"}
+                if (subject in periods and unit_match
+                        and unit_match.group(1) in {"روز", "ماه", "سال", "ساعت", "دقیقه"}):
+                    unit = unit_match.group(1)
+                    if mode == "explain":
+                        return (
+                            f"منظور پاسخ این است که یک «{subject}» شامل «{value}» {unit} است؛ "
+                            f"وقتی همین {value} {unit} کامل شود، یک «{subject}» کامل شده است."
+                        )
+                    if mode == "continue":
+                        return (
+                            f"برای ادامه، یک «{subject}» را به «{value}» {unit} تقسیم کن و "
+                            f"در تقویم یا روی کاغذ همین مقدار {unit} را بشمار."
+                        )
+                    if mode == "example":
+                        return (
+                            f"مثلاً {value} {unit} پشت‌سرهم را در تقویم علامت بزن؛ "
+                            f"این بازه یک «{subject}» کامل است."
+                        )
+                if mode == "explain" and subject and predicate and value:
+                    return (
+                        f"پاسخ، رابطهٔ «{predicate}» را برای «{subject}» بیان می‌کند: "
+                        f"مقدارش «{value}» است."
+                    )
             if mode == "example":
                 return f"برای نمونه، نکتهٔ «{answer}» را در یک مورد کوچک از موضوع «{question}» به کار ببر و نتیجه را بررسی کن."
             if mode == "continue":
                 return f"گام بعد دربارهٔ «{question}»: {answer} را روی یک مورد مشخص اجرا کن و نتیجه‌اش را بررسی کن."
             if mode == "explain":
-                return f"به بیان ساده، «{answer}» یعنی همان نکته را در موضوع «{question}» به کار ببری."
+                return f"پاسخ قبلی می‌گوید: «{answer}». اگر بخش خاصی از این گزاره مبهم است، همان را مشخص کن تا دقیق‌تر بازش کنم."
             return f"پاسخ قبلی دربارهٔ «{question}» این بود: {answer} کدام بخش را بیشتر باز کنم؟"
         if mode == "example":
             return "یک نمونهٔ مرتبط: " + matched[0][2]
@@ -679,6 +795,24 @@ class CognitivePipeline:
             "چندمنظوره": ("کاربردهای مختلف", "با آن می‌شود کارهای گوناگون انجام داد"),
         }
         if mode == "simple":
+            # Re-express structured local facts in a shorter form instead of
+            # asking the user to clarify an answer that is already simple.
+            prior_turn = self.engine.state.references.get("last_substantive_turn", {})
+            if isinstance(prior_turn, dict) and clean(prior_turn.get("answer", "")) == previous:
+                try:
+                    facts = self.engine._knowledge(clean(prior_turn.get("question", "")), {}) or []
+                except Exception:
+                    facts = []
+                if facts:
+                    fact = facts[0]
+                    subject = clean(fact.get("subject", ""))
+                    predicate = clean(fact.get("predicate", ""))
+                    value = clean(fact.get("object", fact.get("value", "")))
+                    unit_match = re.search(r"تعداد\s+(\S+)", predicate)
+                    periods = {"هفته", "ماه", "سال", "روز", "ساعت", "دقیقه"}
+                    if (subject in periods and unit_match
+                            and unit_match.group(1) in {"روز", "ماه", "سال", "ساعت", "دقیقه"}):
+                        return f"یک «{subject}» یعنی «{value}» {unit_match.group(1)}."
             project_goal = re.search(
                 r"پروژه(?:ٔ|‌ی|ی)?\s*«(?P<project>[^»]+)»\s*(?:یعنی|با\s+هدف)\s*«(?P<goal>[^»]+)»",
                 previous,
