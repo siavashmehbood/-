@@ -19,10 +19,38 @@ class Orchestrator:
         self._user_model = getattr(agent, "_user_model", None)
 
     def run_tool(self,name,**kwargs):
-        tool=self.registry.get(name) if self.registry else None
-        if not tool: raise KeyError(f'unknown tool: {name}')
-        if self.policy and not self.policy.allows(tool.permission): raise PermissionError(f'permission denied: {tool.permission}')
-        result=self.registry.run(name,**kwargs); self.events.emit('tool_executed',{'tool':name,'ok':True}); self.metrics.record('tool'); return result
+        stage='lookup'
+        try:
+            tool=self.registry.get(name) if self.registry else None
+            if not tool: raise KeyError(f'unknown tool: {name}')
+            stage='permission'
+            if self.policy and not self.policy.allows(tool.permission): raise PermissionError(f'permission denied: {tool.permission}')
+            stage='execution'
+            result=self.registry.run(name,**kwargs)
+        except Exception as exc:
+            try:
+                self.metrics.record('tool_failed')
+            except Exception:
+                pass
+            try:
+                self.events.emit('tool_failed',{
+                    'tool':name,
+                    'ok':False,
+                    'error':type(exc).__name__,
+                    'stage':stage,
+                })
+            except Exception:
+                pass
+            raise
+        try:
+            self.events.emit('tool_executed',{'tool':name,'ok':True})
+        except Exception:
+            pass
+        try:
+            self.metrics.record('tool')
+        except Exception:
+            pass
+        return result
 
     def _parse_tool(self,text):
         parts=shlex.split(text)
@@ -82,9 +110,11 @@ class Orchestrator:
         if not name:return None
         try:
             result=self.run_tool(name,**kwargs)
-        except ZeroDivisionError:
+        except (ZeroDivisionError, ValueError) as exc:
             if name == 'calculate':
-                return 'تقسیم بر صفر تعریف نشده است؛ نتیجه عددی ندارد.'
+                if isinstance(exc, ZeroDivisionError) or 'تقسیم بر صفر' in str(exc):
+                    return 'تقسیم بر صفر تعریف نشده است؛ نتیجه عددی ندارد.'
+                return f'محاسبه انجام نشد: {exc}'
             raise
         if name == 'calculate':
             return str(result)
