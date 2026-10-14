@@ -1,5 +1,6 @@
 """Archive only tracked source; no personal data, logs, credentials or model weights."""
 import io
+import os
 import json
 import subprocess
 import zipfile
@@ -28,7 +29,8 @@ def main():
             "external_models_included":False,
             "device_acceptance":"NOT_RUN",
             "live_reviewer":"BLOCKED_EXTERNAL unless separately evidenced",
-            "gates":"All three required Actions successful on this exact commit"
+            "acceptance_status":"GITHUB_GATES_VERIFIED" if os.environ.get("IRAN_FINAL_GATES_VERIFIED") == sha else "BUILD_VALIDATION_ONLY",
+            "gate_runs":json.loads(os.environ.get("IRAN_GATE_RUNS", "[]"))
         }
         output.writestr("RELEASE_MANIFEST.json", json.dumps(manifest, ensure_ascii=False, indent=2))
     with zipfile.ZipFile(target) as check:

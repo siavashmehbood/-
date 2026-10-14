@@ -29,6 +29,8 @@ jobs:
               const failure = runs.find(r => r && r.status === 'completed' && r.conclusion !== 'success');
               if (failure) throw new Error(failure.name + ': ' + failure.conclusion);
               if (runs.every(r => r && r.status === 'completed' && r.conclusion === 'success')) {
+                core.exportVariable('IRAN_FINAL_GATES_VERIFIED', context.sha);
+                core.exportVariable('IRAN_GATE_RUNS', JSON.stringify(runs.map(r => ({name:r.name, id:r.id, url:r.html_url, sha:r.head_sha, conclusion:r.conclusion}))));
                 for (const run of runs) {
                   await core.summary.addLink(run.name, run.html_url).addRaw('\n').write();
                 }
