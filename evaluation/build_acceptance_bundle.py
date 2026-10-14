@@ -21,6 +21,11 @@ def main():
                     path in {"reviewers.local.json", ".env", "gui_startup.log"}):
                 raise RuntimeError("Sensitive/unexpected tracked bundle entry: " + path)
             output.writestr(path, source.read(path))
+        external_path = root / "external-evidence" / "external-acceptance-status.json"
+        external = json.loads(external_path.read_text(encoding="utf-8")) if external_path.exists() else {"state":"NOT_RUN"}
+        if os.environ.get("IRAN_FINAL_GATES_VERIFIED") == sha and not external_path.exists():
+            raise RuntimeError("Final bundle requires observed external status")
+        output.writestr("EXTERNAL_ACCEPTANCE_STATUS.json", json.dumps(external, indent=2))
         manifest = {
             "version":config["version"], "commit":sha, "python":"3.12",
             "data_path":config["memory"]["db"], "runtime_paths":config["runtime"],
@@ -28,7 +33,7 @@ def main():
             "instructions":"docs/FINAL_ACCEPTANCE.md",
             "external_models_included":False,
             "device_acceptance":"NOT_RUN",
-            "live_reviewer":"BLOCKED_EXTERNAL unless separately evidenced",
+            "live_reviewer":external["state"],
             "acceptance_status":"GITHUB_GATES_VERIFIED" if os.environ.get("IRAN_FINAL_GATES_VERIFIED") == sha else "BUILD_VALIDATION_ONLY",
             "gate_runs":json.loads(os.environ.get("IRAN_GATE_RUNS", "[]"))
         }
