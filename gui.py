@@ -337,6 +337,11 @@ class ChatWindow(QMainWindow):
         self.conf.setText(f"اطمینان: {trace.confidence:.0%}" if trace is not None else "اطمینان: —")
         self.quality.setText(f"بررسی پاسخ: {trace.verification_status}" if trace is not None else "بررسی پاسخ: —")
         self.status.setText("آماده")
+        language_status = getattr(self.runtime.cognitive_system.pipeline, "last_language_status", "not_used")
+        if language_status == "unavailable":
+            self.quality.setText("موتور گفت‌وگوی محلی در دسترس نیست؛ پاسخ پایه")
+        elif language_status == "ready":
+            self.quality.setText("پاسخ با موتور گفت‌وگوی آفلاین")
         if self.thread is None:
             self.busy = False; self.send.setEnabled(True)
         self.refresh_events(); self.refresh_learning_stats(); self.persist_session()

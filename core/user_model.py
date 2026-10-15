@@ -183,6 +183,8 @@ class UserModel:
             obj=self._canonical_object(item.get("predicate"),item.get("object"))
             item["object"]=obj
             key=(item.get("predicate"),obj)
+            if item.get("predicate") == "name" and not self.valid_name(obj):
+                continue
             if obj and key not in seen:
                 seen.add(key)
                 out.append(item)
@@ -321,6 +323,8 @@ class UserModel:
             obj=self._canonical_object(item["predicate"],item["object"])
             item["object"]=obj
             key=(item["predicate"],obj)
+            if item["predicate"] == "name" and not self.valid_name(obj):
+                continue
             if obj and key not in seen:
                 seen.add(key)
                 out.append(item)
@@ -328,9 +332,22 @@ class UserModel:
                 break
         return out
 
+    @staticmethod
+    def is_identity_query(text):
+        q = re.sub(r"\s+", " ", str(text).replace("\u200c", " ")).strip()
+        return bool(re.search(
+            r"(?:من\s+کی\s*(?:ام|هستم)|(?:منو|من\s+رو|مرا)\s+(?:می\s*شناسی|میشناسی|یادت\s*(?:هست|میاد))|یادت(?:ه| هست)\s+من\s+کی)",
+            q))
+
+    @staticmethod
+    def valid_name(value):
+        q = re.sub(r"\s+", " ", str(value).replace("\u200c", " ")).strip()
+        return bool(q) and not re.search(
+            r"(?:^|\s)(?:کی|چی|چه|رو|را|یادت|یادته|منو|خودم|هستم|ام|دارم|منظورم)(?:\s|$)|[؟?]", q)
+
     def answer_identity(self, text):
         query=self._clean(text)
-        if not re.search(
+        if not self.is_identity_query(query) and not re.search(
             r"(?:اسم|نام)(?:\s+من|م)\s+(?:چیست|چیه|چی(?:\s+بود)?|چه(?:\s+بود)?)",
             query
         ):
