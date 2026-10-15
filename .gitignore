@@ -49,3 +49,7 @@ reviewers.local.json
 # Device-only offline voice models and configuration
 /models/voice/
 voice.local.json
+
+# Device-only local language model server
+language.local.json
+/models/language/

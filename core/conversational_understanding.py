@@ -92,6 +92,10 @@ class ConversationalUnderstanding:
         if act=="unknown" and any(x in low for x in ("چرا سیستم","چطور حافظه","چگونه حافظه")):act="factual_question"
         if act=="unknown" and ("؟" in norm or "?" in norm or any(low.startswith(x) for x in ("چرا","چی","چه ","کدام","کدوم","آیا","کی ","کجا"))):act="factual_question"
         if act=="unknown" and any(x in low for x in ("حوصله ندارم","خوشحالم","ناراحتم","خسته ام","خسته‌ام")):act="emotional_expression"
+        if act=="unknown":
+            spoken = re.sub(r"\s+", " ", low.replace("\u200c", " "))
+            if re.search(r"(?:^|\s)(?:کی ام|کی هستم|چند|کجاست|میتونی|می تونی|می شناسی|میشناسی)(?:\s|$)", spoken):
+                act="factual_question"
         if act=="unknown":act="casual_statement"
         answer_type={"explanation_request":"explanation","example_request":"example","simplify":"simpler",
                      "comparison":"comparison","tool_request":"action","learning_request":"learning","information_request":"information",

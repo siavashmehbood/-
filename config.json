@@ -150,7 +150,7 @@
     "backend": "local_http",
     "model": "qwen2.5-1.5b-instruct-q4_k_m.gguf",
     "endpoint": "http://127.0.0.1:18080/v1/chat/completions",
-    "timeout": 20,
+    "timeout": 60,
     "policy": "CognitiveSystem remains ONE BRAIN; local generation only"
   }
 }
