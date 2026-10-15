@@ -19,7 +19,8 @@ class SoarCognitiveFoundationAcceptance(unittest.TestCase):
     def runtime(self):
         root=Path(tempfile.mkdtemp(prefix="iran_soar_phase2_"))
         shutil.copy(SRC/"config.json",root/"config.json")
-        shutil.copytree(SRC/"data",root/"data")
+        # Acceptance fixtures must not copy personal data or live Windows locks.
+        (root/"data").mkdir()
         shutil.copytree(SRC/"cognitive",root/"cognitive")
         (root/"logs").mkdir(exist_ok=True)
         for name in (
