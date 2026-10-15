@@ -336,11 +336,13 @@ class CognitivePipeline:
 
     def _apply_conversation_style(self, answer, answer_type, user_text=""):
         styles = self.engine.state.response_style
-        # Explicit factual recall must retain its verified value even when the
-        # user prefers varied conversational wording.
-        factual_types = {"MEMORY", "MEMORY_RECALL", "DIRECT_FACT", "FACT",
-                         "GROUNDED", "SEMANTIC_FACT", "PROJECT_FACT", "MULTI_INTENT"}
-        if "no_repeat" in styles and user_text and answer_type not in factual_types:
+        # Varied wording must not replace factual values or cancel an explicit
+        # request to simplify or illustrate the preceding answer.
+        content_preserving_types = {
+            "MEMORY", "MEMORY_RECALL", "DIRECT_FACT", "FACT", "GROUNDED",
+            "SEMANTIC_FACT", "PROJECT_FACT", "MULTI_INTENT", "REEXPLAIN", "EXAMPLE",
+        }
+        if "no_repeat" in styles and user_text and answer_type not in content_preserving_types:
             history = list(self.engine.state.references.get("recent_non_style_answers", []) or [])
             prior_answers = [
                 clean(item.get("answer", "")) for item in history[-8:]

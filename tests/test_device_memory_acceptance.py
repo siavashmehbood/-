@@ -41,3 +41,11 @@ def test_architecture_definition_does_not_echo_old_user_topic(runtime):
     assert "در حافظه مرتبط" not in answer, answer
     assert "حافظه" in answer and "یادگیری" in answer, answer
     assert not answer.startswith("UNKNOWN"), answer
+
+def test_no_repeat_does_not_cancel_a_requested_reexplanation(runtime):
+    runtime.handle("جواب تکراری نده")
+    for _ in range(2):
+        runtime.handle("معماری شناختی ایران چیست؟")
+        answer=runtime.handle("ساده‌تر بگو")
+        assert "IRAN" in answer and "شناختی" not in answer, answer
+        assert "نگهداری اطلاعات" in answer, answer
