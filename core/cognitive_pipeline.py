@@ -336,7 +336,11 @@ class CognitivePipeline:
 
     def _apply_conversation_style(self, answer, answer_type, user_text=""):
         styles = self.engine.state.response_style
-        if "no_repeat" in styles and user_text:
+        # Explicit factual recall must retain its verified value even when the
+        # user prefers varied conversational wording.
+        factual_types = {"MEMORY", "MEMORY_RECALL", "DIRECT_FACT", "FACT",
+                         "GROUNDED", "SEMANTIC_FACT", "PROJECT_FACT", "MULTI_INTENT"}
+        if "no_repeat" in styles and user_text and answer_type not in factual_types:
             history = list(self.engine.state.references.get("recent_non_style_answers", []) or [])
             prior_answers = [
                 clean(item.get("answer", "")) for item in history[-8:]
@@ -1175,6 +1179,35 @@ class CognitivePipeline:
         normalized_social = low.strip(" ؟?!.,،؛")
         if normalized_social == "سلام هستی":
             return self._persist_answer(text, "سلام، آره هستم. بگو از کجا شروع کنیم.", "SOCIAL", .99)
+        # Answer both requested personal facts before single-intent shortcuts.
+        # Read only explicit structured evidence; unrelated episodic text is not
+        # a substitute for either part of a compound recall question.
+        if (re.search(r"(?:اسم\s+من|نام\s+من|اسمم)", low)
+                and "پروژه" in low and re.search(r"\sو\s", low)):
+            parts, recall_evidence = [], []
+            names = self.runtime.user_model.facts(predicate="name", limit=1)
+            if names:
+                name = clean(names[0].get("object", ""))
+                if name:
+                    parts.append(f"اسم تو «{name}» است.")
+                    recall_evidence.append({**names[0], "resolved": True})
+            project, project_evidence = self._current_user_project_name()
+            named = re.search(r"(?:درباره|راجع به|در مورد)\s+پروژه\s+([آ-یA-Za-z0-9_-]+)", low)
+            requested = clean(named.group(1)) if named else project
+            if project and (not named or requested == project.lower()):
+                parts.append(f"پروژه‌ای که از تو ثبت شده «{project}» است.")
+                recall_evidence.extend(project_evidence)
+                goal, goal_evidence = self._project_goal(project)
+                if goal:
+                    parts.append(f"هدف ثبت‌شدهٔ «{project}»: «{goal}».")
+                    recall_evidence.extend(goal_evidence)
+            else:
+                parts.append("برای این پروژه اطلاعات صریح قابل‌بازیابی ندارم.")
+            if not names:
+                parts.insert(0, "نامت را در واقعیت‌های صریح پیدا نکردم.")
+            return self._persist_answer(
+                text, "\n".join(parts), "MEMORY_RECALL", .99,
+                evidence=recall_evidence)
         # Explicit project-name recall outranks generic identity binding.
         if "پروژه" in low and "من" in low and any(x in low for x in ("اسم", "نام")) and any(x in low for x in ("چی", "چه")):
             value, project_evidence = self._current_user_project_name()
@@ -1344,7 +1377,8 @@ class CognitivePipeline:
                 else "مرجع قابل اتکایی برای پاسخ قبلی در حافظه ندارم."
             )
             return self._persist_answer(text, answer, "REFERENCE", .99)
-        if any(marker in low for marker in ("پروژه ایران چیه", "پروژه iran چیه", "پروژه ایران چیست")):
+        if any(marker in low for marker in ("پروژه ایران چیه", "پروژه iran چیه", "پروژه ایران چیست",
+                                              "معماری شناختی ایران چیست", "معماری شناختی ایران چیه")):
             activate_topic("ایران")
             answer = "پروژه IRAN یک معماری شناختی مستقل و آفلاین برای حافظه، استدلال، برنامه‌ریزی، یادگیری و راستی‌آزمایی است."
             return self._persist_answer(text, answer, "PROJECT_FACT", .99)
