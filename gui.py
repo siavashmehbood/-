@@ -87,6 +87,9 @@ class ChatWindow(QMainWindow):
         self._cancelled_jobs = set()
         self.autonomy_busy = False
         self.chatgpt_review_busy = False
+        from core.offline_voice import create_offline_voice
+        self.voice, self.voice_unavailable = create_offline_voice(ROOT)
+        self._pending_voice_answer = ""
         self.build(); self.load_session()
         self.autonomy_timer = QTimer(self)
         self.autonomy_timer.timeout.connect(self.run_autonomous_learning)
@@ -111,7 +114,10 @@ class ChatWindow(QMainWindow):
         titles.addWidget(title); titles.addWidget(sub)
         top.addLayout(titles); top.addStretch()
         self.status = QLabel("آماده"); self.status.setObjectName("statusPill"); top.addWidget(self.status)
-        self.assistant_state = QLabel("میکروفون: متصل نیست | شنیدن: خیر | گفتار: نیازمند مدل و آزمون دستگاه | عمل: آماده | بررسی: آماده")
+        self.assistant_state = QLabel(
+            "صدای آفلاین: تنظیم شده | شنیدن: با دکمهٔ میکروفون"
+            if self.voice is not None else
+            "میکروفون: متصل نیست | شنیدن: خیر | گفتار: نیازمند مدل و آزمون دستگاه | عمل: آماده | بررسی: آماده")
         self.assistant_state.setObjectName("metric"); top.addWidget(self.assistant_state)
         self.internet_button = QPushButton(); self.internet_button.setObjectName("internetButton")
         self.internet_button.clicked.connect(self.toggle_internet); top.addWidget(self.internet_button)
@@ -166,6 +172,19 @@ class ChatWindow(QMainWindow):
         self.attach = QPushButton("کلیپ‌بورد"); self.attach.clicked.connect(self.paste_clipboard); small.addWidget(self.attach)
         actions.addLayout(small); bottom.addLayout(actions)
         l.addWidget(composer)
+        voice_bar = QHBoxLayout()
+        self.voice_button = QPushButton("میکروفون — صحبت کن")
+        self.voice_button.setObjectName("voiceButton")
+        self.voice_button.setEnabled(self.voice is not None)
+        self.voice_button.setToolTip(self.voice_unavailable or "شنیدن فارسی، فقط با فشردن دکمه و بدون اینترنت")
+        self.voice_button.clicked.connect(self.start_voice_input)
+        voice_bar.addWidget(self.voice_button)
+        self.voice_read = QCheckBox("خواندن پاسخ با صدای فارسی")
+        self.voice_read.setObjectName("voiceRead")
+        self.voice_read.setEnabled(self.voice is not None)
+        self.voice_read.setChecked(self.voice is not None)
+        voice_bar.addWidget(self.voice_read)
+        l.addLayout(voice_bar)
         return w
 
     def rightbar(self):
@@ -258,6 +277,42 @@ class ChatWindow(QMainWindow):
         self.messages.append({"who": who, "text": text, "time": datetime.now().isoformat(timespec="seconds")})
         if who == "ایران": self.last_answer = text
         self.update_title_stats()
+    def start_voice_input(self):
+        if self.voice is None or self._closing: return
+        if self.busy or self._jobs:
+            self.status.setText("ابتدا عملیات جاری تمام شود یا توقف را بزن")
+            return
+        self.voice.prepare()
+        self.voice_button.setEnabled(False)
+        self.status.setText("در حال شنیدن فارسی… چند ثانیه صحبت کن")
+        self._start_job("voice_listen", self.voice.listen, self._on_voice_input)
+
+    def _on_voice_input(self, result):
+        if self._closing: return
+        text = str(result.get("text", "")).strip()
+        if not result.get("ok") or not text:
+            self.status.setText("گفتاری تشخیص داده نشد؛ دوباره میکروفون را بزن" if
+                                result.get("reason") == "no_speech" else "ورودی صوتی آماده نشد: " + str(result.get("reason", "")))
+            return
+        self.input.setPlainText(text)
+        self.send_message()
+
+    def _speak_answer(self, text):
+        if self.voice is None or self._closing or not self.voice_read.isChecked(): return
+        if "voice_speak" in self._jobs:
+            self.voice.cancel()
+            self._pending_voice_answer = text
+            return
+        self.voice.prepare()
+        self._start_job("voice_speak", lambda: self.voice.speak(text),
+                        self._on_voice_output)
+
+    def _on_voice_output(self, result):
+        if result.get("ok"):
+            self.status.setText("پخش پاسخ صوتی پایان یافت")
+        else:
+            self.status.setText("پخش صدا انجام نشد: " + str(result.get("reason", "")))
+
     def send_message(self):
         if self.busy or self._closing or "autonomy" in self._jobs: return
         text = self.input.toPlainText().strip()
@@ -287,6 +342,7 @@ class ChatWindow(QMainWindow):
         self.refresh_events(); self.refresh_learning_stats(); self.persist_session()
         if self.autocopy.isChecked(): self.copy_response()
         self.queue_chatgpt_review(text); self.refresh_chatgpt_count()
+        self._speak_answer(text)
     def on_fail(self, text):
         if self._chat_cancelled or self._closing: return
         self.add("خطا", text); self.status.setText("خطا"); self.persist_session()
@@ -309,6 +365,8 @@ class ChatWindow(QMainWindow):
         # atomic operation finish, suppress presentation and further review.
         self._chat_cancelled = True
         self._cancelled_jobs.update(self._jobs)
+        self._pending_voice_answer = ""
+        if self.voice is not None: self.voice.cancel()
         try: self.runtime.internet_access.disable()
         except OSError: pass  # Permission manager already fails closed.
         self.refresh_internet()
@@ -344,6 +402,7 @@ class ChatWindow(QMainWindow):
 
     def _job_error(self, name, reason):
         callback = self._job_callbacks.pop(name, None)
+        if self._closing or name in self._cancelled_jobs: return
         if callback is not None: callback({"ok": False, "reason": reason})
         self.status.setText(f"خطا در {name}: {reason}")
 
@@ -351,6 +410,11 @@ class ChatWindow(QMainWindow):
         name = self.sender().objectName()
         self._jobs.pop(name, None)
         self._cancelled_jobs.discard(name)
+        if name == "voice_listen":
+            self.voice_button.setEnabled(self.voice is not None and not self._closing)
+        if name == "voice_speak" and self._pending_voice_answer and not self._closing:
+            pending, self._pending_voice_answer = self._pending_voice_answer, ""
+            self._speak_answer(pending)
         self.stopbtn.setEnabled((self.busy or bool(self._jobs)) and not self._closing)
         if self._closing and not self._jobs and not self.busy:
             QTimer.singleShot(0, self.close)
@@ -667,6 +731,8 @@ class ChatWindow(QMainWindow):
         self._closing = True
         self._chat_cancelled = True
         self._cancelled_jobs.update(self._jobs)
+        self._pending_voice_answer = ""
+        if self.voice is not None: self.voice.cancel()
         try: self.runtime.internet_access.disable()
         except OSError: pass
         self.autonomy_timer.stop(); self.chatgpt_review_timer.stop()

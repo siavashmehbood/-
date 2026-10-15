@@ -1,0 +1,7 @@
+{
+  "enabled": true,
+  "record_seconds": 5,
+  "vosk_model": "models/voice/vosk-model-small-fa-0.42",
+  "piper_executable": "models/voice/piper/piper.exe",
+  "piper_model": "models/voice/fa_IR-amir-medium.onnx"
+}

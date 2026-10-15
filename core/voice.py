@@ -12,12 +12,15 @@ class SpeechToText:
 class VoskSpeechToText(SpeechToText):
     def __init__(self, model_path, sample_rate=16000):
         self.model_path=str(model_path); self.sample_rate=int(sample_rate)
+        self._model = None
     def _recognizer(self):
         try:
             from vosk import Model, KaldiRecognizer
         except ImportError as exc: raise VoiceUnavailable("vosk optional dependency is not installed") from exc
         if not Path(self.model_path).is_dir(): raise VoiceUnavailable("vosk model not found")
-        return KaldiRecognizer(Model(self.model_path), self.sample_rate)
+        if self._model is None:
+            self._model = Model(self.model_path)
+        return KaldiRecognizer(self._model, self.sample_rate)
     def transcribe_file(self,path):
         with wave.open(str(path),"rb") as wf:
             if wf.getnchannels()!=1 or wf.getsampwidth()!=2:
@@ -30,14 +33,19 @@ class VoskSpeechToText(SpeechToText):
                 if not data: break
                 rec.AcceptWaveform(data)
         return str(json.loads(rec.FinalResult()).get("text","")).strip()
-    def listen(self):
+    def listen(self, duration=5, cancel_event=None):
         try: import sounddevice as sd
         except ImportError as exc: raise VoiceUnavailable("sounddevice optional dependency is not installed") from exc
         rec=self._recognizer(); chunks=[]
         def callback(indata,frames,time,status): chunks.append(bytes(indata))
         try:
             with sd.RawInputStream(samplerate=self.sample_rate,blocksize=8000,dtype="int16",channels=1,callback=callback):
-                import time as _time; _time.sleep(5)
+                import time as _time
+                end = _time.monotonic() + max(1, min(15, float(duration)))
+                while _time.monotonic() < end:
+                    if cancel_event is not None and cancel_event.wait(.05):
+                        return ""
+                    if cancel_event is None: _time.sleep(.05)
         except Exception as exc: raise VoiceUnavailable(f"microphone unavailable: {type(exc).__name__}") from exc
         for chunk in chunks: rec.AcceptWaveform(chunk)
         return str(json.loads(rec.FinalResult()).get("text","")).strip()
@@ -64,7 +72,8 @@ class PiperTextToSpeech(TextToSpeech):
         with tempfile.NamedTemporaryFile(suffix=".wav",delete=False) as out: output=out.name
         try:
             subprocess.run([self.executable,"--model",str(self.model_path),"--output_file",output],
-                           input=str(text),text=True,check=True,timeout=60)
+                           input=str(text),text=True,encoding="utf-8",check=True,timeout=60,
+                           creationflags=getattr(subprocess,"CREATE_NO_WINDOW",0))
             with wave.open(output,"rb") as audio:
                 if audio.getnframes() <= 0:
                     raise VoiceUnavailable("Piper produced empty audio")
