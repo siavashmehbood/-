@@ -89,6 +89,7 @@ def test_gui_voice_uses_canonical_runtime_and_remains_responsive(tmp_path,monkey
     monkeypatch.setattr(gui,"ROOT",tmp_path)
     app=QApplication.instance() or QApplication([])
     window=gui.ChatWindow()
+    assert "تنظیم شده" in window.assistant_state.text()
     window.autonomy_timer.stop();window.chatgpt_review_timer.stop()
     ticks=[];timer=QTimer();timer.timeout.connect(lambda:ticks.append(time.monotonic()));timer.start(10)
     window.start_voice_input()
