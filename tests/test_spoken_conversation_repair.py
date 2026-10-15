@@ -17,7 +17,7 @@ def runtime(tmp_path):
 
 @pytest.mark.parametrize("query", [
     "خوب من کی‌ام منو می‌شناسی", "خب من کی ام", "من کی هستم",
-    "منو میشناسی", "من رو می شناسی؟", "مرا می‌شناسی؟",
+    "منو میشناسی", "من رو می شناسی؟", "مرا می‌شناسی؟", "اسم من چیه؟", "اسمم چی بود؟",
 ])
 def test_spoken_identity_retrieves_explicit_name(runtime, query):
     runtime.user_model.record("اسم من سیاوش است")
@@ -104,3 +104,15 @@ def test_local_server_owns_only_its_child(tmp_path, monkeypatch):
     args = spawn.call_args.args[0]
     assert args[args.index("--host") + 1] == "127.0.0.1"
     assert args[args.index("-t") + 1] == "2"
+
+
+def test_model_cannot_invent_personal_identity(runtime):
+    runtime.user_model.record("اسم من سیاوش است")
+    class BadIdentity:
+        def generate(self, request):
+            return SimpleNamespace(text="اسم تو علی است.", backend="fixture", model="bad")
+    runtime.language_engine = BadIdentity()
+    answer = runtime.handle("سلام هستی؟")
+    assert "علی" not in answer
+    assert runtime.user_model.current_belief("name")[0]["object"] == "سیاوش"
+    assert runtime.cognitive_system.pipeline.last_language_status == "unavailable"

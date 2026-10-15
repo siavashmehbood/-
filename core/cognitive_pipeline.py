@@ -94,6 +94,16 @@ class CognitivePipeline:
             # Generated text cannot claim successful execution or live perception.
             if re.search(r"انجام (?:دادم|شد)|فایل.*(?:ساختم|حذف کردم)|صدات?(?:و| را).*می.?شنوم|صفحه.*می.?بینم", candidate):
                 raise ValueError("unverified action or perception claim")
+            if re.search(r"یادگیری.*(?:تایید|تأیید|تصویب|اعمال)\s*شد", candidate.replace("\u200c", " ")):
+                raise ValueError("unverified learning approval")
+            asserted_name = re.search(
+                r"(?:اسم|نام)(?:ت|\s+تو|\s+شما)\s+[«\"]?([^»\"،,.]+?)(?:[»\"]|\s+(?:است|هست|هستی))",
+                candidate)
+            if asserted_name:
+                value = clean(asserted_name.group(1))
+                known = {clean(row["object"]) for row in profile if row["predicate"] == "name"}
+                if value not in known:
+                    raise ValueError("unsupported personal identity")
             self._emit("local_language_realized", {"purpose": "conversation", "canonical": True,
                                                   "backend": result.backend, "model": result.model})
             self.last_language_status = "ready"
