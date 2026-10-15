@@ -60,7 +60,7 @@ class CognitivePipeline:
             from language_engine import GenerationRequest
             profile = self.runtime.user_model.current_profile(12)
             packet = {
-                "profile": profile,
+                "profile": {row["predicate"]: str(row["object"])[:240] for row in profile},
                 "topic": self.engine.state.current_topic,
                 "goal": self.engine.state.active_goal,
                 "constraints": self.engine.state.remembered_constraints,
