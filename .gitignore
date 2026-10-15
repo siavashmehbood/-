@@ -45,3 +45,7 @@ docs/*.docx
 # Per-machine reviewer policies and attestations
 reviewers.local.json
 *.lock
+
+# Device-only offline voice models and configuration
+/models/voice/
+voice.local.json
