@@ -38,6 +38,6 @@ def start_local_server(root):
             [str(exe), "-m", str(model), "--alias", str(language["model"]),
              "--host", "127.0.0.1", "--port", str(url.port),
              "-c", "2048", "-t", "2", "-b", "128", "-ub", "128",
-             "--parallel", "1", "--no-webui"],
+             "--parallel", "1", "--reasoning", "off", "--no-webui"],
             cwd=str(exe.parent), stdin=subprocess.DEVNULL, stdout=log, stderr=log,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))

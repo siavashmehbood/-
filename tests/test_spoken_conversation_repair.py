@@ -116,3 +116,22 @@ def test_model_cannot_invent_personal_identity(runtime):
     assert "علی" not in answer
     assert runtime.user_model.current_belief("name")[0]["object"] == "سیاوش"
     assert runtime.cognitive_system.pipeline.last_language_status == "unavailable"
+
+
+def test_neural_echo_is_rejected_and_not_reused_as_conversation_context(runtime):
+    from core.cognitive_pipeline import CognitivePipeline
+    query = "از صبح سر پروژه خسته شدم ولی نمیخوام ولش کنم"
+    assert CognitivePipeline._conversation_echo(query, query + ".")
+    assert CognitivePipeline._conversation_echo(query, "خوب، " + query + ".")
+    assert not CognitivePipeline._conversation_echo(query, "یک استراحت کوتاه کمک می‌کنه؛ کدام بخش پروژه سخت شده؟")
+    requests = []
+    class Echo:
+        def generate(self, request):
+            requests.append(request)
+            return SimpleNamespace(text=query, backend="fixture", model="bad")
+    runtime.language_engine = Echo()
+    runtime.dialogue.state.recent_user_turns = [query]
+    runtime.dialogue.state.recent_assistant_turns = [query]
+    runtime.handle(query)
+    assert runtime.cognitive_system.pipeline.last_language_status == "unavailable"
+    assert not any(m["role"] == "assistant" and m["content"] == query for m in requests[0].messages)
