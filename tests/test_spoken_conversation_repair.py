@@ -100,6 +100,12 @@ def test_local_server_owns_only_its_child(tmp_path, monkeypatch):
     child = Mock()
     spawn = Mock(return_value=child)
     monkeypatch.setattr(local_server.subprocess, "Popen", spawn)
+    child.poll.return_value = None
+    response = Mock()
+    response.status = 200
+    response.__enter__ = Mock(return_value=response)
+    response.__exit__ = Mock(return_value=False)
+    monkeypatch.setattr(local_server.urllib.request, "urlopen", Mock(return_value=response))
     assert local_server.start_local_server(tmp_path) is child
     args = spawn.call_args.args[0]
     assert args[args.index("--host") + 1] == "127.0.0.1"

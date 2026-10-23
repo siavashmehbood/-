@@ -3,6 +3,8 @@ from pathlib import Path
 import json
 import socket
 import subprocess
+import time
+import urllib.request
 from urllib.parse import urlparse
 
 
@@ -34,10 +36,25 @@ def start_local_server(root):
     log_dir = root / "logs"
     log_dir.mkdir(exist_ok=True)
     with (log_dir / "local_language_server.log").open("ab") as log:
-        return subprocess.Popen(
+        process = subprocess.Popen(
             [str(exe), "-m", str(model), "--alias", str(language["model"]),
              "--host", "127.0.0.1", "--port", str(url.port),
              "-c", "2048", "-t", "2", "-b", "128", "-ub", "128",
              "--parallel", "1", "--reasoning", "off", "--no-webui"],
             cwd=str(exe.parent), stdin=subprocess.DEVNULL, stdout=log, stderr=log,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    # The TCP listener can open before model loading finishes; wait for readiness.
+    deadline = time.monotonic() + 90
+    health_url = f"http://127.0.0.1:{url.port}/health"
+    while time.monotonic() < deadline:
+        if process.poll() is not None:
+            raise RuntimeError("local language server exited during startup")
+        try:
+            with urllib.request.urlopen(health_url, timeout=2) as response:
+                if response.status == 200:
+                    return process
+        except (OSError, TimeoutError):
+            pass
+        time.sleep(0.5)
+    process.terminate()
+    raise TimeoutError("local language server did not become ready within 90 seconds")
