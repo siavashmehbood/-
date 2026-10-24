@@ -33,6 +33,18 @@ def test_spoken_identity_retrieves_explicit_name(runtime, query):
 def test_identity_questions_never_create_names(runtime, query):
     assert not [f for f in runtime.user_model.extract_explicit_facts(query) if f["predicate"] == "name"]
 
+def test_project_recall_never_confuses_person_name_with_owned_project(runtime):
+    runtime.user_model.record("اسم پروژه من دانا است")
+    runtime.handle("سلام")
+    runtime.handle("من سیاوش هستم")
+    runtime.handle("اسم من چیه؟")
+    runtime.handle("کوتاه جواب بده")
+    runtime.handle("جواب تکراری نده")
+    answer = runtime.handle("اسم پروژه من چی بود؟")
+    assert "دانا" in answer, answer
+    assert "سیاوش" not in answer, answer
+
+
 def test_voice_capability_explains_transcription(runtime):
     answer = runtime.handle("الان میتونی صدامو بشنوی")
     assert "متن" in answer and "بخش باقی" not in answer

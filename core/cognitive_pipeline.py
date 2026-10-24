@@ -257,6 +257,17 @@ class CognitivePipeline:
         Returns (name, evidence) without guessing or falling back to IRAN identity.
         """
         try:
+            # Explicitly named owned projects outrank generic work_on topics.
+            named=self.runtime.memory.conn.execute(
+                "SELECT value,confidence,source FROM semantic_facts "
+                "WHERE subject='user' AND predicate='owned_name:پروژه' "
+                "ORDER BY updated_at DESC,id DESC LIMIT 1"
+            ).fetchone()
+            if named and clean(named[0]):
+                name=clean(named[0])
+                return name,[{"subject":"user","predicate":"owned_name:پروژه",
+                             "object":name,"confidence":named[1],"source":named[2],
+                             "resolved":True}]
             rows=self.runtime.memory.conn.execute(
                 "SELECT predicate,value,confidence,source FROM semantic_facts "
                 "WHERE subject='user' AND predicate IN ('works_on','work_on') "
