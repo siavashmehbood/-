@@ -53,6 +53,15 @@ def test_self_improvement_question_does_not_repeat_old_topic(runtime):
     assert "در ادامه موضوع" not in answer, answer
 
 
+def test_self_improvement_question_does_not_echo_old_topic(runtime):
+    runtime.handle("من سیاوش هستم")
+    runtime.handle("اسم من چیه؟")
+    runtime.handle("کوتاه جواب بده")
+    answer = runtime.handle("چطور میتونی بهتر بشی؟")
+    assert "تست" in answer and "حافظه" in answer, answer
+    assert "در ادامه موضوع" not in answer, answer
+
+
 def test_voice_capability_explains_transcription(runtime):
     answer = runtime.handle("الان میتونی صدامو بشنوی")
     assert "متن" in answer and "بخش باقی" not in answer
