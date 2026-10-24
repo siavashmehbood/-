@@ -1231,6 +1231,12 @@ class CognitivePipeline:
         # These routes answer the current turn directly; retrieved memory remains
         # context/evidence and is never substituted for the user's present need.
         normalized_social = low.strip(" ؟?!.,،؛")
+        # A new self-improvement question is not a reference to the previous topic.
+        if re.search(r"(?:چطور|چگونه|چه جوری|چجوری).*?(?:میتونی|می تونی|می‌تونی|میتوانی|می توانی|می‌توانی).*?بهتر بشی", normalized_social):
+            return self._persist_answer(
+                text,
+                "با بررسی خطاهای مکالمه، تست‌های واقعی چندمرحله‌ای و اصلاح حافظه و استدلال بهتر می‌شوم. یادگیری پایدار باید بررسی و تأیید شود؛ صرف گفت‌وگو کد من را خودکار تغییر نمی‌دهد.",
+                "META", .98, evidence=[])
         if normalized_social == "سلام هستی":
             return self._persist_answer(text, "سلام، آره هستم. بگو از کجا شروع کنیم.", "SOCIAL", .99)
         # Spoken questions have no punctuation and must still retrieve structured identity.
