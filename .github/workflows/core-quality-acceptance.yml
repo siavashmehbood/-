@@ -32,7 +32,7 @@ jobs:
       - name: Install dependencies
         run: python -m pip install -r requirements-dev.txt
       - name: Conversation and follow-ups
-        run: python -m pytest -q tests/test_general_conversation.py tests/test_chat50_conversation.py tests/test_offline_conversation_memory_acceptance.py --junitxml=conversation.xml
+        run: python -m pytest -q tests/test_general_conversation.py tests/test_spoken_conversation_repair.py tests/test_chat50_conversation.py tests/test_offline_conversation_memory_acceptance.py --junitxml=conversation.xml
       - name: Memory relevance and corrections
         if: ${{ !cancelled() }}
         run: python -m pytest -q tests/test_conversation_fact_memory.py tests/test_canonical_conversation_red_team.py tests/test_memory_intelligence_v2.py --junitxml=memory.xml
