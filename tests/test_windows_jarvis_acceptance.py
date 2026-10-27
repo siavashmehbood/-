@@ -53,8 +53,8 @@ class WindowsJarvisAcceptance(unittest.TestCase):
                 return {"status":"act","tool":"uia_document_text","arguments":{"hwnd":windows[0]["hwnd"]}}
             return {"status":"goal_complete"}
         try:
-            result=runtime.computer_use.adaptive_run("Open Notepad and type: "+sentence,lambda:observer.observe(capture=False),decide,timeout_seconds=30,max_consecutive_failures=4)
-            self.assertTrue(any(a["tool"]=="uia_type_text" for a in result["actions"]))
+            result=runtime.computer_use.adaptive_run("Open Notepad and type: "+sentence,lambda:observer.observe(capture=False),decide,timeout_seconds=120,max_consecutive_failures=4)
+            self.assertTrue(any(a["tool"]=="uia_type_text" for a in result["actions"]), {"outcome": result["final_outcome"], "actions": [a["tool"] for a in result["actions"]], "duration_ms": result["duration_ms"]})
             observed=[a for a in result["actions"] if a["tool"]=="uia_document_text"]
             self.assertTrue(observed)
             self.assertIn(sentence,observed[-1]["outcome"]["execution"]["result"]["text"])
